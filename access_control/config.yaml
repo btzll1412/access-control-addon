@@ -25,5 +25,3 @@ schema:
 
 map:
   - data:rw
-
-image: "ghcr.io/btzll1412/access-control-{arch}"
