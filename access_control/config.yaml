@@ -1,0 +1,29 @@
+name: "Access Control System"
+description: "Complete access control management for ESPHome devices"
+version: "1.0.0"
+slug: "access_control"
+init: false
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+
+ports:
+  8099/tcp: 8099
+
+webui: "http://[HOST]:[PORT:8099]"
+
+options:
+  ha_token: ""
+  log_level: "info"
+
+schema:
+  ha_token: "str"
+  log_level: "list(debug|info|warning|error)"
+
+map:
+  - data:rw
+
+image: "ghcr.io/YOUR_USERNAME/access-control-{arch}"
