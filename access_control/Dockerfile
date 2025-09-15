@@ -1,7 +1,7 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
 # Install requirements
 RUN apk add --no-cache \
@@ -11,11 +11,11 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy requirements and install
+# Copy requirements and install with break-system-packages flag
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Copy app
+# Copy app files
 COPY app/ ./app/
 COPY templates/ ./templates/
 COPY run.sh ./
