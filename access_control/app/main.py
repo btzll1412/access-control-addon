@@ -1,17 +1,16 @@
 # main.py - Main Flask application
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import sqlite3
 import json
 import requests
 import datetime
 from contextlib import contextmanager
-import os
 
 app = Flask(__name__)
 
 # Home Assistant configuration
 HA_URL = "http://supervisor/core/api"
-HA_TOKEN = os.environ.get('HA_TOKEN')
+HA_TOKEN = None  # Will be set from addon options
 
 # Database helper
 @contextmanager
@@ -39,6 +38,14 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS doors (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                location TEXT,
+                active BOOLEAN DEFAULT 1
+            );
+
             CREATE TABLE IF NOT EXISTS access_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -51,14 +58,18 @@ def init_db():
                 reader_location TEXT,
                 reason TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                groups TEXT DEFAULT '[]',
+                schedule_data TEXT DEFAULT '{}',
+                active BOOLEAN DEFAULT 1
+            );
         ''')
 
 # Home Assistant API helper
 def call_ha_service(domain, service, entity_id=None, service_data=None):
-    if not HA_TOKEN:
-        print("No HA_TOKEN available")
-        return False
-        
     url = f"{HA_URL}/services/{domain}/{service}"
     headers = {
         "Authorization": f"Bearer {HA_TOKEN}",
@@ -71,8 +82,7 @@ def call_ha_service(domain, service, entity_id=None, service_data=None):
     try:
         response = requests.post(url, headers=headers, json=data)
         return response.status_code == 200
-    except Exception as e:
-        print(f"HA API call failed: {e}")
+    except:
         return False
 
 # User management functions
@@ -98,6 +108,18 @@ def get_user_by_credential(credential, credential_type):
                     return dict(user)
     return None
 
+def is_access_allowed(user, door_id, current_time=None):
+    if not current_time:
+        current_time = datetime.datetime.now()
+    
+    # Basic time check (9 AM to 6 PM for now)
+    hour = current_time.hour
+    if hour < 9 or hour >= 18:
+        return False, "Outside permitted hours"
+    
+    # Additional group-based checks can be added here
+    return True, "Access granted"
+
 def log_access_attempt(user_id, user_name, door_id, credential, credential_type, success, reader_location, reason):
     with get_db() as conn:
         conn.execute('''
@@ -107,58 +129,10 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
         ''', (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason))
         conn.commit()
 
-# Routes
+# API Routes
 @app.route('/')
 def dashboard():
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Access Control System</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-            .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .card { background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #007bff; }
-            h1 { color: #2c3e50; text-align: center; }
-            h2 { color: #34495e; }
-            .status { color: #28a745; font-weight: bold; }
-            ul { line-height: 1.6; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Access Control System</h1>
-            <div class="card">
-                <h2>System Status</h2>
-                <p class="status">✅ Flask application running successfully</p>
-                <p class="status">✅ Database initialized</p>
-                <p class="status">✅ API endpoints active</p>
-                <p class="status">✅ Ready for ESPHome integration</p>
-            </div>
-            <div class="card">
-                <h2>Webhook Endpoints</h2>
-                <p><strong>For ESPHome integration:</strong></p>
-                <ul>
-                    <li><code>POST /webhook/card_scanned</code> - Card scan events</li>
-                    <li><code>POST /webhook/pin_entered</code> - PIN entry events</li>
-                </ul>
-            </div>
-            <div class="card">
-                <h2>API Endpoints</h2>
-                <ul>
-                    <li><code>GET /api/users</code> - List users</li>
-                    <li><code>POST /api/users</code> - Create user</li>
-                    <li><code>GET /api/logs</code> - Access logs</li>
-                </ul>
-            </div>
-            <div class="card">
-                <h2>Test</h2>
-                <p>You can test the webhook endpoints using curl or configure your ESPHome device to send events here.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    '''
+    return render_template('dashboard.html')
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
@@ -167,6 +141,7 @@ def get_users():
         cursor.execute('SELECT * FROM users ORDER BY name')
         users = [dict(row) for row in cursor.fetchall()]
         
+        # Parse JSON fields
         for user in users:
             user['card_ids'] = json.loads(user['card_ids'])
             user['pin_codes'] = json.loads(user['pin_codes'])
@@ -195,41 +170,115 @@ def create_user():
     
     return jsonify({'success': True})
 
-@app.route('/api/logs', methods=['GET'])
-def get_logs():
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE users 
+            SET name=?, card_ids=?, pin_codes=?, groups=?, active=?, valid_from=?, valid_until=?
+            WHERE id=?
+        ''', (
+            data['name'],
+            json.dumps(data.get('card_ids', [])),
+            json.dumps(data.get('pin_codes', [])),
+            json.dumps(data.get('groups', [])),
+            data.get('active', True),
+            data.get('valid_from'),
+            data.get('valid_until'),
+            user_id
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    with get_db() as conn:
+        conn.execute('DELETE FROM users WHERE id=?', (user_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/doors', methods=['GET'])
+def get_doors():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM doors')
+        doors = [dict(row) for row in cursor.fetchall()]
+    
+    return jsonify(doors)
+
+@app.route('/api/doors', methods=['POST'])
+def create_door():
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO doors (id, name, entity_id, location, active)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            data['id'],
+            data['name'],
+            data['entity_id'],
+            data.get('location', ''),
+            data.get('active', True)
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/access_logs', methods=['GET'])
+def get_access_logs():
     limit = request.args.get('limit', 50)
     
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM access_logs ORDER BY timestamp DESC LIMIT ?', (limit,))
+        cursor.execute('''
+            SELECT * FROM access_logs 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        ''', (limit,))
         logs = [dict(row) for row in cursor.fetchall()]
     
     return jsonify(logs)
 
+# ESPHome webhook endpoints
 @app.route('/webhook/card_scanned', methods=['POST'])
 def handle_card_scan():
     data = request.json
     card_id = data.get('card')
     reader_location = data.get('reader', 'unknown')
     
-    print(f"Card scanned: {card_id} at {reader_location}")
-    
+    # Find user by card
     user = get_user_by_credential(card_id, 'card')
     
     if user:
-        # Grant access
-        door_entity = f"switch.door_edge_1_lock_relay_door1" if reader_location == "outside" else f"switch.door_edge_1_lock_relay_door2"
-        call_ha_service("switch", "turn_on", door_entity)
+        # Check if access is allowed
+        allowed, reason = is_access_allowed(user, reader_location)
         
-        log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', True, reader_location, 'Access granted')
-        
-        call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
-        call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_success")
-        
-        return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
+        if allowed:
+            # Unlock door - determine which door based on reader location
+            door_entity = f"switch.door_edge_1_lock_relay_door1" if reader_location == "outside" else f"switch.door_edge_1_lock_relay_door2"
+            success = call_ha_service("switch", "turn_on", door_entity)
+            
+            # Log successful access
+            log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', True, reader_location, reason)
+            
+            # Turn on green LED and success buzzer
+            call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
+            call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_success")
+            
+            return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
+        else:
+            # Log failed access
+            log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', False, reader_location, reason)
     else:
+        # Unknown card
         log_access_attempt(None, 'Unknown', reader_location, card_id, 'card', False, reader_location, 'Unknown card')
     
+    # Access denied - red LED and failure buzzer
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
     call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_failure")
     
@@ -241,27 +290,52 @@ def handle_pin_entry():
     pin = data.get('pin')
     reader_location = data.get('reader', 'unknown')
     
-    print(f"PIN entered: {pin} at {reader_location}")
-    
+    # Find user by PIN
     user = get_user_by_credential(pin, 'pin')
     
     if user:
-        door_entity = f"switch.door_edge_1_lock_relay_door1" if reader_location == "outside" else f"switch.door_edge_1_lock_relay_door2"
-        call_ha_service("switch", "turn_on", door_entity)
+        # Check if access is allowed
+        allowed, reason = is_access_allowed(user, reader_location)
         
-        log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', True, reader_location, 'Access granted')
-        
-        call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
-        call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_success")
-        
-        return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
+        if allowed:
+            # Unlock door
+            door_entity = f"switch.door_edge_1_lock_relay_door1" if reader_location == "outside" else f"switch.door_edge_1_lock_relay_door2"
+            success = call_ha_service("switch", "turn_on", door_entity)
+            
+            # Log successful access
+            log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', True, reader_location, reason)
+            
+            # Green LED and success buzzer
+            call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
+            call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_success")
+            
+            return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
+        else:
+            # Log failed access
+            log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', False, reader_location, reason)
     else:
+        # Unknown PIN
         log_access_attempt(None, 'Unknown', reader_location, pin, 'pin', False, reader_location, 'Unknown PIN')
     
+    # Access denied
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
     call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_failure")
     
     return jsonify({'success': False, 'message': 'Access denied'})
+
+@app.route('/webhook/request_exit', methods=['POST'])
+def handle_request_exit():
+    data = request.json
+    door = data.get('door')
+    
+    # Unlock door for exit request
+    door_entity = f"switch.door_edge_1_lock_relay_{door}"
+    success = call_ha_service("switch", "turn_on", door_entity)
+    
+    # Log exit request
+    log_access_attempt(None, 'Request to Exit', door, 'REX', 'button', True, door, 'Request to exit button pressed')
+    
+    return jsonify({'success': True, 'message': 'Exit granted'})
 
 if __name__ == '__main__':
     init_db()
