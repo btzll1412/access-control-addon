@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Control System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+
+        .header h1 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .nav-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+
+        .nav-btn:hover {
+            background: #2980b9;
+        }
+
+        .nav-btn.active {
+            background: #e74c3c;
+        }
+
+        .content {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            opacity: 0.9;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #219a52;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .table th, .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .table th {
+            background: #34495e;
+            color: white;
+            font-weight: bold;
+        }
+
+        .table tr:hover {
+            background: #f5f5f5;
+        }
+
+        .status-success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .status-failed {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .card-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .card-input input {
+            flex: 1;
+        }
+
+        .card-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .card-tag {
+            background: #3498db;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .card-tag:hover {
+            background: #e74c3c;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 500px;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+
+        .live-log {
+            background: #2c3e50;
+            color: #2ecc71;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #3498db;
+            padding-left: 10px;
+        }
+
+        .log-success {
+            border-left-color: #27ae60;
+        }
+
+        .log-failed {
+            border-left-color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Access Control System</h1>
+            <div class="nav">
+                <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
+                <button class="nav-btn" onclick="showSection('users')">Users</button>
+                <button class="nav-btn" onclick="showSection('doors')">Doors</button>
+                <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
+                <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Dashboard Section -->
+            <div id="dashboard" class="section active">
+                <h2>System Dashboard</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="total-users">0</div>
+                        <div class="stat-label">Total Users</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="active-users">0</div>
+                        <div class="stat-label">Active Users</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="total-doors">0</div>
+                        <div class="stat-label">Doors</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="today-access">0</div>
+                        <div class="stat-label">Today's Access</div>
+                    </div>
+                </div>
+
+                <h3>Recent Access Attempts</h3>
+                <table class="table" id="recent-access">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>User</th>
+                            <th>Door</th>
+                            <th>Method</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- Users Section -->
+            <div id="users" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>User Management</h2>
+                    <button class="btn" onclick="openUserModal()">Add New User</button>
+                </div>
+                
+                <table class="table" id="users-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Cards</th>
+                            <th>PINs</th>
+                            <th>Groups</th>
+                            <th>Status</th>
+                            <th>Valid Until</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- Doors Section -->
+            <div id="doors" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Door Management</h2>
+                    <button class="btn" onclick="openDoorModal()">Add New Door</button>
+                </div>
+                
+                <table class="table" id="doors-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Entity ID</th>
+                            <th>Location</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- Access Logs Section -->
+            <div id="logs" class="section">
+                <h2>Access Logs</h2>
+                <div style="margin-bottom: 20px;">
+                    <label>Filter by:</label>
+                    <select id="log-filter" onchange="loadAccessLogs()">
+                        <option value="50">Last 50 entries</option>
+                        <option value="100">Last 100 entries</option>
+                        <option value="500">Last 500 entries</option>
+                    </select>
+                </div>
+                
+                <table class="table" id="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>User</th>
+                            <th>Door</th>
+                            <th>Credential</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <!-- Live Monitor Section -->
+            <div id="live" class="section">
+                <h2>Live Access Monitor</h2>
+                <p>Real-time access attempts and system events:</p>
+                <div class="live-log" id="live-log">
+                    <div class="log-entry">System initialized - Ready for access attempts</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Modal -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeUserModal()">&times;</span>
+            <h3 id="user-modal-title">Add New User</h3>
+            <form id="user-form">
+                <div class="form-group">
+                    <label>Name:</label>
+                    <input type="text" id="user-name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Card IDs:</label>
+                    <div class="card-input">
+                        <input type="text" id="card-input" placeholder="Enter card ID">
+                        <button type="button" class="btn" onclick="addCard()">Add</button>
+                    </div>
+                    <div class="card-list" id="card-list"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label>PIN Codes:</label>
+                    <div class="card-input">
+                        <input type="text" id="pin-input" placeholder="Enter PIN">
+                        <button type="button" class="btn" onclick="addPin()">Add</button>
+                    </div>
+                    <div class="card-list" id="pin-list"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Groups:</label>
+                    <select id="user-groups" multiple>
+                        <option value="admin">Admin</option>
+                        <option value="staff">Staff</option>
+                        <option value="visitor">Visitor</option>
+                        <option value="contractor">Contractor</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Valid Until:</label>
+                    <input type="date" id="valid-until">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="user-active" checked> Active
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn">Save User</button>
+                <button type="button" class="btn btn-danger" onclick="closeUserModal()">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Door Modal -->
+    <div id="door-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDoorModal()">&times;</span>
+            <h3>Add New Door</h3>
+            <form id="door-form">
+                <div class="form-group">
+                    <label>Door ID:</label>
+                    <input type="text" id="door-id" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Display Name:</label>
+                    <input type="text" id="door-name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Home Assistant Entity ID:</label>
+                    <input type="text" id="door-entity" placeholder="switch.door_lock_relay" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Location:</label>
+                    <input type="text" id="door-location" placeholder="Main Entrance">
+                </div>
+                
+                <button type="submit" class="btn">Save Door</button>
+                <button type="button" class="btn btn-danger" onclick="closeDoorModal()">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentUsers = [];
+        let currentDoors = [];
+        let userCards = [];
+        let userPins = [];
+
+        // Navigation
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Remove active class from all nav buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+            
+            // Add active class to clicked button
+            event.target.classList.add('active');
+            
+            // Load data for the section
+            switch(sectionId) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'users':
+                    loadUsers();
+                    break;
+                case 'doors':
+                    loadDoors();
+                    break;
+                case 'logs':
+                    loadAccessLogs();
+                    break;
+                case 'live':
+                    // Live monitor is always active
+                    break;
+            }
+        }
+
+        // API calls
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+            
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+            
+            try {
+                const response = await fetch(`/api${endpoint}`, options);
+                return await response.json();
+            } catch (error) {
+                console.error('API call failed:', error);
+                return null;
+            }
+        }
+
+        // Dashboard functions
+        async function loadDashboard() {
+            const users = await apiCall('/users');
+            const doors = await apiCall('/doors');
+            const logs = await apiCall('/access_logs?limit=10');
+            
+            if (users) {
+                document.getElementById('total-users').textContent = users.length;
+                document.getElementById('active-users').textContent = users.filter(u => u.active).length;
+            }
+            
+            if (doors) {
+                document.getElementById('total-doors').textContent = doors.length;
+            }
+            
+            if (logs) {
+                const today = new Date().toDateString();
+                const todayLogs = logs.filter(log => new Date(log.timestamp).toDateString() === today);
+                document.getElementById('today-access').textContent = todayLogs.length;
+                
+                // Populate recent access table
+                const tbody = document.querySelector('#recent-access tbody');
+                tbody.innerHTML = '';
+                logs.slice(0, 5).forEach(log => {
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${new Date(log.timestamp).toLocaleString()}</td>
+                        <td>${log.user_name || 'Unknown'}</td>
+                        <td>${log.door_id}</td>
+                        <td>${log.credential_type}</td>
+                        <td><span class="${log.success ? 'status-success' : 'status-failed'}">${log.success ? 'Success' : 'Failed'}</span></td>
+                    `;
+                });
+            }
+        }
+
+        // User management functions
+        async function loadUsers() {
+            const users = await apiCall('/users');
+            if (!users) return;
+            
+            currentUsers = users;
+            const tbody = document.querySelector('#users-table tbody');
+            tbody.innerHTML = '';
+            
+            users.forEach(user => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${user.name}</td>
+                    <td>${user.card_ids.join(', ') || 'None'}</td>
+                    <td>${user.pin_codes.join(', ') || 'None'}</td>
+                    <td>${user.groups.join(', ') || 'None'}</td>
+                    <td><span class="${user.active ? 'status-success' : 'status-failed'}">${user.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${user.valid_until || 'Never'}</td>
+                    <td>
+                        <button class="btn" onclick="editUser(${user.id})">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteUser(${user.id})">Delete</button>
+                    </td>
+                `;
+            });
+        }
+
+        function openUserModal(userId = null) {
+            const modal = document.getElementById('user-modal');
+            const title = document.getElementById('user-modal-title');
+            
+            if (userId) {
+                title.textContent = 'Edit User';
+                const user = currentUsers.find(u => u.id === userId);
+                if (user) {
+                    document.getElementById('user-name').value = user.name;
+                    document.getElementById('user-active').checked = user.active;
+                    document.getElementById('valid-until').value = user.valid_until || '';
+                    userCards = [...user.card_ids];
+                    userPins = [...user.pin_codes];
+                    updateCardList();
+                    updatePinList();
+                    
+                    // Set groups
+                    const groupSelect = document.getElementById('user-groups');
+                    Array.from(groupSelect.options).forEach(option => {
+                        option.selected = user.groups.includes(option.value);
+                    });
+                }
+            } else {
+                title.textContent = 'Add New User';
+                document.getElementById('user-form').reset();
+                userCards = [];
+                userPins = [];
+                updateCardList();
+                updatePinList();
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        function closeUserModal() {
+            document.getElementById('user-modal').style.display = 'none';
+        }
+
+        function addCard() {
+            const input = document.getElementById('card-input');
+            const cardId = input.value.trim();
+            if (cardId && !userCards.includes(cardId)) {
+                userCards.push(cardId);
+                input.value = '';
+                updateCardList();
+            }
+        }
+
+        function addPin() {
+            const input = document.getElementById('pin-input');
+            const pin = input.value.trim();
+            if (pin && !userPins.includes(pin)) {
+                userPins.push(pin);
+                input.value = '';
+                updatePinList();
+            }
+        }
+
+        function updateCardList() {
+            const container = document.getElementById('card-list');
+            container.innerHTML = '';
+            userCards.forEach(card => {
+                const tag = document.createElement('span');
+                tag.className = 'card-tag';
+                tag.textContent = card;
+                tag.onclick = () => removeCard(card);
+                container.appendChild(tag);
+            });
+        }
+
+        function updatePinList() {
+            const container = document.getElementById('pin-list');
+            container.innerHTML = '';
+            userPins.forEach(pin => {
+                const tag = document.createElement('span');
+                tag.className = 'card-tag';
+                tag.textContent = pin;
+                tag.onclick = () => removePin(pin);
+                container.appendChild(tag);
+            });
+        }
+
+        function removeCard(cardId) {
+            userCards = userCards.filter(c => c !== cardId);
+            updateCardList();
+        }
+
+        function removePin(pin) {
+            userPins = userPins.filter(p => p !== pin);
+            updatePinList();
+        }
+
+        async function saveUser() {
+            const form = document.getElementById('user-form');
+            const formData = new FormData(form);
+            
+            const groupSelect = document.getElementById('user-groups');
+            const selectedGroups = Array.from(groupSelect.selectedOptions).map(option => option.value);
+            
+            const userData = {
+                name: document.getElementById('user-name').value,
+                card_ids: userCards,
+                pin_codes: userPins,
+                groups: selectedGroups,
+                active: document.getElementById('user-active').checked,
+                valid_until: document.getElementById('valid-until').value || null
+            };
+            
+            const result = await apiCall('/users', 'POST', userData);
+            if (result && result.success) {
+                closeUserModal();
+                loadUsers();
+                addLogEntry(`User "${userData.name}" added successfully`, 'success');
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (confirm('Are you sure you want to delete this user?')) {
+                const result = await apiCall(`/users/${userId}`, 'DELETE');
+                if (result && result.success) {
+                    loadUsers();
+                    addLogEntry(`User deleted successfully`, 'success');
+                }
+            }
+        }
+
+        // Door management functions
+        async function loadDoors() {
+            const doors = await apiCall('/doors');
+            if (!doors) return;
+            
+            currentDoors = doors;
+            const tbody = document.querySelector('#doors-table tbody');
+            tbody.innerHTML = '';
+            
+            doors.forEach(door => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${door.id}</td>
+                    <td>${door.name}</td>
+                    <td>${door.entity_id}</td>
+                    <td>${door.location || 'Not specified'}</td>
+                    <td><span class="${door.active ? 'status-success' : 'status-failed'}">${door.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>
+                        <button class="btn" onclick="editDoor('${door.id}')">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteDoor('${door.id}')">Delete</button>
+                    </td>
+                `;
+            });
+        }
+
+        function openDoorModal(doorId = null) {
+            const modal = document.getElementById('door-modal');
+            modal.style.display = 'block';
+        }
+
+        function closeDoorModal() {
+            document.getElementById('door-modal').style.display = 'none';
+        }
+
+        async function saveDoor() {
+            const doorData = {
+                id: document.getElementById('door-id').value,
+                name: document.getElementById('door-name').value,
+                entity_id: document.getElementById('door-entity').value,
+                location: document.getElementById('door-location').value
+            };
+            
+            const result = await apiCall('/doors', 'POST', doorData);
+            if (result && result.success) {
+                closeDoorModal();
+                loadDoors();
+                addLogEntry(`Door "${doorData.name}" added successfully`, 'success');
+            }
+        }
+
+        // Access logs functions
+        async function loadAccessLogs() {
+            const limit = document.getElementById('log-filter').value;
+            const logs = await apiCall(`/access_logs?limit=${limit}`);
+            if (!logs) return;
+            
+            const tbody = document.querySelector('#logs-table tbody');
+            tbody.innerHTML = '';
+            
+            logs.forEach(log => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td>${log.user_name || 'Unknown'}</td>
+                    <td>${log.door_id}</td>
+                    <td>${log.credential}</td>
+                    <td>${log.credential_type}</td>
+                    <td><span class="${log.success ? 'status-success' : 'status-failed'}">${log.success ? 'Success' : 'Failed'}</span></td>
+                    <td>${log.reason}</td>
+                `;
+            });
+        }
+
+        // Live monitoring functions
+        function addLogEntry(message, type = 'info') {
+            const logContainer = document.getElementById('live-log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleString()}] ${message}`;
+            
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Keep only last 50 entries
+            while (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('user-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveUser();
+        });
+
+        document.getElementById('door-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveDoor();
+        });
+
+        // Allow adding cards/pins with Enter key
+        document.getElementById('card-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCard();
+            }
+        });
+
+        document.getElementById('pin-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addPin();
+            }
+        });
+
+        // Simulate live events for demo
+        function simulateLiveEvents() {
+            const events = [
+                'Card scan detected - Reader: outside',
+                'Access granted to John Smith',
+                'Door 1 unlocked',
+                'PIN entered - Reader: inside',
+                'Access denied - Invalid PIN',
+                'Request to exit - Door 2',
+                'System health check - All systems operational'
+            ];
+            
+            setInterval(() => {
+                const randomEvent = events[Math.floor(Math.random() * events.length)];
+                const type = randomEvent.includes('granted') || randomEvent.includes('operational') ? 'success' : 
+                           randomEvent.includes('denied') || randomEvent.includes('Invalid') ? 'failed' : 'info';
+                addLogEntry(randomEvent, type);
+            }, 5000);
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboard();
+            simulateLiveEvents();
+            
+            // Auto-refresh dashboard every 30 seconds
+            setInterval(() => {
+                if (document.getElementById('dashboard').classList.contains('active')) {
+                    loadDashboard();
+                }
+            }, 30000);
+        });
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const userModal = document.getElementById('user-modal');
+            const doorModal = document.getElementById('door-modal');
+            
+            if (event.target === userModal) {
+                userModal.style.display = 'none';
+            }
+            if (event.target === doorModal) {
+                doorModal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
