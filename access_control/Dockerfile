@@ -11,7 +11,7 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy requirements and install with break-system-packages flag
+# Copy and install requirements
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
@@ -19,6 +19,10 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY app/ ./app/
 COPY templates/ ./templates/
 COPY run.sh ./
+
+# Debug: List files to verify they're copied
+RUN ls -la /app/
+RUN ls -la /app/templates/
 
 RUN chmod a+x run.sh
 
