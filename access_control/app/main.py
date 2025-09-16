@@ -68,6 +68,49 @@ def init_db():
             );
         ''')
 
+# Add test users function
+def add_test_users():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM users')
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            test_users = [
+                {
+                    'name': 'Test User 1',
+                    'card_ids': ['2527957892'],
+                    'pin_codes': ['1234'],
+                    'groups': ['employees']
+                },
+                {
+                    'name': 'Test User 2', 
+                    'card_ids': ['11375492'],
+                    'pin_codes': ['5678'],
+                    'groups': ['employees']
+                },
+                {
+                    'name': 'Admin User',
+                    'card_ids': ['12345678'],
+                    'pin_codes': ['9999', '0000'],
+                    'groups': ['admin']
+                }
+            ]
+            
+            for user in test_users:
+                conn.execute('''
+                    INSERT INTO users (name, card_ids, pin_codes, groups, active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    user['name'],
+                    json.dumps(user['card_ids']),
+                    json.dumps(user['pin_codes']),
+                    json.dumps(user['groups']),
+                    True
+                ))
+            conn.commit()
+            print(f"Added {len(test_users)} test users to database")
+
 # Home Assistant API helper
 def call_ha_service(domain, service, entity_id=None, service_data=None):
     url = f"{HA_URL}/services/{domain}/{service}"
@@ -129,10 +172,46 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
         ''', (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason))
         conn.commit()
 
-# API Routes
+# Web Routes
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
+
+# API Routes
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get user stats
+        cursor.execute('SELECT COUNT(*) FROM users')
+        total_users = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM users WHERE active = 1')
+        active_users = cursor.fetchone()[0]
+        
+        # Get today's access attempts
+        cursor.execute('''
+            SELECT COUNT(*) FROM access_logs 
+            WHERE date(timestamp) = date('now')
+        ''')
+        today_access = cursor.fetchone()[0]
+        
+        # Get recent logs (last 5)
+        cursor.execute('''
+            SELECT * FROM access_logs 
+            ORDER BY timestamp DESC 
+            LIMIT 5
+        ''')
+        recent_logs = [dict(row) for row in cursor.fetchall()]
+        
+        return jsonify({
+            'total_users': total_users,
+            'active_users': active_users,
+            'today_access': today_access,
+            'recent_logs': recent_logs
+        })
+
 @app.route('/api/users', methods=['GET'])
 def get_users():
     with get_db() as conn:
@@ -243,6 +322,11 @@ def get_access_logs():
     
     return jsonify(logs)
 
+# Fix the logs endpoint alias
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    return get_access_logs()
+
 # ESPHome webhook endpoints
 @app.route('/webhook/card_scanned', methods=['POST'])
 def handle_card_scan():
@@ -338,38 +422,5 @@ def handle_request_exit():
 
 if __name__ == '__main__':
     init_db()
+    add_test_users()
     app.run(host='0.0.0.0', port=8099, debug=True)
-
-@app.route('/api/stats', methods=['GET'])
-def get_stats():
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Get user stats
-        cursor.execute('SELECT COUNT(*) FROM users')
-        total_users = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT COUNT(*) FROM users WHERE active = 1')
-        active_users = cursor.fetchone()[0]
-        
-        # Get today's access attempts
-        cursor.execute('''
-            SELECT COUNT(*) FROM access_logs 
-            WHERE date(timestamp) = date('now')
-        ''')
-        today_access = cursor.fetchone()[0]
-        
-        # Get recent logs (last 5)
-        cursor.execute('''
-            SELECT * FROM access_logs 
-            ORDER BY timestamp DESC 
-            LIMIT 5
-        ''')
-        recent_logs = [dict(row) for row in cursor.fetchall()]
-        
-        return jsonify({
-            'total_users': total_users,
-            'active_users': active_users,
-            'today_access': today_access,
-            'recent_logs': recent_logs
-        })
