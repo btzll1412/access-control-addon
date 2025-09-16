@@ -132,7 +132,106 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
 # API Routes
 @app.route('/')
 def dashboard():
-    return render_template('dashboard.html')
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Control System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #2c3e50;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            color: #2c3e50;
+            padding: 30px;
+            margin-bottom: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .stat-number { font-size: 2.5em; font-weight: bold; margin-bottom: 8px; }
+        .stat-label { opacity: 0.9; font-size: 1.1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Access Control System</h1>
+            <p>Professional access management ready</p>
+        </div>
+        <div class="content">
+            <h2>System Status</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">✓</div>
+                    <div class="stat-label">System Online</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">Ready</div>
+                    <div class="stat-label">Database</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">Active</div>
+                    <div class="stat-label">API Endpoints</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">ESPHome</div>
+                    <div class="stat-label">Integration Ready</div>
+                </div>
+            </div>
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <h3>Webhook Endpoints</h3>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>POST /webhook/card_scanned - Card scan events</li>
+                    <li>POST /webhook/pin_entered - PIN entry events</li>
+                </ul>
+                <h3>API Endpoints</h3>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>GET /api/users - List users</li>
+                    <li>POST /api/users - Create user</li>
+                    <li>GET /api/stats - System statistics</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>'''
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
