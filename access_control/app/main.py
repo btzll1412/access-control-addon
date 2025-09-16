@@ -439,3 +439,37 @@ def handle_request_exit():
 if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=8099, debug=True)
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get user stats
+        cursor.execute('SELECT COUNT(*) FROM users')
+        total_users = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM users WHERE active = 1')
+        active_users = cursor.fetchone()[0]
+        
+        # Get today's access attempts
+        cursor.execute('''
+            SELECT COUNT(*) FROM access_logs 
+            WHERE date(timestamp) = date('now')
+        ''')
+        today_access = cursor.fetchone()[0]
+        
+        # Get recent logs (last 5)
+        cursor.execute('''
+            SELECT * FROM access_logs 
+            ORDER BY timestamp DESC 
+            LIMIT 5
+        ''')
+        recent_logs = [dict(row) for row in cursor.fetchall()]
+        
+        return jsonify({
+            'total_users': total_users,
+            'active_users': active_users,
+            'today_access': today_access,
+            'recent_logs': recent_logs
+        })
