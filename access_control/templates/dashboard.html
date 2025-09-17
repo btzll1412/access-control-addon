@@ -47,7 +47,7 @@
         .nav {
             display: flex;
             justify-content: center;
-            gap: 15px;
+            gap: 10px;
             margin-top: 25px;
             flex-wrap: wrap;
         }
@@ -56,10 +56,10 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 12px 24px;
+            padding: 10px 18px;
             border-radius: 25px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
@@ -93,7 +93,7 @@
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
@@ -259,6 +259,36 @@
             transform: scale(0.95);
         }
 
+        .group-tag {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
+        .door-checkbox {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .door-checkbox:hover {
+            background: #e3f2fd;
+            border-color: #2196f3;
+        }
+
+        .door-checkbox input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -273,12 +303,12 @@
 
         .modal-content {
             background: white;
-            margin: 5% auto;
+            margin: 3% auto;
             padding: 30px;
             border-radius: 16px;
             width: 90%;
-            max-width: 600px;
-            max-height: 80vh;
+            max-width: 700px;
+            max-height: 85vh;
             overflow-y: auto;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
@@ -294,6 +324,48 @@
 
         .close:hover {
             color: #e74c3c;
+        }
+
+        .schedule-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .day-header {
+            background: #34495e;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .day-schedule {
+            background: #f8f9fa;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 120px;
+        }
+
+        .day-schedule.enabled {
+            border-color: #27ae60;
+            background: #d5f4e6;
+        }
+
+        .day-schedule.disabled {
+            border-color: #e74c3c;
+            background: #fadbd8;
+        }
+
+        .time-input {
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
 
         .live-log {
@@ -326,12 +398,6 @@
             color: #ff6b7a;
         }
 
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #7f8c8d;
-        }
-
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -346,12 +412,12 @@
             }
             
             .nav {
-                gap: 10px;
+                gap: 8px;
             }
             
             .nav-btn {
-                padding: 10px 16px;
-                font-size: 12px;
+                padding: 8px 12px;
+                font-size: 11px;
             }
             
             .content {
@@ -360,6 +426,14 @@
             
             .form-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .schedule-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
@@ -372,6 +446,8 @@
             <div class="nav">
                 <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
                 <button class="nav-btn" onclick="showSection('users')">Users</button>
+                <button class="nav-btn" onclick="showSection('door-groups')">Door Groups</button>
+                <button class="nav-btn" onclick="showSection('time-schedules')">Time Schedules</button>
                 <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
                 <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
             </div>
@@ -391,12 +467,16 @@
                         <div class="stat-label">Active Users</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number" id="today-access">-</div>
-                        <div class="stat-label">Today's Access</div>
+                        <div class="stat-number" id="total-door-groups">-</div>
+                        <div class="stat-label">Door Groups</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number">✓</div>
-                        <div class="stat-label">System Status</div>
+                        <div class="stat-number" id="total-schedules">-</div>
+                        <div class="stat-label">Time Schedules</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="today-access">-</div>
+                        <div class="stat-label">Today's Access</div>
                     </div>
                 </div>
 
@@ -431,8 +511,59 @@
                                 <th>Name</th>
                                 <th>Cards</th>
                                 <th>PINs</th>
+                                <th>Door Groups</th>
+                                <th>Time Schedules</th>
                                 <th>Status</th>
                                 <th>Valid Until</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Door Groups Section -->
+            <div id="door-groups" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>Door Groups</h2>
+                    <button class="btn" onclick="openDoorGroupModal()">Add New Door Group</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="door-groups-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Doors</th>
+                                <th>Color</th>
+                                <th>Status</th>
+                                <th>Users</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Time Schedules Section -->
+            <div id="time-schedules" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>Time Schedules</h2>
+                    <button class="btn" onclick="openTimeScheduleModal()">Add New Time Schedule</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="time-schedules-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Schedule Type</th>
+                                <th>Status</th>
+                                <th>Users</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -502,7 +633,7 @@
                 <div class="form-group">
                     <label>Card IDs:</label>
                     <div class="tag-input">
-                        <input type="text" id="card-input" placeholder="Enter card ID">
+                        <input type="text" id="card-input" placeholder="Enter card ID (e.g., 11375492)">
                         <button type="button" class="btn btn-secondary" onclick="addCard()">Add</button>
                     </div>
                     <div class="tag-list" id="card-list"></div>
@@ -515,6 +646,24 @@
                         <button type="button" class="btn btn-secondary" onclick="addPin()">Add</button>
                     </div>
                     <div class="tag-list" id="pin-list"></div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Door Groups:</label>
+                        <select id="door-groups-select" multiple style="height: 120px;">
+                            <!-- Door groups loaded dynamically -->
+                        </select>
+                        <small>Hold Ctrl/Cmd to select multiple door groups</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Time Schedules:</label>
+                        <select id="time-schedules-select" multiple style="height: 120px;">
+                            <!-- Time schedules loaded dynamically -->
+                        </select>
+                        <small>Hold Ctrl/Cmd to select multiple time schedules</small>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -531,12 +680,152 @@
         </div>
     </div>
 
+    <!-- Door Group Modal -->
+    <div id="door-group-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDoorGroupModal()">&times;</span>
+            <h3 id="door-group-modal-title">Add New Door Group</h3>
+            <form id="door-group-form">
+                <div class="form-group">
+                    <label>Group Name:</label>
+                    <input type="text" id="door-group-name" required placeholder="e.g., Main Entrance, Emergency Exits">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description:</label>
+                    <textarea id="door-group-description" rows="3" placeholder="Describe which doors this group controls"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Select Doors:</label>
+                    <div id="doors-list">
+                        <div class="door-checkbox">
+                            <input type="checkbox" value="door-edge-1" id="door-edge-1">
+                            <label for="door-edge-1">Door Edge 1</label>
+                        </div>
+                        <div class="door-checkbox">
+                            <input type="checkbox" value="main-entrance" id="main-entrance">
+                            <label for="main-entrance">Main Entrance</label>
+                        </div>
+                        <div class="door-checkbox">
+                            <input type="checkbox" value="emergency-exit" id="emergency-exit">
+                            <label for="emergency-exit">Emergency Exit</label>
+                        </div>
+                        <div class="door-checkbox">
+                            <input type="checkbox" value="loading-dock" id="loading-dock">
+                            <label for="loading-dock">Loading Dock</label>
+                        </div>
+                    </div>
+                    <small>Select which doors this group can access</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Group Color:</label>
+                    <input type="color" id="door-group-color" value="#667eea">
+                    <small>This color will be used to display group tags</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="door-group-active" checked> Active Group
+                    </label>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Door Group</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeDoorGroupModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Time Schedule Modal -->
+    <div id="time-schedule-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTimeScheduleModal()">&times;</span>
+            <h3 id="time-schedule-modal-title">Add New Time Schedule</h3>
+            <form id="time-schedule-form">
+                <div class="form-group">
+                    <label>Schedule Name:</label>
+                    <input type="text" id="time-schedule-name" required placeholder="e.g., Business Hours, Night Shift">
+                </div>
+
+                <div class="form-group">
+                    <label>Description:</label>
+                    <textarea id="time-schedule-description" rows="3" placeholder="Describe when this schedule applies"></textarea>
+                </div>
+
+                <h4>Weekly Schedule</h4>
+                <div class="schedule-grid">
+                    <div class="day-header">Monday</div>
+                    <div class="day-header">Tuesday</div>
+                    <div class="day-header">Wednesday</div>
+                    <div class="day-header">Thursday</div>
+                    <div class="day-header">Friday</div>
+                    <div class="day-header">Saturday</div>
+                    <div class="day-header">Sunday</div>
+                    
+                    <div class="day-schedule" data-day="monday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="tuesday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="wednesday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="thursday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="friday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="saturday">
+                        <label><input type="checkbox" class="day-enabled"> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="sunday">
+                        <label><input type="checkbox" class="day-enabled"> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="time-schedule-active" checked> Active Schedule
+                    </label>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Time Schedule</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeTimeScheduleModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Global variables
         let currentUsers = [];
+        let currentDoorGroups = [];
+        let currentTimeSchedules = [];
         let userCards = [];
         let userPins = [];
         let editingUserId = null;
+        let editingDoorGroupId = null;
+        let editingTimeScheduleId = null;
 
         // Navigation
         function showSection(sectionId) {
@@ -558,302 +847,9 @@
                 case 'users':
                     loadUsers();
                     break;
-                case 'logs':
-                    loadAccessLogs();
+                case 'door-groups':
+                    loadDoorGroups();
                     break;
-            }
-        }
-
-        // API calls
-        async function apiCall(endpoint, method = 'GET', data = null) {
-            const options = {
-                method: method,
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            };
-            
-            if (data) {
-                options.body = JSON.stringify(data);
-            }
-            
-            try {
-                const response = await fetch(`/api${endpoint}`, options);
-                return await response.json();
-            } catch (error) {
-                console.error('API call failed:', error);
-                return null;
-            }
-        }
-
-        // Dashboard functions
-        async function loadDashboard() {
-            const stats = await apiCall('/stats');
-            
-            if (stats) {
-                document.getElementById('total-users').textContent = stats.total_users;
-                document.getElementById('active-users').textContent = stats.active_users;
-                document.getElementById('today-access').textContent = stats.today_access;
-                
-                const tbody = document.querySelector('#recent-access tbody');
-                tbody.innerHTML = '';
-                stats.recent_logs.forEach(log => {
-                    const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td>${new Date(log.timestamp).toLocaleString()}</td>
-                        <td>${log.user_name || 'Unknown'}</td>
-                        <td>${log.credential_type}</td>
-                        <td>${log.reader_location}</td>
-                        <td><span class="${log.success ? 'status-success' : 'status-failed'}">${log.success ? 'Success' : 'Failed'}</span></td>
-                    `;
-                });
-            }
-        }
-
-        // User management
-        async function loadUsers() {
-            const users = await apiCall('/users');
-            if (!users) return;
-            
-            currentUsers = users;
-            const tbody = document.querySelector('#users-table tbody');
-            tbody.innerHTML = '';
-            
-            users.forEach(user => {
-                const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td>${user.name}</td>
-                    <td>${user.card_ids.join(', ') || 'None'}</td>
-                    <td>${user.pin_codes.length > 0 ? '●●●●' : 'None'}</td>
-                    <td><span class="${user.active ? 'status-success' : 'status-failed'}">${user.active ? 'Active' : 'Inactive'}</span></td>
-                    <td>${user.valid_until || 'Never'}</td>
-                    <td>
-                        <button class="btn btn-secondary" onclick="editUser(${user.id})" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
-                        <button class="btn btn-danger" onclick="deleteUser(${user.id})" style="padding: 6px 12px; font-size: 12px;">Delete</button>
-                    </td>
-                `;
-            });
-        }
-
-        function openUserModal(userId = null) {
-            const modal = document.getElementById('user-modal');
-            const title = document.getElementById('user-modal-title');
-            
-            if (userId) {
-                title.textContent = 'Edit User';
-                editingUserId = userId;
-                const user = currentUsers.find(u => u.id === userId);
-                if (user) {
-                    document.getElementById('user-name').value = user.name;
-                    document.getElementById('user-active').checked = user.active;
-                    document.getElementById('valid-until').value = user.valid_until || '';
-                    userCards = [...user.card_ids];
-                    userPins = [...user.pin_codes];
-                    updateCardList();
-                    updatePinList();
-                }
-            } else {
-                title.textContent = 'Add New User';
-                editingUserId = null;
-                document.getElementById('user-form').reset();
-                userCards = [];
-                userPins = [];
-                updateCardList();
-                updatePinList();
-            }
-            
-            modal.style.display = 'block';
-        }
-
-        function closeUserModal() {
-            document.getElementById('user-modal').style.display = 'none';
-        }
-
-        function addCard() {
-            const input = document.getElementById('card-input');
-            const cardId = input.value.trim();
-            if (cardId && !userCards.includes(cardId)) {
-                userCards.push(cardId);
-                input.value = '';
-                updateCardList();
-            }
-        }
-
-        function addPin() {
-            const input = document.getElementById('pin-input');
-            const pin = input.value.trim();
-            if (pin && !userPins.includes(pin)) {
-                userPins.push(pin);
-                input.value = '';
-                updatePinList();
-            }
-        }
-
-        function updateCardList() {
-            const container = document.getElementById('card-list');
-            container.innerHTML = '';
-            userCards.forEach(card => {
-                const tag = document.createElement('span');
-                tag.className = 'tag';
-                tag.textContent = card;
-                tag.onclick = () => removeCard(card);
-                container.appendChild(tag);
-            });
-        }
-
-        function updatePinList() {
-            const container = document.getElementById('pin-list');
-            container.innerHTML = '';
-            userPins.forEach(pin => {
-                const tag = document.createElement('span');
-                tag.className = 'tag';
-                tag.textContent = '●●●●';
-                tag.onclick = () => removePin(pin);
-                container.appendChild(tag);
-            });
-        }
-
-        function removeCard(cardId) {
-            userCards = userCards.filter(c => c !== cardId);
-            updateCardList();
-        }
-
-        function removePin(pin) {
-            userPins = userPins.filter(p => p !== pin);
-            updatePinList();
-        }
-
-        async function saveUser() {
-            const userData = {
-                name: document.getElementById('user-name').value,
-                card_ids: userCards,
-                pin_codes: userPins,
-                active: document.getElementById('user-active').checked,
-                valid_until: document.getElementById('valid-until').value || null
-            };
-            
-            const endpoint = editingUserId ? `/users/${editingUserId}` : '/users';
-            const method = editingUserId ? 'PUT' : 'POST';
-            
-            const result = await apiCall(endpoint, method, userData);
-            if (result && result.success) {
-                closeUserModal();
-                loadUsers();
-                addLogEntry(`User "${userData.name}" ${editingUserId ? 'updated' : 'created'} successfully`, 'success');
-            }
-        }
-
-        function editUser(userId) {
-            openUserModal(userId);
-        }
-
-        async function deleteUser(userId) {
-            if (confirm('Are you sure you want to delete this user?')) {
-                const result = await apiCall(`/users/${userId}`, 'DELETE');
-                if (result && result.success) {
-                    loadUsers();
-                    addLogEntry('User deleted successfully', 'success');
-                }
-            }
-        }
-
-        // Access logs
-        async function loadAccessLogs() {
-            const limit = document.getElementById('log-filter').value;
-            const logs = await apiCall(`/logs?limit=${limit}`);
-            if (!logs) return;
-            
-            const tbody = document.querySelector('#logs-table tbody');
-            tbody.innerHTML = '';
-            
-            logs.forEach(log => {
-                const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td>${new Date(log.timestamp).toLocaleString()}</td>
-                    <td>${log.user_name || 'Unknown'}</td>
-                    <td>${log.credential_type === 'pin' ? '●●●●' : log.credential}</td>
-                    <td>${log.credential_type}</td>
-                    <td>${log.reader_location}</td>
-                    <td><span class="${log.success ? 'status-success' : 'status-failed'}">${log.success ? 'Success' : 'Failed'}</span></td>
-                    <td>${log.reason}</td>
-                `;
-            });
-        }
-
-        // Live monitoring
-        function addLogEntry(message, type = 'info') {
-            const logContainer = document.getElementById('live-log');
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${type}`;
-            entry.textContent = `[${new Date().toLocaleString()}] ${message}`;
-            
-            logContainer.appendChild(entry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-            
-            // Keep only last 50 entries
-            while (logContainer.children.length > 50) {
-                logContainer.removeChild(logContainer.firstChild);
-            }
-        }
-
-        // Event handlers
-        document.getElementById('user-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            saveUser();
-        });
-
-        // Allow adding cards/pins with Enter key
-        document.getElementById('card-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addCard();
-            }
-        });
-
-        document.getElementById('pin-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addPin();
-            }
-        });
-
-        // Close modals when clicking outside
-        window.onclick = function(event) {
-            const userModal = document.getElementById('user-modal');
-            if (event.target === userModal) {
-                userModal.style.display = 'none';
-            }
-        }
-
-        // Simulate live events
-        function simulateLiveEvents() {
-            const events = [
-                'System health check - All systems operational',
-                'Database backup completed successfully',
-                'Webhook endpoint ready for connections',
-                'User authentication service active',
-                'Access control policies loaded'
-            ];
-            
-            let eventIndex = 0;
-            setInterval(() => {
-                addLogEntry(events[eventIndex % events.length], 'info');
-                eventIndex++;
-            }, 30000);
-        }
-
-        // Initialize the application
-        document.addEventListener('DOMContentLoaded', function() {
-            loadDashboard();
-            simulateLiveEvents();
-            
-            // Auto-refresh dashboard every 30 seconds
-            setInterval(() => {
-                if (document.getElementById('dashboard').classList.contains('active')) {
-                    loadDashboard();
-                }
-            }, 30000);
-        });
-    </script>
-</body>
-</html>
+                case 'time-schedules':
+                    loadTimeSchedules();
+                    break
