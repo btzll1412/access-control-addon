@@ -259,6 +259,16 @@
             transform: scale(0.95);
         }
 
+        .group-tag {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -332,6 +342,48 @@
             color: #7f8c8d;
         }
 
+        .schedule-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .day-header {
+            background: #34495e;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .day-schedule {
+            background: #f8f9fa;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 120px;
+        }
+
+        .day-schedule.enabled {
+            border-color: #27ae60;
+            background: #d5f4e6;
+        }
+
+        .day-schedule.disabled {
+            border-color: #e74c3c;
+            background: #fadbd8;
+        }
+
+        .time-input {
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -361,6 +413,10 @@
             .form-grid {
                 grid-template-columns: 1fr;
             }
+
+            .schedule-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -372,6 +428,8 @@
             <div class="nav">
                 <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
                 <button class="nav-btn" onclick="showSection('users')">Users</button>
+                <button class="nav-btn" onclick="showSection('groups')">Groups</button>
+                <button class="nav-btn" onclick="showSection('schedules')">Schedules</button>
                 <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
                 <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
             </div>
@@ -391,12 +449,12 @@
                         <div class="stat-label">Active Users</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number" id="today-access">-</div>
-                        <div class="stat-label">Today's Access</div>
+                        <div class="stat-number" id="total-groups">-</div>
+                        <div class="stat-label">User Groups</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-number">✓</div>
-                        <div class="stat-label">System Status</div>
+                        <div class="stat-number" id="today-access">-</div>
+                        <div class="stat-label">Today's Access</div>
                     </div>
                 </div>
 
@@ -431,8 +489,56 @@
                                 <th>Name</th>
                                 <th>Cards</th>
                                 <th>PINs</th>
+                                <th>Groups</th>
                                 <th>Status</th>
                                 <th>Valid Until</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Groups Section -->
+            <div id="groups" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>User Groups</h2>
+                    <button class="btn" onclick="openGroupModal()">Add New Group</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="groups-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Color</th>
+                                <th>Status</th>
+                                <th>Users</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Schedules Section -->
+            <div id="schedules" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>Access Schedules</h2>
+                    <button class="btn" onclick="openScheduleModal()">Add New Schedule</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="schedules-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Groups</th>
+                                <th>Schedule Type</th>
+                                <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -502,7 +608,7 @@
                 <div class="form-group">
                     <label>Card IDs:</label>
                     <div class="tag-input">
-                        <input type="text" id="card-input" placeholder="Enter card ID">
+                        <input type="text" id="card-input" placeholder="Enter card ID (e.g., 2527957892)">
                         <button type="button" class="btn btn-secondary" onclick="addCard()">Add</button>
                     </div>
                     <div class="tag-list" id="card-list"></div>
@@ -515,6 +621,14 @@
                         <button type="button" class="btn btn-secondary" onclick="addPin()">Add</button>
                     </div>
                     <div class="tag-list" id="pin-list"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>User Groups:</label>
+                    <select id="group-select" multiple style="height: 120px;">
+                        <!-- Groups loaded dynamically -->
+                    </select>
+                    <small>Hold Ctrl/Cmd to select multiple groups</small>
                 </div>
                 
                 <div class="form-group">
@@ -531,12 +645,132 @@
         </div>
     </div>
 
+    <!-- Group Modal -->
+    <div id="group-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeGroupModal()">&times;</span>
+            <h3 id="group-modal-title">Add New Group</h3>
+            <form id="group-form">
+                <div class="form-group">
+                    <label>Group Name:</label>
+                    <input type="text" id="group-name" required placeholder="e.g., Employees, Security, Contractors">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description:</label>
+                    <textarea id="group-description" rows="3" placeholder="Describe this group's role and access level"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Group Color:</label>
+                    <input type="color" id="group-color" value="#667eea">
+                    <small>This color will be used to display group tags</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="group-active" checked> Active Group
+                    </label>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Group</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Schedule Modal -->
+    <div id="schedule-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeScheduleModal()">&times;</span>
+            <h3 id="schedule-modal-title">Add New Schedule</h3>
+            <form id="schedule-form">
+                <div class="form-group">
+                    <label>Schedule Name:</label>
+                    <input type="text" id="schedule-name" required placeholder="e.g., Business Hours, 24/7 Access">
+                </div>
+
+                <div class="form-group">
+                    <label>Apply to Groups:</label>
+                    <select id="schedule-groups" multiple style="height: 100px;">
+                        <!-- Groups loaded dynamically -->
+                    </select>
+                    <small>Select which user groups this schedule applies to</small>
+                </div>
+
+                <h4>Weekly Schedule</h4>
+                <div class="schedule-grid">
+                    <div class="day-header">Monday</div>
+                    <div class="day-header">Tuesday</div>
+                    <div class="day-header">Wednesday</div>
+                    <div class="day-header">Thursday</div>
+                    <div class="day-header">Friday</div>
+                    <div class="day-header">Saturday</div>
+                    <div class="day-header">Sunday</div>
+                    
+                    <div class="day-schedule" data-day="monday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="tuesday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="wednesday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="thursday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="friday">
+                        <label><input type="checkbox" class="day-enabled" checked> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="saturday">
+                        <label><input type="checkbox" class="day-enabled"> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                    <div class="day-schedule" data-day="sunday">
+                        <label><input type="checkbox" class="day-enabled"> Enabled</label>
+                        <input type="time" class="time-input start-time" value="09:00">
+                        <input type="time" class="time-input end-time" value="17:00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="schedule-active" checked> Active Schedule
+                    </label>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Schedule</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeScheduleModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Global variables
         let currentUsers = [];
+        let currentGroups = [];
+        let currentSchedules = [];
         let userCards = [];
         let userPins = [];
         let editingUserId = null;
+        let editingGroupId = null;
+        let editingScheduleId = null;
 
         // Navigation
         function showSection(sectionId) {
@@ -557,6 +791,12 @@
                     break;
                 case 'users':
                     loadUsers();
+                    break;
+                case 'groups':
+                    loadGroups();
+                    break;
+                case 'schedules':
+                    loadSchedules();
                     break;
                 case 'logs':
                     loadAccessLogs();
@@ -589,6 +829,7 @@
         // Dashboard functions
         async function loadDashboard() {
             const stats = await apiCall('/stats');
+            const groups = await apiCall('/groups');
             
             if (stats) {
                 document.getElementById('total-users').textContent = stats.total_users;
@@ -608,6 +849,10 @@
                     `;
                 });
             }
+
+            if (groups) {
+                document.getElementById('total-groups').textContent = groups.length;
+            }
         }
 
         // User management
@@ -620,11 +865,18 @@
             tbody.innerHTML = '';
             
             users.forEach(user => {
+                const groupTags = user.groups.map(group => {
+                    const groupObj = currentGroups.find(g => g.name === group);
+                    const color = groupObj ? groupObj.color : '#667eea';
+                    return `<span class="group-tag" style="background-color: ${color}; color: white;">${group}</span>`;
+                }).join('');
+                
                 const row = tbody.insertRow();
                 row.innerHTML = `
                     <td>${user.name}</td>
                     <td>${user.card_ids.join(', ') || 'None'}</td>
                     <td>${user.pin_codes.length > 0 ? '●●●●' : 'None'}</td>
+                    <td>${groupTags || 'No groups'}</td>
                     <td><span class="${user.active ? 'status-success' : 'status-failed'}">${user.active ? 'Active' : 'Inactive'}</span></td>
                     <td>${user.valid_until || 'Never'}</td>
                     <td>
@@ -635,9 +887,114 @@
             });
         }
 
+        // Group management
+        async function loadGroups() {
+            const groups = await apiCall('/groups');
+            if (!groups) return;
+            
+            currentGroups = groups;
+            const tbody = document.querySelector('#groups-table tbody');
+            tbody.innerHTML = '';
+            
+            // Count users in each group
+            const users = await apiCall('/users');
+            
+            groups.forEach(group => {
+                const userCount = users ? users.filter(user => user.groups.includes(group.name)).length : 0;
+                
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>
+                        <span class="group-tag" style="background-color: ${group.color}; color: white;">${group.name}</span>
+                    </td>
+                    <td>${group.description || 'No description'}</td>
+                    <td>
+                        <div style="width: 30px; height: 20px; background-color: ${group.color}; border-radius: 4px; display: inline-block;"></div>
+                        ${group.color}
+                    </td>
+                    <td><span class="${group.active ? 'status-success' : 'status-failed'}">${group.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${userCount} users</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="editGroup(${group.id})" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteGroup(${group.id})" style="padding: 6px 12px; font-size: 12px;">Delete</button>
+                    </td>
+                `;
+            });
+
+            // Update group selects
+            updateGroupSelects();
+        }
+
+        // Schedule management
+        async function loadSchedules() {
+            const schedules = await apiCall('/schedules');
+            if (!schedules) return;
+            
+            currentSchedules = schedules;
+            const tbody = document.querySelector('#schedules-table tbody');
+            tbody.innerHTML = '';
+            
+            schedules.forEach(schedule => {
+                const groupTags = schedule.groups.map(group => {
+                    const groupObj = currentGroups.find(g => g.name === group);
+                    const color = groupObj ? groupObj.color : '#667eea';
+                    return `<span class="group-tag" style="background-color: ${color}; color: white;">${group}</span>`;
+                }).join('');
+
+                // Determine schedule type
+                const scheduleData = schedule.schedule_data;
+                let scheduleType = 'Custom';
+                const weekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+                const allWeekEnabled = weekDays.every(day => scheduleData[day]?.enabled);
+                const weekendEnabled = scheduleData.saturday?.enabled || scheduleData.sunday?.enabled;
+                
+                if (allWeekEnabled && !weekendEnabled) {
+                    scheduleType = 'Business Hours';
+                } else if (Object.values(scheduleData).every(day => day?.enabled)) {
+                    scheduleType = '24/7 Access';
+                }
+                
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${schedule.name}</td>
+                    <td>${groupTags || 'No groups'}</td>
+                    <td>${scheduleType}</td>
+                    <td><span class="${schedule.active ? 'status-success' : 'status-failed'}">${schedule.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="editSchedule(${schedule.id})" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteSchedule(${schedule.id})" style="padding: 6px 12px; font-size: 12px;">Delete</button>
+                    </td>
+                `;
+            });
+        }
+
+        // Update group select dropdowns
+        function updateGroupSelects() {
+            const userGroupSelect = document.getElementById('group-select');
+            const scheduleGroupSelect = document.getElementById('schedule-groups');
+            
+            [userGroupSelect, scheduleGroupSelect].forEach(select => {
+                if (select) {
+                    select.innerHTML = '';
+                    currentGroups.forEach(group => {
+                        if (group.active) {
+                            const option = document.createElement('option');
+                            option.value = group.name;
+                            option.textContent = group.name;
+                            select.appendChild(option);
+                        }
+                    });
+                }
+            });
+        }
+
+        // User modal functions
         function openUserModal(userId = null) {
             const modal = document.getElementById('user-modal');
             const title = document.getElementById('user-modal-title');
+            
+            // Load groups for selection
+            loadGroups().then(() => updateGroupSelects());
             
             if (userId) {
                 title.textContent = 'Edit User';
@@ -651,6 +1008,12 @@
                     userPins = [...user.pin_codes];
                     updateCardList();
                     updatePinList();
+                    
+                    // Select user groups
+                    const groupSelect = document.getElementById('group-select');
+                    Array.from(groupSelect.options).forEach(option => {
+                        option.selected = user.groups.includes(option.value);
+                    });
                 }
             } else {
                 title.textContent = 'Add New User';
@@ -669,6 +1032,115 @@
             document.getElementById('user-modal').style.display = 'none';
         }
 
+        // Group modal functions
+        function openGroupModal(groupId = null) {
+            const modal = document.getElementById('group-modal');
+            const title = document.getElementById('group-modal-title');
+            
+            if (groupId) {
+                title.textContent = 'Edit Group';
+                editingGroupId = groupId;
+                const group = currentGroups.find(g => g.id === groupId);
+                if (group) {
+                    document.getElementById('group-name').value = group.name;
+                    document.getElementById('group-description').value = group.description || '';
+                    document.getElementById('group-color').value = group.color;
+                    document.getElementById('group-active').checked = group.active;
+                }
+            } else {
+                title.textContent = 'Add New Group';
+                editingGroupId = null;
+                document.getElementById('group-form').reset();
+                document.getElementById('group-color').value = '#667eea';
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        function closeGroupModal() {
+            document.getElementById('group-modal').style.display = 'none';
+        }
+
+        // Schedule modal functions
+        function openScheduleModal(scheduleId = null) {
+            const modal = document.getElementById('schedule-modal');
+            const title = document.getElementById('schedule-modal-title');
+            
+            // Load groups for selection
+            loadGroups().then(() => updateGroupSelects());
+            
+            if (scheduleId) {
+                title.textContent = 'Edit Schedule';
+                editingScheduleId = scheduleId;
+                const schedule = currentSchedules.find(s => s.id === scheduleId);
+                if (schedule) {
+                    document.getElementById('schedule-name').value = schedule.name;
+                    document.getElementById('schedule-active').checked = schedule.active;
+                    
+                    // Select groups
+                    const groupSelect = document.getElementById('schedule-groups');
+                    Array.from(groupSelect.options).forEach(option => {
+                        option.selected = schedule.groups.includes(option.value);
+                    });
+                    
+                    // Load schedule data
+                    const scheduleData = schedule.schedule_data;
+                    document.querySelectorAll('.day-schedule').forEach(dayDiv => {
+                        const day = dayDiv.dataset.day;
+                        const dayData = scheduleData[day] || {enabled: false, start: '09:00', end: '17:00'};
+                        
+                        dayDiv.querySelector('.day-enabled').checked = dayData.enabled;
+                        dayDiv.querySelector('.start-time').value = dayData.start || '09:00';
+                        dayDiv.querySelector('.end-time').value = dayData.end || '17:00';
+                        
+                        updateDayScheduleVisual(dayDiv);
+                    });
+                }
+            } else {
+                title.textContent = 'Add New Schedule';
+                editingScheduleId = null;
+                document.getElementById('schedule-form').reset();
+                
+                // Reset to default business hours
+                document.querySelectorAll('.day-schedule').forEach(dayDiv => {
+                    const day = dayDiv.dataset.day;
+                    const isWeekday = !['saturday', 'sunday'].includes(day);
+                    
+                    dayDiv.querySelector('.day-enabled').checked = isWeekday;
+                    dayDiv.querySelector('.start-time').value = '09:00';
+                    dayDiv.querySelector('.end-time').value = '17:00';
+                    
+                    updateDayScheduleVisual(dayDiv);
+                });
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        function closeScheduleModal() {
+            document.getElementById('schedule-modal').style.display = 'none';
+        }
+
+        function updateDayScheduleVisual(dayDiv) {
+            const enabled = dayDiv.querySelector('.day-enabled').checked;
+            dayDiv.className = `day-schedule ${enabled ? 'enabled' : 'disabled'}`;
+            
+            const timeInputs = dayDiv.querySelectorAll('.time-input');
+            timeInputs.forEach(input => {
+                input.disabled = !enabled;
+            });
+        }
+
+        // Add event listeners for day schedule checkboxes
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.day-enabled').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    updateDayScheduleVisual(this.closest('.day-schedule'));
+                });
+            });
+        });
+
+        // Card/PIN management
         function addCard() {
             const input = document.getElementById('card-input');
             const cardId = input.value.trim();
@@ -723,11 +1195,16 @@
             updatePinList();
         }
 
+        // Save functions
         async function saveUser() {
+            const groupSelect = document.getElementById('group-select');
+            const selectedGroups = Array.from(groupSelect.selectedOptions).map(option => option.value);
+            
             const userData = {
                 name: document.getElementById('user-name').value,
                 card_ids: userCards,
                 pin_codes: userPins,
+                groups: selectedGroups,
                 active: document.getElementById('user-active').checked,
                 valid_until: document.getElementById('valid-until').value || null
             };
@@ -743,8 +1220,72 @@
             }
         }
 
+        async function saveGroup() {
+            const groupData = {
+                name: document.getElementById('group-name').value,
+                description: document.getElementById('group-description').value,
+                color: document.getElementById('group-color').value,
+                active: document.getElementById('group-active').checked
+            };
+            
+            const endpoint = editingGroupId ? `/groups/${editingGroupId}` : '/groups';
+            const method = editingGroupId ? 'PUT' : 'POST';
+            
+            const result = await apiCall(endpoint, method, groupData);
+            if (result && result.success) {
+                closeGroupModal();
+                loadGroups();
+                addLogEntry(`Group "${groupData.name}" ${editingGroupId ? 'updated' : 'created'} successfully`, 'success');
+            }
+        }
+
+        async function saveSchedule() {
+            const groupSelect = document.getElementById('schedule-groups');
+            const selectedGroups = Array.from(groupSelect.selectedOptions).map(option => option.value);
+            
+            const scheduleData = {};
+            document.querySelectorAll('.day-schedule').forEach(dayDiv => {
+                const day = dayDiv.dataset.day;
+                const enabled = dayDiv.querySelector('.day-enabled').checked;
+                const start = dayDiv.querySelector('.start-time').value;
+                const end = dayDiv.querySelector('.end-time').value;
+                
+                scheduleData[day] = {
+                    enabled: enabled,
+                    start: start,
+                    end: end
+                };
+            });
+            
+            const data = {
+                name: document.getElementById('schedule-name').value,
+                groups: selectedGroups,
+                schedule_data: scheduleData,
+                active: document.getElementById('schedule-active').checked
+            };
+            
+            const endpoint = editingScheduleId ? `/schedules/${editingScheduleId}` : '/schedules';
+            const method = editingScheduleId ? 'PUT' : 'POST';
+            
+            const result = await apiCall(endpoint, method, data);
+            if (result && result.success) {
+                closeScheduleModal();
+                loadSchedules();
+                addLogEntry(`Schedule "${data.name}" ${editingScheduleId ? 'updated' : 'created'} successfully`, 'success');
+            }
+        }
+
+        // Edit/Delete functions
         function editUser(userId) {
             openUserModal(userId);
+        }
+
+        function editGroup(groupId) {
+            openGroupModal(groupId);
+        }
+
+        function editSchedule(scheduleId) {
+            openScheduleModal(scheduleId);
         }
 
         async function deleteUser(userId) {
@@ -753,6 +1294,26 @@
                 if (result && result.success) {
                     loadUsers();
                     addLogEntry('User deleted successfully', 'success');
+                }
+            }
+        }
+
+        async function deleteGroup(groupId) {
+            if (confirm('Are you sure you want to delete this group? Users assigned to this group will lose their group assignment.')) {
+                const result = await apiCall(`/groups/${groupId}`, 'DELETE');
+                if (result && result.success) {
+                    loadGroups();
+                    addLogEntry('Group deleted successfully', 'success');
+                }
+            }
+        }
+
+        async function deleteSchedule(scheduleId) {
+            if (confirm('Are you sure you want to delete this schedule?')) {
+                const result = await apiCall(`/schedules/${scheduleId}`, 'DELETE');
+                if (result && result.success) {
+                    loadSchedules();
+                    addLogEntry('Schedule deleted successfully', 'success');
                 }
             }
         }
@@ -802,6 +1363,16 @@
             saveUser();
         });
 
+        document.getElementById('group-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveGroup();
+        });
+
+        document.getElementById('schedule-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveSchedule();
+        });
+
         // Allow adding cards/pins with Enter key
         document.getElementById('card-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -819,33 +1390,19 @@
 
         // Close modals when clicking outside
         window.onclick = function(event) {
-            const userModal = document.getElementById('user-modal');
-            if (event.target === userModal) {
-                userModal.style.display = 'none';
-            }
-        }
-
-        // Simulate live events
-        function simulateLiveEvents() {
-            const events = [
-                'System health check - All systems operational',
-                'Database backup completed successfully',
-                'Webhook endpoint ready for connections',
-                'User authentication service active',
-                'Access control policies loaded'
-            ];
-            
-            let eventIndex = 0;
-            setInterval(() => {
-                addLogEntry(events[eventIndex % events.length], 'info');
-                eventIndex++;
-            }, 30000);
+            const modals = ['user-modal', 'group-modal', 'schedule-modal'];
+            modals.forEach(modalId => {
+                const modal = document.getElementById(modalId);
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
         }
 
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
             loadDashboard();
-            simulateLiveEvents();
+            loadGroups(); // Load groups first to populate selects
             
             // Auto-refresh dashboard every 30 seconds
             setInterval(() => {
