@@ -1,12 +1,19 @@
-# main.py - Main Flask application
+# main.py - Main Flask application with all fixes
 from flask import Flask, request, jsonify, render_template
 import sqlite3
 import json
 import requests
 import datetime
 from contextlib import contextmanager
+import os
 
 app = Flask(__name__)
+
+# TEMPLATE CACHING FIXES - Force template reloading to prevent cache issues
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+app.jinja_env.auto_reload = True
+app.jinja_env.cache = {}
 
 # Home Assistant configuration
 HA_URL = "http://supervisor/core/api"
@@ -177,8 +184,6 @@ def init_db():
         
         conn.commit()
 
-# Removed automatic test user creation - users will be added via GUI
-
 # Home Assistant API helper
 def call_ha_service(domain, service, entity_id=None, service_data=None):
     url = f"{HA_URL}/services/{domain}/{service}"
@@ -288,9 +293,24 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
         ''', (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason))
         conn.commit()
 
+# CACHE BUSTING HEADERS
+@app.after_request
+def after_request(response):
+    """Add cache control headers to prevent caching issues"""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 # Web Routes
 @app.route('/')
 def dashboard():
+    return render_template('dashboard.html')
+
+# DEBUG ROUTE TO TEST TEMPLATE
+@app.route('/debug/template')
+def debug_template():
+    """Debug route to verify template content"""
     return render_template('dashboard.html')
 
 # API Routes
@@ -334,6 +354,7 @@ def get_stats():
             'recent_logs': recent_logs
         })
 
+# FIXED USERS API - Consistent data structure for frontend
 @app.route('/api/users', methods=['GET'])
 def get_users():
     with get_db() as conn:
@@ -341,18 +362,22 @@ def get_users():
         cursor.execute('SELECT * FROM users ORDER BY name')
         users = [dict(row) for row in cursor.fetchall()]
         
-        # Parse JSON fields and handle both old and new column names
+        # FIXED: Consistent data structure for frontend
         for user in users:
             user['card_ids'] = json.loads(user['card_ids'])
             user['pin_codes'] = json.loads(user['pin_codes'])
             
-            # Handle migration from old 'groups' to new structure
-            if 'groups' in user and user['groups']:
-                user['door_groups'] = json.loads(user['groups'])
-                user['time_schedules'] = []
+            # Use 'groups' field consistently (what template expects)
+            if 'door_groups' in user and user['door_groups']:
+                user['groups'] = json.loads(user['door_groups'])
             else:
-                user['door_groups'] = json.loads(user.get('door_groups', '[]'))
-                user['time_schedules'] = json.loads(user.get('time_schedules', '[]'))
+                user['groups'] = json.loads(user.get('groups', '[]'))
+            
+            # Clean up - remove door_groups to avoid confusion
+            if 'door_groups' in user:
+                del user['door_groups']
+            if 'time_schedules' in user:
+                del user['time_schedules']  # Not needed in frontend yet
     
     return jsonify(users)
 
@@ -362,14 +387,13 @@ def create_user():
     
     with get_db() as conn:
         conn.execute('''
-            INSERT INTO users (name, card_ids, pin_codes, door_groups, time_schedules, active, valid_from, valid_until)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (name, card_ids, pin_codes, groups, active, valid_from, valid_until)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'],
             json.dumps(data.get('card_ids', [])),
             json.dumps(data.get('pin_codes', [])),
-            json.dumps(data.get('door_groups', [])),
-            json.dumps(data.get('time_schedules', [])),
+            json.dumps(data.get('groups', [])),  # Using 'groups' consistently
             data.get('active', True),
             data.get('valid_from'),
             data.get('valid_until')
@@ -385,14 +409,13 @@ def update_user(user_id):
     with get_db() as conn:
         conn.execute('''
             UPDATE users 
-            SET name=?, card_ids=?, pin_codes=?, door_groups=?, time_schedules=?, active=?, valid_from=?, valid_until=?
+            SET name=?, card_ids=?, pin_codes=?, groups=?, active=?, valid_from=?, valid_until=?
             WHERE id=?
         ''', (
             data['name'],
             json.dumps(data.get('card_ids', [])),
             json.dumps(data.get('pin_codes', [])),
-            json.dumps(data.get('door_groups', [])),
-            json.dumps(data.get('time_schedules', [])),
+            json.dumps(data.get('groups', [])),  # Using 'groups' consistently
             data.get('active', True),
             data.get('valid_from'),
             data.get('valid_until'),
