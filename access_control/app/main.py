@@ -419,20 +419,101 @@ def get_doors():
     
     return jsonify(doors)
 
-@app.route('/api/doors', methods=['POST'])
-def create_door():
+@app.route('/api/doors/<int:door_id>', methods=['DELETE'])
+def delete_door(door_id):
+    with get_db() as conn:
+        conn.execute('DELETE FROM doors WHERE id=?', (door_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/doors/discover', methods=['GET'])
+def discover_doors():
+    """Discover door/lock entities from Home Assistant"""
+    if not HA_TOKEN:
+        return jsonify({'entities': [], 'error': 'Home Assistant token not configured'})
+    
+    url = f"{HA_URL}/states"
+    headers = {"Authorization": f"Bearer {HA_TOKEN}"}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return jsonify({'entities': [], 'error': 'Failed to connect to Home Assistant'})
+            
+        entities = response.json()
+        
+        # Find entities that look like doors/locks/switches
+        door_entities = []
+        door_keywords = ['door', 'lock', 'gate', 'entrance', 'exit', 'relay']
+        
+        for entity in entities:
+            entity_id = entity['entity_id']
+            friendly_name = entity['attributes'].get('friendly_name', entity_id)
+            domain = entity_id.split('.')[0]
+            
+            # Look for relevant entities
+            if (domain in ['switch', 'lock', 'cover'] and 
+                any(keyword in entity_id.lower() or keyword in friendly_name.lower() 
+                    for keyword in door_keywords)):
+                door_entities.append({
+                    'entity_id': entity_id,
+                    'name': friendly_name,
+                    'domain': domain,
+                    'state': entity.get('state', 'unknown')
+                })
+        
+        return jsonify({'entities': door_entities, 'error': None})
+    except Exception as e:
+        return jsonify({'entities': [], 'error': f'Failed to discover doors: {str(e)}'})
+
+@app.route('/api/doors/sync', methods=['POST'])
+def sync_doors_from_ha():
+    """Sync discovered doors to the database"""
+    data = request.json
+    selected_entities = data.get('entities', [])
+    
+    with get_db() as conn:
+        for entity in selected_entities:
+            # Create a door ID from entity_id
+            door_id = entity['entity_id'].replace('.', '_').replace('-', '_')
+            
+            # Check if door already exists
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM doors WHERE entity_id = ?', (entity['entity_id'],))
+            existing = cursor.fetchone()
+            
+            if not existing:
+                conn.execute('''
+                    INSERT INTO doors (id, name, entity_id, location, active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    door_id,
+                    entity['name'],
+                    entity['entity_id'],
+                    'auto-discovered',
+                    True
+                ))
+        
+        conn.commit()
+    
+    return jsonify({'success': True, 'message': f'Synced {len(selected_entities)} doors'})
+
+@app.route('/api/doors/<door_id>', methods=['PUT'])
+def update_door(door_id):
     data = request.json
     
     with get_db() as conn:
         conn.execute('''
-            INSERT INTO doors (id, name, entity_id, location, active)
-            VALUES (?, ?, ?, ?, ?)
+            UPDATE doors 
+            SET name=?, entity_id=?, location=?, active=?
+            WHERE id=?
         ''', (
-            data['id'],
             data['name'],
             data['entity_id'],
             data.get('location', ''),
-            data.get('active', True)
+            data.get('active', True),
+            door_id
         ))
         conn.commit()
     
