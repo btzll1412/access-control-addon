@@ -289,6 +289,12 @@ def get_logs():
 # ESPHome webhook endpoints
 @app.route('/webhook/card_scanned', methods=['POST'])
 def handle_card_scan():
+    # Force database initialization if tables don't exist
+    try:
+        init_db()
+    except:
+        pass
+    
     data = request.json
     card_id = data.get('card')
     reader_location = data.get('reader', 'unknown')
@@ -328,6 +334,12 @@ def handle_card_scan():
 
 @app.route('/webhook/pin_entered', methods=['POST'])
 def handle_pin_entry():
+    # Force database initialization if tables don't exist
+    try:
+        init_db()
+    except:
+        pass
+    
     data = request.json
     pin = data.get('pin')
     reader_location = data.get('reader', 'unknown')
