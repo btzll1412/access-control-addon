@@ -543,11 +543,14 @@ def handle_card_scan():
         pass
     
     data = request.json
-    card_id = data.get('card')
-    reader_location = data.get('reader', 'unknown')
+    # Handle both 'card' and 'card_id' field names from automation
+    card_id = data.get('card') or data.get('card_id') or 'Unknown'
+    reader_location = data.get('reader') or data.get('reader_id') or 'unknown'
+    
+    print(f"Card scan received: {card_id} at {reader_location}")  # Debug logging
     
     # Always log the attempt first - this ensures live monitoring shows all swipes
-    user = get_user_by_credential(card_id, 'card')
+    user = get_user_by_credential(str(card_id), 'card')
     
     if user:
         # Registered card - check if access is allowed
@@ -559,7 +562,7 @@ def handle_card_scan():
             success = call_ha_service("switch", "turn_on", door_entity)
             
             # Log successful access
-            log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', True, reader_location, reason)
+            log_access_attempt(user['id'], user['name'], reader_location, str(card_id), 'card', True, reader_location, reason)
             
             # Turn on green LED and success buzzer
             call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
@@ -568,10 +571,10 @@ def handle_card_scan():
             return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
         else:
             # Registered card but access denied (outside hours, etc.)
-            log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', False, reader_location, reason)
+            log_access_attempt(user['id'], user['name'], reader_location, str(card_id), 'card', False, reader_location, reason)
     else:
         # Unregistered card - log with actual card number visible
-        log_access_attempt(None, 'Unregistered Card', reader_location, card_id, 'card', False, reader_location, f'Card {card_id} not in system')
+        log_access_attempt(None, 'Unregistered Card', reader_location, str(card_id), 'card', False, reader_location, f'Card {card_id} not in system')
     
     # Access denied - red LED and failure buzzer
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
