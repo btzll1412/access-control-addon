@@ -66,6 +66,15 @@ def init_db():
                 schedule_data TEXT DEFAULT '{}',
                 active BOOLEAN DEFAULT 1
             );
+
+            CREATE TABLE IF NOT EXISTS user_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                color TEXT DEFAULT '#667eea',
+                active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         ''')
 
 # Removed automatic test user creation - users will be added via GUI
@@ -114,13 +123,67 @@ def is_access_allowed(user, door_id, current_time=None):
     if not current_time:
         current_time = datetime.datetime.now()
     
-    # Basic time check (9 AM to 6 PM for now)
-    hour = current_time.hour
-    if hour < 9 or hour >= 18:
-        return False, "Outside permitted hours"
+    # Check if user has any group assignments
+    if not user or not user.get('groups'):
+        return True, "No schedule restrictions"
     
-    # Additional group-based checks can be added here
-    return True, "Access granted"
+    user_groups = json.loads(user['groups']) if isinstance(user['groups'], str) else user['groups']
+    
+    # Get active schedules for user's groups
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM schedules 
+            WHERE active = 1
+        ''')
+        schedules = cursor.fetchall()
+    
+    # Check each schedule to see if user's groups are included
+    applicable_schedules = []
+    for schedule in schedules:
+        schedule_groups = json.loads(schedule['groups'])
+        if any(group in schedule_groups for group in user_groups):
+            applicable_schedules.append(schedule)
+    
+    # If no applicable schedules, allow access
+    if not applicable_schedules:
+        return True, "No schedule restrictions"
+    
+    # Check time against applicable schedules
+    current_weekday = current_time.strftime('%A').lower()
+    current_time_str = current_time.strftime('%H:%M')
+    
+    for schedule in applicable_schedules:
+        schedule_data = json.loads(schedule['schedule_data'])
+        
+        # Check if current day has time restrictions
+        if current_weekday in schedule_data:
+            day_schedule = schedule_data[current_weekday]
+            if day_schedule.get('enabled', True):
+                start_time = day_schedule.get('start', '00:00')
+                end_time = day_schedule.get('end', '23:59')
+                
+                if start_time <= current_time_str <= end_time:
+                    return True, f"Access granted - {schedule['name']}"
+                else:
+                    return False, f"Outside allowed hours ({start_time}-{end_time})"
+        
+        # Check for special date overrides
+        current_date = current_time.strftime('%Y-%m-%d')
+        if 'dates' in schedule_data and current_date in schedule_data['dates']:
+            date_schedule = schedule_data['dates'][current_date]
+            if date_schedule.get('blocked', False):
+                return False, f"Access blocked - {date_schedule.get('reason', 'Special date restriction')}"
+            elif 'start' in date_schedule and 'end' in date_schedule:
+                start_time = date_schedule['start']
+                end_time = date_schedule['end']
+                if start_time <= current_time_str <= end_time:
+                    return True, f"Special schedule access - {schedule['name']}"
+                else:
+                    return False, f"Outside special hours ({start_time}-{end_time})"
+    
+    # If we get here, user is subject to schedules but none currently allow access
+    return False, "Outside permitted hours"
 
 def log_access_attempt(user_id, user_name, door_id, credential, credential_type, success, reader_location, reason):
     with get_db() as conn:
@@ -139,6 +202,12 @@ def dashboard():
 # API Routes
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
+    # Force database initialization if tables don't exist
+    try:
+        init_db()
+    except:
+        pass
+        
     with get_db() as conn:
         cursor = conn.cursor()
         
@@ -286,6 +355,184 @@ def get_access_logs():
 def get_logs():
     return get_access_logs()
 
+# Time schedule management (for future GUI configuration)
+@app.route('/api/schedules', methods=['GET'])
+def get_schedules():
+    # Force database initialization if tables don't exist
+    try:
+        init_db()
+    except:
+        pass
+        
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM schedules ORDER BY name')
+        schedules = [dict(row) for row in cursor.fetchall()]
+        
+        # Parse JSON fields
+        for schedule in schedules:
+            schedule['groups'] = json.loads(schedule['groups'])
+            schedule['schedule_data'] = json.loads(schedule['schedule_data'])
+    
+    return jsonify(schedules)
+
+@app.route('/api/schedules', methods=['POST'])
+def create_schedule():
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO schedules (name, groups, schedule_data, active)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            data['name'],
+            json.dumps(data.get('groups', [])),
+            json.dumps(data.get('schedule_data', {})),
+            data.get('active', True)
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
+def update_schedule(schedule_id):
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE schedules 
+            SET name=?, groups=?, schedule_data=?, active=?
+            WHERE id=?
+        ''', (
+            data['name'],
+            json.dumps(data.get('groups', [])),
+            json.dumps(data.get('schedule_data', {})),
+            data.get('active', True),
+            schedule_id
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
+def delete_schedule(schedule_id):
+    with get_db() as conn:
+        conn.execute('DELETE FROM schedules WHERE id=?', (schedule_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/schedules/templates', methods=['GET'])
+def get_schedule_templates():
+    """Return common schedule templates"""
+    templates = {
+        'business_hours': {
+            'name': 'Standard Business Hours',
+            'groups': [],  # Will be populated from user groups
+            'schedule_data': {
+                'monday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                'tuesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                'wednesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                'thursday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                'friday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                'saturday': {'enabled': False},
+                'sunday': {'enabled': False}
+            }
+        },
+        '24_7': {
+            'name': '24/7 Access',
+            'groups': [],  # Will be populated from user groups
+            'schedule_data': {
+                'monday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'tuesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'wednesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'thursday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'friday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'saturday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                'sunday': {'enabled': True, 'start': '00:00', 'end': '23:59'}
+            }
+        },
+        'extended_hours': {
+            'name': 'Extended Hours',
+            'groups': [],  # Will be populated from user groups
+            'schedule_data': {
+                'monday': {'enabled': True, 'start': '06:00', 'end': '22:00'},
+                'tuesday': {'enabled': True, 'start': '06:00', 'end': '22:00'},
+                'wednesday': {'enabled': True, 'start': '06:00', 'end': '22:00'},
+                'thursday': {'enabled': True, 'start': '06:00', 'end': '22:00'},
+                'friday': {'enabled': True, 'start': '06:00', 'end': '22:00'},
+                'saturday': {'enabled': True, 'start': '08:00', 'end': '18:00'},
+                'sunday': {'enabled': False}
+            }
+        }
+    }
+    return jsonify(templates)
+
+# User Groups Management API
+@app.route('/api/groups', methods=['GET'])
+def get_user_groups():
+    """Get all user groups"""
+    try:
+        init_db()
+    except:
+        pass
+        
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM user_groups ORDER BY name')
+        groups = [dict(row) for row in cursor.fetchall()]
+    
+    return jsonify(groups)
+
+@app.route('/api/groups', methods=['POST'])
+def create_user_group():
+    """Create a new user group"""
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO user_groups (name, description, color, active)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            data['name'],
+            data.get('description', ''),
+            data.get('color', '#667eea'),
+            data.get('active', True)
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/groups/<int:group_id>', methods=['PUT'])
+def update_user_group(group_id):
+    """Update an existing user group"""
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE user_groups 
+            SET name=?, description=?, color=?, active=?
+            WHERE id=?
+        ''', (
+            data['name'],
+            data.get('description', ''),
+            data.get('color', '#667eea'),
+            data.get('active', True),
+            group_id
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/groups/<int:group_id>', methods=['DELETE'])
+def delete_user_group(group_id):
+    """Delete a user group"""
+    with get_db() as conn:
+        conn.execute('DELETE FROM user_groups WHERE id=?', (group_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
 # ESPHome webhook endpoints
 @app.route('/webhook/card_scanned', methods=['POST'])
 def handle_card_scan():
@@ -323,8 +570,8 @@ def handle_card_scan():
             # Registered card but access denied (outside hours, etc.)
             log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', False, reader_location, reason)
     else:
-        # Unregistered card - log as unknown
-        log_access_attempt(None, 'Unregistered Card', reader_location, card_id, 'card', False, reader_location, 'Card not in system')
+        # Unregistered card - log with actual card number visible
+        log_access_attempt(None, 'Unregistered Card', reader_location, card_id, 'card', False, reader_location, f'Card {card_id} not in system')
     
     # Access denied - red LED and failure buzzer
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
@@ -368,8 +615,8 @@ def handle_pin_entry():
             # Registered PIN but access denied
             log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', False, reader_location, reason)
     else:
-        # Unregistered PIN - log as unknown
-        log_access_attempt(None, 'Unregistered PIN', reader_location, pin, 'pin', False, reader_location, 'PIN not in system')
+        # Unregistered PIN - log with actual PIN visible for admin review
+        log_access_attempt(None, 'Unregistered PIN', reader_location, pin, 'pin', False, reader_location, f'PIN {pin} not in system')
     
     # Access denied
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
