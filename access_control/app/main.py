@@ -68,48 +68,7 @@ def init_db():
             );
         ''')
 
-# Add test users function
-def add_test_users():
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM users')
-        count = cursor.fetchone()[0]
-        
-        if count == 0:
-            test_users = [
-                {
-                    'name': 'Test User 1',
-                    'card_ids': ['2527957892'],
-                    'pin_codes': ['1234'],
-                    'groups': ['employees']
-                },
-                {
-                    'name': 'Test User 2', 
-                    'card_ids': ['11375492'],
-                    'pin_codes': ['5678'],
-                    'groups': ['employees']
-                },
-                {
-                    'name': 'Admin User',
-                    'card_ids': ['12345678'],
-                    'pin_codes': ['9999', '0000'],
-                    'groups': ['admin']
-                }
-            ]
-            
-            for user in test_users:
-                conn.execute('''
-                    INSERT INTO users (name, card_ids, pin_codes, groups, active)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (
-                    user['name'],
-                    json.dumps(user['card_ids']),
-                    json.dumps(user['pin_codes']),
-                    json.dumps(user['groups']),
-                    True
-                ))
-            conn.commit()
-            print(f"Added {len(test_users)} test users to database")
+# Removed automatic test user creation - users will be added via GUI
 
 # Home Assistant API helper
 def call_ha_service(domain, service, entity_id=None, service_data=None):
@@ -334,11 +293,11 @@ def handle_card_scan():
     card_id = data.get('card')
     reader_location = data.get('reader', 'unknown')
     
-    # Find user by card
+    # Always log the attempt first - this ensures live monitoring shows all swipes
     user = get_user_by_credential(card_id, 'card')
     
     if user:
-        # Check if access is allowed
+        # Registered card - check if access is allowed
         allowed, reason = is_access_allowed(user, reader_location)
         
         if allowed:
@@ -355,11 +314,11 @@ def handle_card_scan():
             
             return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
         else:
-            # Log failed access
+            # Registered card but access denied (outside hours, etc.)
             log_access_attempt(user['id'], user['name'], reader_location, card_id, 'card', False, reader_location, reason)
     else:
-        # Unknown card
-        log_access_attempt(None, 'Unknown', reader_location, card_id, 'card', False, reader_location, 'Unknown card')
+        # Unregistered card - log as unknown
+        log_access_attempt(None, 'Unregistered Card', reader_location, card_id, 'card', False, reader_location, 'Card not in system')
     
     # Access denied - red LED and failure buzzer
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
@@ -373,11 +332,11 @@ def handle_pin_entry():
     pin = data.get('pin')
     reader_location = data.get('reader', 'unknown')
     
-    # Find user by PIN
+    # Always log the attempt first - this ensures live monitoring shows all PIN entries
     user = get_user_by_credential(pin, 'pin')
     
     if user:
-        # Check if access is allowed
+        # Registered PIN - check if access is allowed
         allowed, reason = is_access_allowed(user, reader_location)
         
         if allowed:
@@ -394,11 +353,11 @@ def handle_pin_entry():
             
             return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
         else:
-            # Log failed access
+            # Registered PIN but access denied
             log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', False, reader_location, reason)
     else:
-        # Unknown PIN
-        log_access_attempt(None, 'Unknown', reader_location, pin, 'pin', False, reader_location, 'Unknown PIN')
+        # Unregistered PIN - log as unknown
+        log_access_attempt(None, 'Unregistered PIN', reader_location, pin, 'pin', False, reader_location, 'PIN not in system')
     
     # Access denied
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
@@ -422,5 +381,4 @@ def handle_request_exit():
 
 if __name__ == '__main__':
     init_db()
-    add_test_users()
     app.run(host='0.0.0.0', port=8099, debug=True)
