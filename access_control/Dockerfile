@@ -1,29 +1,42 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM $BUILD_FROM
 
-ENV LANG=C.UTF-8
-
-# Install requirements
+# Install Python and dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     sqlite
 
+# Set working directory
 WORKDIR /app
 
-# Copy and install requirements
+# Copy requirements and install Python packages
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Copy app files
+# Copy app files (this includes both main.py and templates/ subdirectory)
 COPY app/ ./app/
-COPY templates/ ./templates/
+
+# Copy configuration files
+COPY config.yaml ./
 COPY run.sh ./
 
-# Debug: List files to verify they're copied
-RUN ls -la /app/
-RUN ls -la /app/templates/
+# Create data directory
+RUN mkdir -p /data
 
-RUN chmod a+x run.sh
+# Make run script executable
+RUN chmod +x run.sh
 
+# Expose port
+EXPOSE 8099
+
+# Labels
+LABEL \
+    io.hass.name="Access Control System" \
+    io.hass.description="ESP32 Wiegand Access Control System" \
+    io.hass.arch="amd64|aarch64|armv7" \
+    io.hass.type="addon" \
+    io.hass.version="1.0.0"
+
+# Run the application
 CMD ["./run.sh"]
