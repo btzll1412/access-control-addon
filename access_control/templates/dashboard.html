@@ -446,6 +446,7 @@
             <div class="nav">
                 <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
                 <button class="nav-btn" onclick="showSection('users')">Users</button>
+                <button class="nav-btn" onclick="showSection('doors')">Doors</button>
                 <button class="nav-btn" onclick="showSection('door-groups')">Door Groups</button>
                 <button class="nav-btn" onclick="showSection('time-schedules')">Time Schedules</button>
                 <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
@@ -515,6 +516,33 @@
                                 <th>Time Schedules</th>
                                 <th>Status</th>
                                 <th>Valid Until</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Doors Section -->
+            <div id="doors" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>Door Management</h2>
+                    <div>
+                        <button class="btn btn-secondary" onclick="discoverDoors()" style="margin-right: 10px;">Discover from HA</button>
+                        <button class="btn" onclick="openDoorModal()">Add Manual Door</button>
+                    </div>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="doors-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Entity ID</th>
+                                <th>Location</th>
+                                <th>Domain</th>
+                                <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -680,6 +708,61 @@
         </div>
     </div>
 
+    <!-- Door Management Modal -->
+    <div id="door-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDoorModal()">&times;</span>
+            <h3 id="door-modal-title">Add New Door</h3>
+            <form id="door-form">
+                <div class="form-group">
+                    <label>Door Name:</label>
+                    <input type="text" id="door-name" required placeholder="e.g., Main Entrance, Loading Dock">
+                </div>
+                
+                <div class="form-group">
+                    <label>Home Assistant Entity ID:</label>
+                    <input type="text" id="door-entity-id" required placeholder="e.g., switch.door_edge_1_lock_relay_door1">
+                    <small>The entity ID that controls this door/lock in Home Assistant</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Reader Location:</label>
+                    <input type="text" id="door-location" placeholder="e.g., door-edge-1, main-entrance">
+                    <small>Location identifier sent by your card readers</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="door-active" checked> Active Door
+                    </label>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Door</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeDoorModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Door Discovery Modal -->
+    <div id="discovery-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDiscoveryModal()">&times;</span>
+            <h3>Discover Doors from Home Assistant</h3>
+            <p>Select which entities should be managed as doors:</p>
+            
+            <div id="discovered-entities" style="max-height: 400px; overflow-y: auto;">
+                <!-- Entities will be populated here -->
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <button class="btn" onclick="syncSelectedDoors()">Add Selected Doors</button>
+                <button class="btn btn-secondary" onclick="closeDiscoveryModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Door Group Modal -->
     <div id="door-group-modal" class="modal">
         <div class="modal-content">
@@ -819,13 +902,16 @@
     <script>
         // Global variables
         let currentUsers = [];
+        let currentDoors = [];
         let currentDoorGroups = [];
         let currentTimeSchedules = [];
         let userCards = [];
         let userPins = [];
         let editingUserId = null;
+        let editingDoorId = null;
         let editingDoorGroupId = null;
         let editingTimeScheduleId = null;
+        let discoveredEntities = [];
 
         // Navigation
         function showSection(sectionId) {
@@ -846,6 +932,9 @@
                     break;
                 case 'users':
                     loadUsers();
+                    break;
+                case 'doors':
+                    loadDoors();
                     break;
                 case 'door-groups':
                     loadDoorGroups();
