@@ -31,6 +31,7 @@ def init_db():
                 name TEXT NOT NULL,
                 card_ids TEXT DEFAULT '[]',
                 pin_codes TEXT DEFAULT '[]',
+                groups TEXT DEFAULT '[]',
                 door_groups TEXT DEFAULT '[]',
                 time_schedules TEXT DEFAULT '[]',
                 active BOOLEAN DEFAULT 1,
@@ -87,6 +88,94 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+        
+        # Migrate existing users from old structure to new structure
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE door_groups IS NULL OR door_groups = ''")
+        users_to_migrate = cursor.fetchall()
+        
+        for user in users_to_migrate:
+            # Convert old 'groups' to new 'door_groups', keep 'time_schedules' empty for now
+            old_groups = json.loads(user['groups']) if user['groups'] else []
+            conn.execute('''
+                UPDATE users 
+                SET door_groups = ?, time_schedules = ?
+                WHERE id = ?
+            ''', (json.dumps(old_groups), json.dumps([]), user['id']))
+        
+        conn.commit()
+        print("Database migration completed")
+        
+        # Add default door groups and schedules if none exist
+        cursor.execute('SELECT COUNT(*) FROM user_groups')
+        group_count = cursor.fetchone()[0]
+        
+        if group_count == 0:
+            default_groups = [
+                {
+                    'name': 'Main Access',
+                    'description': 'Access to main entrance doors',
+                    'color': '#2196F3',
+                    'doors': ['door-edge-1', 'main-entrance']
+                },
+                {
+                    'name': 'All Areas',
+                    'description': 'Access to all doors and areas',
+                    'color': '#4CAF50', 
+                    'doors': ['door-edge-1', 'main-entrance', 'emergency-exit', 'loading-dock']
+                }
+            ]
+            
+            for group in default_groups:
+                conn.execute('''
+                    INSERT INTO user_groups (name, description, color, doors, active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (group['name'], group['description'], group['color'], json.dumps(group['doors']), True))
+            
+            print(f"Added {len(default_groups)} default door groups")
+        
+        cursor.execute('SELECT COUNT(*) FROM time_schedules')
+        schedule_count = cursor.fetchone()[0]
+        
+        if schedule_count == 0:
+            default_schedules = [
+                {
+                    'name': 'Business Hours',
+                    'description': 'Standard Monday-Friday 9AM-5PM',
+                    'schedule_data': {
+                        'monday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'tuesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'wednesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'thursday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'friday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'saturday': {'enabled': False},
+                        'sunday': {'enabled': False}
+                    }
+                },
+                {
+                    'name': '24/7 Access',
+                    'description': 'Unrestricted access all day, every day',
+                    'schedule_data': {
+                        'monday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'tuesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'wednesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'thursday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'friday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'saturday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'sunday': {'enabled': True, 'start': '00:00', 'end': '23:59'}
+                    }
+                }
+            ]
+            
+            for schedule in default_schedules:
+                conn.execute('''
+                    INSERT INTO time_schedules (name, description, schedule_data, active)
+                    VALUES (?, ?, ?, ?)
+                ''', (schedule['name'], schedule['description'], json.dumps(schedule['schedule_data']), True))
+            
+            print(f"Added {len(default_schedules)} default time schedules")
+        
+        conn.commit()
 
 # Removed automatic test user creation - users will be added via GUI
 
@@ -122,11 +211,11 @@ def get_user_by_credential(credential, credential_type):
         for user in users:
             if credential_type == 'card':
                 card_ids = json.loads(user['card_ids'])
-                if credential in card_ids:
+                if str(credential) in [str(card) for card in card_ids]:
                     return dict(user)
             elif credential_type == 'pin':
                 pin_codes = json.loads(user['pin_codes'])
-                if credential in pin_codes:
+                if str(credential) in [str(pin) for pin in pin_codes]:
                     return dict(user)
     return None
 
@@ -138,72 +227,57 @@ def is_access_allowed(user, door_id, current_time=None):
     if not user:
         return True, "No restrictions"
     
-    user_door_groups = json.loads(user.get('door_groups', '[]')) if user.get('door_groups') else []
-    user_schedules = json.loads(user.get('time_schedules', '[]')) if user.get('time_schedules') else []
+    # Handle both old and new user structure
+    user_door_groups = []
+    user_schedules = []
+    
+    # Try new structure first
+    if 'door_groups' in user and user['door_groups']:
+        user_door_groups = json.loads(user['door_groups'])
+    elif 'groups' in user and user['groups']:
+        # Fallback to old structure
+        user_door_groups = json.loads(user['groups'])
+    
+    if 'time_schedules' in user and user['time_schedules']:
+        user_schedules = json.loads(user['time_schedules'])
     
     # If no groups or schedules assigned, allow access
     if not user_door_groups and not user_schedules:
         return True, "No schedule restrictions"
     
-    # Check door access - user must have a group that includes this door
-    if user_door_groups:
-        has_door_access = False
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM user_groups WHERE active = 1')
-            door_groups = cursor.fetchall()
-        
-        for group_name in user_door_groups:
-            group = next((g for g in door_groups if g['name'] == group_name), None)
-            if group:
-                group_doors = json.loads(group['doors'])
-                if door_id in group_doors:
-                    has_door_access = True
-                    break
-        
-        if not has_door_access:
-            return False, f"No access to {door_id}"
+    # If no time schedules, allow access (only door group restriction)
+    if not user_schedules:
+        return True, "No schedule restrictions"
     
-    # Check time restrictions
-    if user_schedules:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM time_schedules WHERE active = 1')
-            schedules = cursor.fetchall()
-        
-        # Check each assigned schedule
-        current_weekday = current_time.strftime('%A').lower()
-        current_time_str = current_time.strftime('%H:%M')
-        
-        for schedule_name in user_schedules:
-            schedule = next((s for s in schedules if s['name'] == schedule_name), None)
-            if schedule:
-                schedule_data = json.loads(schedule['schedule_data'])
-                
-                # Check if current day has time restrictions
-                if current_weekday in schedule_data:
-                    day_schedule = schedule_data[current_weekday]
-                    if day_schedule.get('enabled', True):
-                        start_time = day_schedule.get('start', '00:00')
-                        end_time = day_schedule.get('end', '23:59')
-                        
-                        if start_time <= current_time_str <= end_time:
-                            return True, f"Access granted - {schedule['name']}"
-                        else:
-                            return False, f"Outside allowed hours ({start_time}-{end_time})"
-                
-                # Check for special date overrides
-                current_date = current_time.strftime('%Y-%m-%d')
-                if 'dates' in schedule_data and current_date in schedule_data['dates']:
-                    date_schedule = schedule_data['dates'][current_date]
-                    if date_schedule.get('blocked', False):
-                        return False, f"Access blocked - {date_schedule.get('reason', 'Special date restriction')}"
-        
-        # If user has schedules but none currently allow access
-        return False, "Outside permitted hours"
+    # Check time restrictions if user has schedules
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM time_schedules WHERE active = 1')
+        schedules = cursor.fetchall()
     
-    # If we get here, user has door access but no time restrictions
-    return True, "Access granted"
+    # Check each assigned schedule
+    current_weekday = current_time.strftime('%A').lower()
+    current_time_str = current_time.strftime('%H:%M')
+    
+    for schedule_name in user_schedules:
+        schedule = next((s for s in schedules if s['name'] == schedule_name), None)
+        if schedule:
+            schedule_data = json.loads(schedule['schedule_data'])
+            
+            # Check if current day has time restrictions
+            if current_weekday in schedule_data:
+                day_schedule = schedule_data[current_weekday]
+                if day_schedule.get('enabled', True):
+                    start_time = day_schedule.get('start', '00:00')
+                    end_time = day_schedule.get('end', '23:59')
+                    
+                    if start_time <= current_time_str <= end_time:
+                        return True, f"Access granted - {schedule['name']}"
+                    else:
+                        return False, f"Outside allowed hours ({start_time}-{end_time})"
+    
+    # If user has schedules but none currently allow access
+    return False, "Outside permitted hours"
 
 def log_access_attempt(user_id, user_name, door_id, credential, credential_type, success, reader_location, reason):
     with get_db() as conn:
