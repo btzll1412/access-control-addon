@@ -31,7 +31,8 @@ def init_db():
                 name TEXT NOT NULL,
                 card_ids TEXT DEFAULT '[]',
                 pin_codes TEXT DEFAULT '[]',
-                groups TEXT DEFAULT '[]',
+                door_groups TEXT DEFAULT '[]',
+                time_schedules TEXT DEFAULT '[]',
                 active BOOLEAN DEFAULT 1,
                 valid_from DATE,
                 valid_until DATE,
@@ -72,6 +73,16 @@ def init_db():
                 name TEXT UNIQUE NOT NULL,
                 description TEXT,
                 color TEXT DEFAULT '#667eea',
+                doors TEXT DEFAULT '[]',
+                active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS time_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                schedule_data TEXT DEFAULT '{}',
                 active BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -123,67 +134,76 @@ def is_access_allowed(user, door_id, current_time=None):
     if not current_time:
         current_time = datetime.datetime.now()
     
-    # Check if user has any group assignments
-    if not user or not user.get('groups'):
+    # Check if user has any door groups or schedules
+    if not user:
+        return True, "No restrictions"
+    
+    user_door_groups = json.loads(user.get('door_groups', '[]')) if user.get('door_groups') else []
+    user_schedules = json.loads(user.get('time_schedules', '[]')) if user.get('time_schedules') else []
+    
+    # If no groups or schedules assigned, allow access
+    if not user_door_groups and not user_schedules:
         return True, "No schedule restrictions"
     
-    user_groups = json.loads(user['groups']) if isinstance(user['groups'], str) else user['groups']
-    
-    # Get active schedules for user's groups
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT * FROM schedules 
-            WHERE active = 1
-        ''')
-        schedules = cursor.fetchall()
-    
-    # Check each schedule to see if user's groups are included
-    applicable_schedules = []
-    for schedule in schedules:
-        schedule_groups = json.loads(schedule['groups'])
-        if any(group in schedule_groups for group in user_groups):
-            applicable_schedules.append(schedule)
-    
-    # If no applicable schedules, allow access
-    if not applicable_schedules:
-        return True, "No schedule restrictions"
-    
-    # Check time against applicable schedules
-    current_weekday = current_time.strftime('%A').lower()
-    current_time_str = current_time.strftime('%H:%M')
-    
-    for schedule in applicable_schedules:
-        schedule_data = json.loads(schedule['schedule_data'])
+    # Check door access - user must have a group that includes this door
+    if user_door_groups:
+        has_door_access = False
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_groups WHERE active = 1')
+            door_groups = cursor.fetchall()
         
-        # Check if current day has time restrictions
-        if current_weekday in schedule_data:
-            day_schedule = schedule_data[current_weekday]
-            if day_schedule.get('enabled', True):
-                start_time = day_schedule.get('start', '00:00')
-                end_time = day_schedule.get('end', '23:59')
+        for group_name in user_door_groups:
+            group = next((g for g in door_groups if g['name'] == group_name), None)
+            if group:
+                group_doors = json.loads(group['doors'])
+                if door_id in group_doors:
+                    has_door_access = True
+                    break
+        
+        if not has_door_access:
+            return False, f"No access to {door_id}"
+    
+    # Check time restrictions
+    if user_schedules:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM time_schedules WHERE active = 1')
+            schedules = cursor.fetchall()
+        
+        # Check each assigned schedule
+        current_weekday = current_time.strftime('%A').lower()
+        current_time_str = current_time.strftime('%H:%M')
+        
+        for schedule_name in user_schedules:
+            schedule = next((s for s in schedules if s['name'] == schedule_name), None)
+            if schedule:
+                schedule_data = json.loads(schedule['schedule_data'])
                 
-                if start_time <= current_time_str <= end_time:
-                    return True, f"Access granted - {schedule['name']}"
-                else:
-                    return False, f"Outside allowed hours ({start_time}-{end_time})"
+                # Check if current day has time restrictions
+                if current_weekday in schedule_data:
+                    day_schedule = schedule_data[current_weekday]
+                    if day_schedule.get('enabled', True):
+                        start_time = day_schedule.get('start', '00:00')
+                        end_time = day_schedule.get('end', '23:59')
+                        
+                        if start_time <= current_time_str <= end_time:
+                            return True, f"Access granted - {schedule['name']}"
+                        else:
+                            return False, f"Outside allowed hours ({start_time}-{end_time})"
+                
+                # Check for special date overrides
+                current_date = current_time.strftime('%Y-%m-%d')
+                if 'dates' in schedule_data and current_date in schedule_data['dates']:
+                    date_schedule = schedule_data['dates'][current_date]
+                    if date_schedule.get('blocked', False):
+                        return False, f"Access blocked - {date_schedule.get('reason', 'Special date restriction')}"
         
-        # Check for special date overrides
-        current_date = current_time.strftime('%Y-%m-%d')
-        if 'dates' in schedule_data and current_date in schedule_data['dates']:
-            date_schedule = schedule_data['dates'][current_date]
-            if date_schedule.get('blocked', False):
-                return False, f"Access blocked - {date_schedule.get('reason', 'Special date restriction')}"
-            elif 'start' in date_schedule and 'end' in date_schedule:
-                start_time = date_schedule['start']
-                end_time = date_schedule['end']
-                if start_time <= current_time_str <= end_time:
-                    return True, f"Special schedule access - {schedule['name']}"
-                else:
-                    return False, f"Outside special hours ({start_time}-{end_time})"
+        # If user has schedules but none currently allow access
+        return False, "Outside permitted hours"
     
-    # If we get here, user is subject to schedules but none currently allow access
-    return False, "Outside permitted hours"
+    # If we get here, user has door access but no time restrictions
+    return True, "Access granted"
 
 def log_access_attempt(user_id, user_name, door_id, credential, credential_type, success, reader_location, reason):
     with get_db() as conn:
@@ -247,11 +267,18 @@ def get_users():
         cursor.execute('SELECT * FROM users ORDER BY name')
         users = [dict(row) for row in cursor.fetchall()]
         
-        # Parse JSON fields
+        # Parse JSON fields and handle both old and new column names
         for user in users:
             user['card_ids'] = json.loads(user['card_ids'])
             user['pin_codes'] = json.loads(user['pin_codes'])
-            user['groups'] = json.loads(user['groups'])
+            
+            # Handle migration from old 'groups' to new structure
+            if 'groups' in user and user['groups']:
+                user['door_groups'] = json.loads(user['groups'])
+                user['time_schedules'] = []
+            else:
+                user['door_groups'] = json.loads(user.get('door_groups', '[]'))
+                user['time_schedules'] = json.loads(user.get('time_schedules', '[]'))
     
     return jsonify(users)
 
@@ -261,13 +288,14 @@ def create_user():
     
     with get_db() as conn:
         conn.execute('''
-            INSERT INTO users (name, card_ids, pin_codes, groups, active, valid_from, valid_until)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (name, card_ids, pin_codes, door_groups, time_schedules, active, valid_from, valid_until)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['name'],
             json.dumps(data.get('card_ids', [])),
             json.dumps(data.get('pin_codes', [])),
-            json.dumps(data.get('groups', [])),
+            json.dumps(data.get('door_groups', [])),
+            json.dumps(data.get('time_schedules', [])),
             data.get('active', True),
             data.get('valid_from'),
             data.get('valid_until')
@@ -283,13 +311,14 @@ def update_user(user_id):
     with get_db() as conn:
         conn.execute('''
             UPDATE users 
-            SET name=?, card_ids=?, pin_codes=?, groups=?, active=?, valid_from=?, valid_until=?
+            SET name=?, card_ids=?, pin_codes=?, door_groups=?, time_schedules=?, active=?, valid_from=?, valid_until=?
             WHERE id=?
         ''', (
             data['name'],
             json.dumps(data.get('card_ids', [])),
             json.dumps(data.get('pin_codes', [])),
-            json.dumps(data.get('groups', [])),
+            json.dumps(data.get('door_groups', [])),
+            json.dumps(data.get('time_schedules', [])),
             data.get('active', True),
             data.get('valid_from'),
             data.get('valid_until'),
@@ -491,12 +520,13 @@ def create_user_group():
     
     with get_db() as conn:
         conn.execute('''
-            INSERT INTO user_groups (name, description, color, active)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO user_groups (name, description, color, doors, active)
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             data['name'],
             data.get('description', ''),
             data.get('color', '#667eea'),
+            json.dumps(data.get('doors', [])),
             data.get('active', True)
         ))
         conn.commit()
@@ -511,12 +541,13 @@ def update_user_group(group_id):
     with get_db() as conn:
         conn.execute('''
             UPDATE user_groups 
-            SET name=?, description=?, color=?, active=?
+            SET name=?, description=?, color=?, doors=?, active=?
             WHERE id=?
         ''', (
             data['name'],
             data.get('description', ''),
             data.get('color', '#667eea'),
+            json.dumps(data.get('doors', [])),
             data.get('active', True),
             group_id
         ))
@@ -529,6 +560,75 @@ def delete_user_group(group_id):
     """Delete a user group"""
     with get_db() as conn:
         conn.execute('DELETE FROM user_groups WHERE id=?', (group_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+# Time Schedules Management API
+@app.route('/api/time-schedules', methods=['GET'])
+def get_time_schedules():
+    """Get all time schedules"""
+    try:
+        init_db()
+    except:
+        pass
+        
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM time_schedules ORDER BY name')
+        schedules = [dict(row) for row in cursor.fetchall()]
+        
+        # Parse JSON fields
+        for schedule in schedules:
+            schedule['schedule_data'] = json.loads(schedule['schedule_data'])
+    
+    return jsonify(schedules)
+
+@app.route('/api/time-schedules', methods=['POST'])
+def create_time_schedule():
+    """Create a new time schedule"""
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO time_schedules (name, description, schedule_data, active)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            data['name'],
+            data.get('description', ''),
+            json.dumps(data.get('schedule_data', {})),
+            data.get('active', True)
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/time-schedules/<int:schedule_id>', methods=['PUT'])
+def update_time_schedule(schedule_id):
+    """Update an existing time schedule"""
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE time_schedules 
+            SET name=?, description=?, schedule_data=?, active=?
+            WHERE id=?
+        ''', (
+            data['name'],
+            data.get('description', ''),
+            json.dumps(data.get('schedule_data', {})),
+            data.get('active', True),
+            schedule_id
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/time-schedules/<int:schedule_id>', methods=['DELETE'])
+def delete_time_schedule(schedule_id):
+    """Delete a time schedule"""
+    with get_db() as conn:
+        conn.execute('DELETE FROM time_schedules WHERE id=?', (schedule_id,))
         conn.commit()
     
     return jsonify({'success': True})
@@ -591,11 +691,14 @@ def handle_pin_entry():
         pass
     
     data = request.json
-    pin = data.get('pin')
-    reader_location = data.get('reader', 'unknown')
+    # Handle both 'pin' and 'pin_code' field names from automation
+    pin = data.get('pin') or data.get('pin_code') or 'Unknown'
+    reader_location = data.get('reader') or data.get('reader_id') or 'door-edge-1'
+    
+    print(f"PIN entry received: {pin} at {reader_location}")  # Debug logging
     
     # Always log the attempt first - this ensures live monitoring shows all PIN entries
-    user = get_user_by_credential(pin, 'pin')
+    user = get_user_by_credential(str(pin), 'pin')
     
     if user:
         # Registered PIN - check if access is allowed
@@ -607,7 +710,7 @@ def handle_pin_entry():
             success = call_ha_service("switch", "turn_on", door_entity)
             
             # Log successful access
-            log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', True, reader_location, reason)
+            log_access_attempt(user['id'], user['name'], reader_location, str(pin), 'pin', True, reader_location, reason)
             
             # Green LED and success buzzer
             call_ha_service("switch", "turn_on", "switch.door_edge_1_led_green")
@@ -616,10 +719,10 @@ def handle_pin_entry():
             return jsonify({'success': True, 'message': f'Access granted to {user["name"]}'})
         else:
             # Registered PIN but access denied
-            log_access_attempt(user['id'], user['name'], reader_location, pin, 'pin', False, reader_location, reason)
+            log_access_attempt(user['id'], user['name'], reader_location, str(pin), 'pin', False, reader_location, reason)
     else:
         # Unregistered PIN - log with actual PIN visible for admin review
-        log_access_attempt(None, 'Unregistered PIN', reader_location, pin, 'pin', False, reader_location, f'PIN {pin} not in system')
+        log_access_attempt(None, 'Unregistered PIN', reader_location, str(pin), 'pin', False, reader_location, f'PIN {pin} not in system')
     
     # Access denied
     call_ha_service("switch", "turn_on", "switch.door_edge_1_led_red")
