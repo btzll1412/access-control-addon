@@ -1056,50 +1056,70 @@
 
         // User modal functions
         function openUserModal(userId = null) {
-            const modal = document.getElementById('user-modal');
-            const title = document.getElementById('user-modal-title');
+    const modal = document.getElementById('user-modal');
+    const title = document.getElementById('user-modal-title');
+    
+    // Load door groups and time schedules for selection
+    updateUserFormSelects();
+    
+    if (userId) {
+        title.textContent = 'Edit User';
+        editingUserId = userId;
+        const user = currentUsers.find(u => u.id === userId);
+        if (user) {
+            document.getElementById('user-name').value = user.name;
+            document.getElementById('user-active').checked = user.active;
+            document.getElementById('valid-until').value = user.valid_until || '';
+            userCards = [...(user.card_ids || [])];
+            userPins = [...(user.pin_codes || [])];
+            updateCardList();
+            updatePinList();
             
-            // Load door groups and time schedules for selection
-            updateUserFormSelects();
-            
-            if (userId) {
-                title.textContent = 'Edit User';
-                editingUserId = userId;
-                const user = currentUsers.find(u => u.id === userId);
-                if (user) {
-                    document.getElementById('user-name').value = user.name;
-                    document.getElementById('user-active').checked = user.active;
-                    document.getElementById('valid-until').value = user.valid_until || '';
-                    userCards = [...(user.card_ids || [])];
-                    userPins = [...(user.pin_codes || [])];
-                    updateCardList();
-                    updatePinList();
-                    
-                    // Select door groups
-                    const doorGroupSelect = document.getElementById('door-group-select');
-                    Array.from(doorGroupSelect.options).forEach(option => {
-                        option.selected = (user.door_groups || []).includes(option.value);
-                    });
+            // CLEAR ALL SELECTIONS FIRST
+            const doorGroupSelect = document.getElementById('door-group-select');
+            Array.from(doorGroupSelect.options).forEach(option => {
+                option.selected = false;
+            });
 
-                    // Select time schedules
-                    const timeScheduleSelect = document.getElementById('time-schedule-select');
-                    Array.from(timeScheduleSelect.options).forEach(option => {
-                        option.selected = (user.time_schedules || []).includes(option.value);
-                    });
-                }
-            } else {
-                title.textContent = 'Add New User';
-                editingUserId = null;
-                document.getElementById('user-form').reset();
-                userCards = [];
-                userPins = [];
-                updateCardList();
-                updatePinList();
-            }
+            const timeScheduleSelect = document.getElementById('time-schedule-select');
+            Array.from(timeScheduleSelect.options).forEach(option => {
+                option.selected = false;
+            });
             
-            modal.style.display = 'block';
+            // Only select what user actually has
+            Array.from(doorGroupSelect.options).forEach(option => {
+                option.selected = (user.door_groups || []).includes(option.value);
+            });
+
+            Array.from(timeScheduleSelect.options).forEach(option => {
+                option.selected = (user.time_schedules || []).includes(option.value);
+            });
         }
-
+    } else {
+        title.textContent = 'Add New User';
+        editingUserId = null;
+        document.getElementById('user-form').reset();
+        userCards = [];
+        userPins = [];
+        updateCardList();
+        updatePinList();
+        
+        // ENSURE NO AUTO-SELECTION FOR NEW USERS
+        setTimeout(() => {
+            const doorGroupSelect = document.getElementById('door-group-select');
+            const timeScheduleSelect = document.getElementById('time-schedule-select');
+            
+            Array.from(doorGroupSelect.options).forEach(option => {
+                option.selected = false;
+            });
+            Array.from(timeScheduleSelect.options).forEach(option => {
+                option.selected = false;
+            });
+        }, 100);
+    }
+    
+    modal.style.display = 'block';
+}
         function closeUserModal() {
             document.getElementById('user-modal').style.display = 'none';
         }
