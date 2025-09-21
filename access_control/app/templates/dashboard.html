@@ -917,54 +917,180 @@
             });
         }
 
-        // Door Group management
-        async function loadDoorGroups() {
-            const groups = await apiCall('/door-groups');
-            const doors = await apiCall('/doors');
-            
-            if (!groups) return;
-            
-            currentDoorGroups = groups;
-            availableDoors = doors || [];
-            
-            const tbody = document.querySelector('#door-groups-table tbody');
-            tbody.innerHTML = '';
-            
-            // Count users in each group
-            const users = await apiCall('/users');
-            
-            groups.forEach(group => {
-                const userCount = users ? users.filter(user => 
-                    (user.door_groups || []).includes(group.name)
-                ).length : 0;
-                
-                // Display doors this group has access to
-                const doorList = (group.doors || []).map(doorId => {
-                    const door = availableDoors.find(d => d.id === doorId);
-                    return door ? door.name : doorId;
-                }).join(', ') || 'No doors';
-                
-                const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td>
-                        <span class="group-tag" style="background-color: ${group.color}; color: white;">${group.name}</span>
-                    </td>
-                    <td>${group.description || 'No description'}</td>
-                    <td>
-                        <div style="width: 30px; height: 20px; background-color: ${group.color}; border-radius: 4px; display: inline-block;"></div>
-                        ${group.color}
-                    </td>
-                    <td>${doorList}</td>
-                    <td><span class="${group.active ? 'status-success' : 'status-failed'}">${group.active ? 'Active' : 'Inactive'}</span></td>
-                    <td>${userCount} users</td>
-                    <td>
-                        <button class="btn btn-secondary" onclick="editDoorGroup(${group.id})" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
-                        <button class="btn btn-danger" onclick="deleteDoorGroup(${group.id})" style="padding: 6px 12px; font-size: 12px;">Delete</button>
-                    </td>
-                `;
-            });
-        }
+        // Door Group Management Functions
+async function loadDoorGroups() {
+    const groups = await apiCall('/door-groups');
+    const doors = await apiCall('/doors');
+    
+    if (!groups) return;
+    
+    currentDoorGroups = groups;
+    availableDoors = doors || [];
+    
+    const tbody = document.querySelector('#door-groups-table tbody');
+    tbody.innerHTML = '';
+    
+    // Count users in each group
+    const users = await apiCall('/users');
+    
+    groups.forEach(group => {
+        const userCount = users ? users.filter(user => 
+            (user.door_groups || []).includes(group.name)
+        ).length : 0;
+        
+        // Display doors this group has access to
+        const doorList = (group.doors || []).map(doorId => {
+            const door = availableDoors.find(d => d.id === doorId);
+            return door ? door.name : doorId;
+        }).join(', ') || 'No doors';
+        
+        const row = tbody.insertRow();
+        row.innerHTML = `
+            <td>
+                <span class="group-tag" style="background-color: ${group.color}; color: white;">${group.name}</span>
+            </td>
+            <td>${group.description || 'No description'}</td>
+            <td>
+                <div style="width: 30px; height: 20px; background-color: ${group.color}; border-radius: 4px; display: inline-block;"></div>
+                ${group.color}
+            </td>
+            <td>${doorList}</td>
+            <td><span class="${group.active ? 'status-success' : 'status-failed'}">${group.active ? 'Active' : 'Inactive'}</span></td>
+            <td>${userCount} users</td>
+            <td>
+                <button class="btn btn-secondary" onclick="editDoorGroup(${group.id})" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
+                <button class="btn btn-danger" onclick="deleteDoorGroup(${group.id})" style="padding: 6px 12px; font-size: 12px;">Delete</button>
+            </td>
+        `;
+    });
+}
 
+// Load available doors for selection
+async function updateDoorSelection() {
+    const doors = await apiCall('/doors');
+    const doorSelect = document.getElementById('door-access-select');
+    
+    if (doorSelect && doors) {
+        doorSelect.innerHTML = '';
+        doors.forEach(door => {
+            if (door.active) {
+                const option = document.createElement('option');
+                option.value = door.id;
+                option.textContent = `${door.name} (${door.entity_id})`;
+                doorSelect.appendChild(option);
+            }
+        });
+        availableDoors = doors;
+    }
+}
+
+// Door group modal functions
+function openDoorGroupModal(groupId = null) {
+    const modal = document.getElementById('door-group-modal');
+    const title = document.getElementById('door-group-modal-title');
+    
+    // Load available doors for selection
+    updateDoorSelection();
+    
+    if (groupId) {
+        title.textContent = 'Edit Door Group';
+        editingDoorGroupId = groupId;
+        const group = currentDoorGroups.find(g => g.id === groupId);
+        if (group) {
+            document.getElementById('door-group-name').value = group.name;
+            document.getElementById('door-group-description').value = group.description || '';
+            document.getElementById('door-group-color').value = group.color;
+            document.getElementById('door-group-active').checked = group.active;
+            
+            // Select doors this group has access to
+            setTimeout(() => {
+                const doorSelect = document.getElementById('door-access-select');
+                Array.from(doorSelect.options).forEach(option => {
+                    option.selected = (group.doors || []).includes(option.value);
+                });
+            }, 100);
+        }
+    } else {
+        title.textContent = 'Add New Door Group';
+        editingDoorGroupId = null;
+        document.getElementById('door-group-form').reset();
+        document.getElementById('door-group-color').value = '#667eea';
+    }
+    
+    modal.style.display = 'block';
+}
+
+function closeDoorGroupModal() {
+    document.getElementById('door-group-modal').style.display = 'none';
+}
+
+// Save door group
+async function saveDoorGroup() {
+    const doorSelect = document.getElementById('door-access-select');
+    const selectedDoors = Array.from(doorSelect.selectedOptions).map(option => option.value);
+    
+    const groupData = {
+        name: document.getElementById('door-group-name').value,
+        description: document.getElementById('door-group-description').value,
+        color: document.getElementById('door-group-color').value,
+        doors: selectedDoors,
+        active: document.getElementById('door-group-active').checked
+    };
+    
+    const endpoint = editingDoorGroupId ? `/door-groups/${editingDoorGroupId}` : '/door-groups';
+    const method = editingDoorGroupId ? 'PUT' : 'POST';
+    
+    const result = await apiCall(endpoint, method, groupData);
+    if (result && result.success) {
+        closeDoorGroupModal();
+        loadDoorGroups();
+        addLogEntry(`Door group "${groupData.name}" ${editingDoorGroupId ? 'updated' : 'created'} successfully`, 'success');
+    }
+}
+
+// Edit/Delete functions
+function editDoorGroup(groupId) {
+    openDoorGroupModal(groupId);
+}
+
+async function deleteDoorGroup(groupId) {
+    if (confirm('Are you sure you want to delete this door group? Users assigned to this group will lose their door access.')) {
+        const result = await apiCall(`/door-groups/${groupId}`, 'DELETE');
+        if (result && result.success) {
+            loadDoorGroups();
+            addLogEntry('Door group deleted successfully', 'success');
+        }
+    }
+}
+
+// Discover doors from Home Assistant
+async function discoverDoors() {
+    addLogEntry('Discovering doors from Home Assistant...', 'info');
+    const result = await apiCall('/doors/discover');
+    
+    if (result && result.entities && result.entities.length > 0) {
+        const entities = result.entities;
+        const selected = entities.filter(e => 
+            confirm(`Add door: ${e.name} (${e.entity_id})?`)
+        );
+        
+        if (selected.length > 0) {
+            const syncResult = await apiCall('/doors/sync', 'POST', {entities: selected});
+            if (syncResult && syncResult.success) {
+                addLogEntry(`Discovered and added ${selected.length} doors`, 'success');
+                updateDoorSelection();
+            }
+        }
+    } else {
+        addLogEntry(result?.error || 'No doors discovered', 'failed');
+    }
+}
+
+// Event handler for door group form
+document.getElementById('door-group-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    saveDoorGroup();
+});
         // Time Schedule management
         async function loadTimeSchedules() {
             const schedules = await apiCall('/time-schedules');
