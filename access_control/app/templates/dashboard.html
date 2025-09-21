@@ -1038,7 +1038,7 @@
     return Promise.resolve();
 }
         // User modal functions
-       function openUserModal(userId = null) {
+      function openUserModal(userId = null) {
     const modal = document.getElementById('user-modal');
     const title = document.getElementById('user-modal-title');
     
@@ -1047,6 +1047,10 @@
         editingUserId = userId;
         const user = currentUsers.find(u => u.id === userId);
         if (user) {
+            console.log('Editing user:', user); // DEBUG
+            console.log('User door groups:', user.door_groups); // DEBUG
+            console.log('User time schedules:', user.time_schedules); // DEBUG
+            
             document.getElementById('user-name').value = user.name;
             document.getElementById('user-active').checked = user.active;
             document.getElementById('valid-until').value = user.valid_until || '';
@@ -1055,19 +1059,30 @@
             updateCardList();
             updatePinList();
             
-            // Load the dropdowns FIRST, then select items
+            // Load dropdowns first, then select after a delay
             updateUserFormSelects().then(() => {
-                // FIXED: Properly select door groups
-                const doorGroupSelect = document.getElementById('door-group-select');
-                Array.from(doorGroupSelect.options).forEach(option => {
-                    option.selected = (user.door_groups || []).includes(option.value);
-                });
+                // Add a small delay to ensure DOM is updated
+                setTimeout(() => {
+                    const doorGroupSelect = document.getElementById('door-group-select');
+                    const timeScheduleSelect = document.getElementById('time-schedule-select');
+                    
+                    console.log('Door group options:', Array.from(doorGroupSelect.options).map(o => o.value)); // DEBUG
+                    console.log('Time schedule options:', Array.from(timeScheduleSelect.options).map(o => o.value)); // DEBUG
+                    
+                    // Select door groups
+                    Array.from(doorGroupSelect.options).forEach(option => {
+                        const shouldSelect = (user.door_groups || []).includes(option.value);
+                        option.selected = shouldSelect;
+                        console.log(`Door group ${option.value}: ${shouldSelect}`); // DEBUG
+                    });
 
-                // FIXED: Properly select time schedules
-                const timeScheduleSelect = document.getElementById('time-schedule-select');
-                Array.from(timeScheduleSelect.options).forEach(option => {
-                    option.selected = (user.time_schedules || []).includes(option.value);
-                });
+                    // Select time schedules  
+                    Array.from(timeScheduleSelect.options).forEach(option => {
+                        const shouldSelect = (user.time_schedules || []).includes(option.value);
+                        option.selected = shouldSelect;
+                        console.log(`Time schedule ${option.value}: ${shouldSelect}`); // DEBUG
+                    });
+                }, 200);
             });
         }
     } else {
@@ -1078,8 +1093,6 @@
         userPins = [];
         updateCardList();
         updatePinList();
-        
-        // Load dropdowns with nothing selected for new users
         updateUserFormSelects();
     }
     
