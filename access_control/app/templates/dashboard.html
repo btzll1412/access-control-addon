@@ -1055,12 +1055,9 @@
         }
 
         // User modal functions
-        function openUserModal(userId = null) {
+       function openUserModal(userId = null) {
     const modal = document.getElementById('user-modal');
     const title = document.getElementById('user-modal-title');
-    
-    // Load door groups and time schedules for selection
-    updateUserFormSelects();
     
     if (userId) {
         title.textContent = 'Edit User';
@@ -1075,24 +1072,19 @@
             updateCardList();
             updatePinList();
             
-            // CLEAR ALL SELECTIONS FIRST
-            const doorGroupSelect = document.getElementById('door-group-select');
-            Array.from(doorGroupSelect.options).forEach(option => {
-                option.selected = false;
-            });
+            // Load the dropdowns FIRST, then select items
+            updateUserFormSelects().then(() => {
+                // FIXED: Properly select door groups
+                const doorGroupSelect = document.getElementById('door-group-select');
+                Array.from(doorGroupSelect.options).forEach(option => {
+                    option.selected = (user.door_groups || []).includes(option.value);
+                });
 
-            const timeScheduleSelect = document.getElementById('time-schedule-select');
-            Array.from(timeScheduleSelect.options).forEach(option => {
-                option.selected = false;
-            });
-            
-            // Only select what user actually has
-            Array.from(doorGroupSelect.options).forEach(option => {
-                option.selected = (user.door_groups || []).includes(option.value);
-            });
-
-            Array.from(timeScheduleSelect.options).forEach(option => {
-                option.selected = (user.time_schedules || []).includes(option.value);
+                // FIXED: Properly select time schedules
+                const timeScheduleSelect = document.getElementById('time-schedule-select');
+                Array.from(timeScheduleSelect.options).forEach(option => {
+                    option.selected = (user.time_schedules || []).includes(option.value);
+                });
             });
         }
     } else {
@@ -1104,18 +1096,8 @@
         updateCardList();
         updatePinList();
         
-        // ENSURE NO AUTO-SELECTION FOR NEW USERS
-        setTimeout(() => {
-            const doorGroupSelect = document.getElementById('door-group-select');
-            const timeScheduleSelect = document.getElementById('time-schedule-select');
-            
-            Array.from(doorGroupSelect.options).forEach(option => {
-                option.selected = false;
-            });
-            Array.from(timeScheduleSelect.options).forEach(option => {
-                option.selected = false;
-            });
-        }, 100);
+        // Load dropdowns with nothing selected for new users
+        updateUserFormSelects();
     }
     
     modal.style.display = 'block';
