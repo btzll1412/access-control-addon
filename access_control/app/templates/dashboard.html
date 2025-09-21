@@ -1004,56 +1004,39 @@
 
         // Load door groups and time schedules for user selection
         async function updateUserFormSelects() {
-            // Load door groups
-            const doorGroups = await apiCall('/door-groups');
-            const doorGroupSelect = document.getElementById('door-group-select');
-            if (doorGroupSelect && doorGroups) {
-                doorGroupSelect.innerHTML = '';
-                doorGroups.forEach(group => {
-                    if (group.active) {
-                        const option = document.createElement('option');
-                        option.value = group.name;
-                        option.textContent = `${group.name} (${group.doors ? group.doors.length : 0} doors)`;
-                        doorGroupSelect.appendChild(option);
-                    }
-                });
+    // Load door groups
+    const doorGroups = await apiCall('/door-groups');
+    const doorGroupSelect = document.getElementById('door-group-select');
+    if (doorGroupSelect && doorGroups) {
+        doorGroupSelect.innerHTML = '';
+        doorGroups.forEach(group => {
+            if (group.active) {
+                const option = document.createElement('option');
+                option.value = group.name;
+                option.textContent = `${group.name} (${group.doors ? group.doors.length : 0} doors)`;
+                doorGroupSelect.appendChild(option);
             }
+        });
+    }
 
-            // Load time schedules
-            const timeSchedules = await apiCall('/time-schedules');
-            const timeScheduleSelect = document.getElementById('time-schedule-select');
-            if (timeScheduleSelect && timeSchedules) {
-                timeScheduleSelect.innerHTML = '';
-                timeSchedules.forEach(schedule => {
-                    if (schedule.active) {
-                        const option = document.createElement('option');
-                        option.value = schedule.name;
-                        option.textContent = schedule.name;
-                        timeScheduleSelect.appendChild(option);
-                    }
-                });
+    // Load time schedules
+    const timeSchedules = await apiCall('/time-schedules');
+    const timeScheduleSelect = document.getElementById('time-schedule-select');
+    if (timeScheduleSelect && timeSchedules) {
+        timeScheduleSelect.innerHTML = '';
+        timeSchedules.forEach(schedule => {
+            if (schedule.active) {
+                const option = document.createElement('option');
+                option.value = schedule.name;
+                option.textContent = schedule.name;
+                timeScheduleSelect.appendChild(option);
             }
-        }
-
-        // Load available doors for selection
-        async function updateDoorSelection() {
-            const doors = await apiCall('/doors');
-            const doorSelect = document.getElementById('door-access-select');
-            
-            if (doorSelect && doors) {
-                doorSelect.innerHTML = '';
-                doors.forEach(door => {
-                    if (door.active) {
-                        const option = document.createElement('option');
-                        option.value = door.id;
-                        option.textContent = `${door.name} (${door.entity_id})`;
-                        doorSelect.appendChild(option);
-                    }
-                });
-                availableDoors = doors;
-            }
-        }
-
+        });
+    }
+    
+    // Return a promise so we know when it's done
+    return Promise.resolve();
+}
         // User modal functions
        function openUserModal(userId = null) {
     const modal = document.getElementById('user-modal');
