@@ -431,6 +431,7 @@
         <button class="nav-btn" onclick="showSection('schedules')">Time Schedules</button>
         <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
         <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
+        <button class="nav-btn" onclick="showSection('boards')">ESP32 Boards</button>
         <!-- Sync button -->
         <button class="btn" onclick="syncToBoards()" style="background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);">
             🔄 Sync to ESP32
@@ -531,6 +532,31 @@
                 </div>
             </div>
 
+            <!-- ESP32 Boards Section -->
+            <div id="boards" class="section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2>ESP32 Board Management</h2>
+                    <button class="btn" onclick="openBoardModal()">Add New Board</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table" id="boards-table">
+                        <thead>
+                            <tr>
+                                <th>Board Name</th>
+                                <th>Board ID</th>
+                                <th>IP Address</th>
+                                <th>Doors</th>
+                                <th>Status</th>
+                                <th>Last Sync</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Time Schedules Section -->
             <div id="schedules" class="section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
@@ -594,6 +620,8 @@
         </div>
     </div>
 
+
+    
     <!-- User Modal -->
     <div id="user-modal" class="modal">
         <div class="modal-content">
@@ -787,6 +815,64 @@
         </div>
     </div>
 
+    <!-- Board Modal -->
+    <div id="board-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeBoardModal()">&times;</span>
+            <h3 id="board-modal-title">Add New ESP32 Board</h3>
+            <form id="board-form">
+                <div class="form-group">
+                    <label>Board Name:</label>
+                    <input type="text" id="board-name" required placeholder="e.g., Main Entrance Controller">
+                </div>
+                
+                <div class="form-group">
+                    <label>Board ID (ESPHome device name):</label>
+                    <input type="text" id="board-board-id" required placeholder="e.g., door-edge-1">
+                    <small>This must match your ESPHome device name exactly (use underscores, not dashes)</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Entity ID:</label>
+                    <input type="text" id="board-entity-id" placeholder="e.g., esphome.door_edge_1">
+                    <small>Home Assistant entity ID for this board</small>
+                </div>
+
+                <div class="form-group">
+                    <label>IP Address (optional):</label>
+                    <input type="text" id="board-ip" placeholder="e.g., 192.168.1.100">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="board-active" checked> Active Board
+                    </label>
+                </div>
+
+                <h4>Configure Doors on this Board</h4>
+                <div id="board-doors-config">
+                    <div class="form-group">
+                        <label>Door 1 ID:</label>
+                        <input type="text" id="door1-id" placeholder="e.g., door1" value="door1">
+                        <label>Door 1 Name:</label>
+                        <input type="text" id="door1-name" placeholder="e.g., Front Entrance">
+                    </div>
+                    <div class="form-group">
+                        <label>Door 2 ID:</label>
+                        <input type="text" id="door2-id" placeholder="e.g., door2" value="door2">
+                        <label>Door 2 Name:</label>
+                        <input type="text" id="door2-name" placeholder="e.g., Back Entrance">
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <button type="submit" class="btn">Save Board</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeBoardModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Global variables
         let currentUsers = [];
@@ -798,6 +884,8 @@
         let editingUserId = null;
         let editingDoorGroupId = null;
         let editingTimeScheduleId = null;
+        let currentBoards = [];
+        let editingBoardId = null;
 
         // Navigation
         function showSection(sectionId) {
@@ -821,6 +909,9 @@
                     break;
                 case 'groups':
                     loadDoorGroups();
+                    break;
+                case 'boards':  // ADD THIS
+                    loadBoards();
                     break;
                 case 'schedules':
                     loadTimeSchedules();
@@ -1131,6 +1222,127 @@ document.getElementById('door-group-form').addEventListener('submit', function(e
                     </td>
                 `;
             });
+        }
+
+        // Board Management Functions
+        async function loadBoards() {
+            const boards = await apiCall('/boards');
+            if (!boards) return;
+            
+            currentBoards = boards;
+            const tbody = document.querySelector('#boards-table tbody');
+            tbody.innerHTML = '';
+            
+            boards.forEach(board => {
+                const lastSync = board.last_sync ? new Date(board.last_sync).toLocaleString() : 'Never';
+                
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${board.name}</td>
+                    <td><code>${board.board_id}</code></td>
+                    <td>${board.ip_address || 'Not set'}</td>
+                    <td>${board.door_count || 0} doors</td>
+                    <td><span class="${board.active ? 'status-success' : 'status-failed'}">${board.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${lastSync}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="syncSingleBoard('${board.board_id}')" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Sync Now</button>
+                        <button class="btn btn-secondary" onclick="editBoard('${board.id}')" style="margin-right: 5px; padding: 6px 12px; font-size: 12px;">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteBoard('${board.id}')" style="padding: 6px 12px; font-size: 12px;">Delete</button>
+                    </td>
+                `;
+            });
+        }
+
+        function openBoardModal(boardId = null) {
+            const modal = document.getElementById('board-modal');
+            const title = document.getElementById('board-modal-title');
+            
+            if (boardId) {
+                title.textContent = 'Edit ESP32 Board';
+                editingBoardId = boardId;
+                const board = currentBoards.find(b => b.id === boardId);
+                if (board) {
+                    document.getElementById('board-name').value = board.name;
+                    document.getElementById('board-board-id').value = board.board_id;
+                    document.getElementById('board-entity-id').value = board.entity_id || '';
+                    document.getElementById('board-ip').value = board.ip_address || '';
+                    document.getElementById('board-active').checked = board.active;
+                }
+            } else {
+                title.textContent = 'Add New ESP32 Board';
+                editingBoardId = null;
+                document.getElementById('board-form').reset();
+            }
+            
+            modal.style.display = 'block';
+        }
+
+        function closeBoardModal() {
+            document.getElementById('board-modal').style.display = 'none';
+        }
+
+        async function saveBoard() {
+            const boardData = {
+                name: document.getElementById('board-name').value,
+                board_id: document.getElementById('board-board-id').value,
+                entity_id: document.getElementById('board-entity-id').value,
+                ip_address: document.getElementById('board-ip').value,
+                active: document.getElementById('board-active').checked,
+                doors: [
+                    {
+                        id: document.getElementById('door1-id').value,
+                        name: document.getElementById('door1-name').value,
+                        number: 1
+                    },
+                    {
+                        id: document.getElementById('door2-id').value,
+                        name: document.getElementById('door2-name').value,
+                        number: 2
+                    }
+                ]
+            };
+            
+            const endpoint = editingBoardId ? `/boards/${editingBoardId}` : '/boards';
+            const method = editingBoardId ? 'PUT' : 'POST';
+            
+            const result = await apiCall(endpoint, method, boardData);
+            if (result && result.success) {
+                closeBoardModal();
+                loadBoards();
+                addLogEntry(`Board "${boardData.name}" ${editingBoardId ? 'updated' : 'created'} successfully`, 'success');
+                
+                // Auto-sync after adding/updating board
+                if (!editingBoardId) {
+                    addLogEntry('Syncing credentials to new board...', 'info');
+                    await syncSingleBoard(boardData.board_id);
+                }
+            }
+        }
+
+        function editBoard(boardId) {
+            openBoardModal(boardId);
+        }
+
+        async function deleteBoard(boardId) {
+            if (confirm('Are you sure you want to delete this board? This will also remove all door configurations.')) {
+                const result = await apiCall(`/boards/${boardId}`, 'DELETE');
+                if (result && result.success) {
+                    loadBoards();
+                    addLogEntry('Board deleted successfully', 'success');
+                }
+            }
+        }
+
+        async function syncSingleBoard(boardId) {
+            addLogEntry(`Syncing credentials to ${boardId}...`, 'info');
+            const result = await apiCall(`/boards/${boardId}/sync`, 'POST');
+            
+            if (result && result.success) {
+                addLogEntry(`✅ Synced to ${boardId}`, 'success');
+                loadBoards(); // Refresh to show new last_sync time
+            } else {
+                addLogEntry(`❌ Failed to sync to ${boardId}`, 'failed');
+            }
         }
 
         // Load door groups and time schedules for user selection
@@ -1608,6 +1820,11 @@ document.getElementById('door-group-form').addEventListener('submit', function(e
             saveTimeSchedule();
         });
 
+        document.getElementById('board-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveBoard();
+        });
+
         // Allow adding cards/pins with Enter key
         document.getElementById('card-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -1634,7 +1851,7 @@ document.getElementById('door-group-form').addEventListener('submit', function(e
 
         // Close modals when clicking outside
         window.onclick = function(event) {
-            const modals = ['user-modal', 'door-group-modal', 'time-schedule-modal'];
+            const modals = ['user-modal', 'door-group-modal', 'time-schedule-modal', 'board-modal'];
             modals.forEach(modalId => {
                 const modal = document.getElementById(modalId);
                 if (event.target === modal) {
