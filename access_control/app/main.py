@@ -133,10 +133,156 @@ def init_db():
                 active BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+        # ADD THESE TWO NEW TABLES:
+            CREATE TABLE IF NOT EXISTS boards (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                board_id TEXT UNIQUE NOT NULL,
+                entity_id TEXT NOT NULL,
+                ip_address TEXT,
+                active BOOLEAN DEFAULT 1,
+                last_sync DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS board_doors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                board_id TEXT NOT NULL,
+                door_number INTEGER NOT NULL,
+                door_name TEXT NOT NULL,
+                reader_entity TEXT,
+                relay_entity TEXT,
+                FOREIGN KEY (board_id) REFERENCES boards(id)
+            );
         ''')
         
         conn.commit()
         print("Database initialized")
+
+        # BOARDS API
+@app.route('/api/boards', methods=['GET'])
+def get_boards():
+    """Get all ESP32 boards"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM boards ORDER BY name')
+        boards = [dict(row) for row in cursor.fetchall()]
+        
+        # Get door count for each board
+        for board in boards:
+            cursor.execute('SELECT COUNT(*) FROM board_doors WHERE board_id = ?', (board['id'],))
+            result = cursor.fetchone()
+            board['door_count'] = result[0] if result else 0
+    
+    return jsonify(boards)
+
+@app.route('/api/boards', methods=['POST'])
+def create_board():
+    """Create a new ESP32 board"""
+    data = request.json
+    
+    board_id = data['board_id']
+    
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO boards (id, name, board_id, entity_id, ip_address, active)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            board_id,
+            data['name'],
+            board_id,
+            data.get('entity_id', f'esphome.{board_id}'),
+            data.get('ip_address', ''),
+            data.get('active', True)
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/boards/<board_id>', methods=['PUT'])
+def update_board(board_id):
+    """Update an existing board"""
+    data = request.json
+    
+    with get_db() as conn:
+        conn.execute('''
+            UPDATE boards 
+            SET name=?, entity_id=?, ip_address=?, active=?
+            WHERE id=?
+        ''', (
+            data['name'],
+            data.get('entity_id'),
+            data.get('ip_address', ''),
+            data.get('active', True),
+            board_id
+        ))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/boards/<board_id>', methods=['DELETE'])
+def delete_board(board_id):
+    """Delete a board"""
+    with get_db() as conn:
+        conn.execute('DELETE FROM boards WHERE id=?', (board_id,))
+        conn.execute('DELETE FROM board_doors WHERE board_id=?', (board_id,))
+        conn.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/boards/<board_id>/sync', methods=['POST'])
+def sync_single_board(board_id):
+    """Sync credentials to a specific board"""
+    success = asyncio.run(sync_credentials_to_esp32(board_id))
+    
+    if success:
+        # Update last_sync timestamp
+        with get_db() as conn:
+            conn.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE board_id = ?', (board_id,))
+            conn.commit()
+    
+    return jsonify({
+        'success': success,
+        'message': f'Synced to {board_id}' if success else 'Sync failed'
+    })
+
+# LIVE ACCESS LOG ENDPOINT
+@app.route('/api/log-access', methods=['POST'])
+def receive_access_log():
+    """Receive real-time access log from ESP32 board"""
+    try:
+        data = request.json
+        
+        print(f"📥 Received access log from {data.get('board_id', 'unknown')}")
+        print(f"   User: {data.get('user_name', 'Unknown')}")
+        print(f"   Door: {data.get('door_id', 'unknown')}")
+        print(f"   Result: {'✅ SUCCESS' if data.get('success') else '❌ DENIED'}")
+        
+        # Find user by name to get ID
+        user_id = None
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE name = ?', (data.get('user_name', 'Unknown'),))
+            result = cursor.fetchone()
+            if result:
+                user_id = result[0]
+        
+        # Log to database
+        log_access_attempt(
+            user_id=user_id,
+            user_name=data.get('user_name', 'Unknown'),
+            door_id=data.get('door_id', 'unknown'),
+            credential=data.get('credential', ''),
+            credential_type=data.get('credential_type', 'unknown'),
+            success=data.get('success', False),
+            reader_location=data.get('door_id', 'unknown'),
+            reason=data.get('reason', 'ESP32 access')
+        )
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"❌ Error processing access log: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
         
         # Add default door groups if none exist
         cursor = conn.cursor()
@@ -857,16 +1003,37 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
 # ADD NEW API ENDPOINT
 @app.route('/api/sync-to-boards', methods=['POST'])
 def sync_to_all_boards():
-    """Manually trigger credential sync to all boards"""
-    # For now, sync to door-edge-1
-    # Later can expand to multiple boards
-    success = asyncio.run(sync_credentials_to_esp32("door-edge-1"))
+    """Manually trigger credential sync to all active boards"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, board_id FROM boards WHERE active = 1')
+        boards = cursor.fetchall()
+    
+    if not boards:
+        # No boards configured - show helpful error
+        return jsonify({
+            'success': False,
+            'message': 'No boards configured. Please add a board in the ESP32 Boards section first.'
+        })
+    
+    results = []
+    for board in boards:
+        board_id = board['board_id']
+        success = asyncio.run(sync_credentials_to_esp32(board_id))
+        results.append({'board_id': board_id, 'success': success})
+        
+        if success:
+            with get_db() as conn:
+                conn.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board['id'],))
+                conn.commit()
+    
+    all_success = all(r['success'] for r in results)
     
     return jsonify({
-        'success': success,
-        'message': 'Credentials synced to ESP32 boards' if success else 'Sync failed'
+        'success': all_success,
+        'results': results,
+        'message': f'Synced to {len([r for r in results if r["success"]])} of {len(results)} boards'
     })
-
 # UPDATE create_user, update_user, delete_user to auto-sync
 # Add this line at the end of those functions:
 # asyncio.run(sync_credentials_to_esp32("door-edge-1"))
@@ -885,4 +1052,4 @@ def handle_request_exit():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=8099, debug=True)
+    app.run(host='0.0.0.0', port=8100, debug=True)
