@@ -67,6 +67,23 @@ app.jinja_env.cache = {}
 HA_URL = "http://supervisor/core/api"
 HA_TOKEN = None  # Will be set from addon options
 
+# Load HA token from add-on options
+def load_addon_config():
+    global HA_TOKEN
+    try:
+        with open('/data/options.json', 'r') as f:
+            options = json.load(f)
+            HA_TOKEN = options.get('ha_token', None)
+            if HA_TOKEN:
+                print(f"✅ Home Assistant token loaded")
+            else:
+                print(f"⚠️ No Home Assistant token configured")
+    except Exception as e:
+        print(f"⚠️ Could not load add-on config: {e}")
+
+# Call it before init_db()
+load_addon_config()
+
 # Database helper
 @contextmanager
 def get_db():
