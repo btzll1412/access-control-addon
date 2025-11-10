@@ -684,10 +684,7 @@ def after_request(response):
     response.headers['Expires'] = '0'
     return response
 
-# Web Routes
-@app.route('/')
-def dashboard():
-    return render_template('dashboard.html')
+
 
 # DEBUG ROUTE TO TEST TEMPLATE
 @app.route('/debug/template')
