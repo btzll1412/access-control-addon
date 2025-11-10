@@ -28,7 +28,7 @@ RUN mkdir -p /data
 RUN chmod +x run.sh
 
 # Expose port
-EXPOSE 8099
+EXPOSE 8100
 
 # Labels
 LABEL \
