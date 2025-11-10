@@ -8,6 +8,53 @@ from contextlib import contextmanager
 import os
 import asyncio
 
+def get_addon_url():
+    """Detect the accessible URL for this add-on"""
+    
+    # Try to get supervisor info to find our own slug
+    try:
+        supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
+        if supervisor_token:
+            headers = {
+                "Authorization": f"Bearer {supervisor_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Get info about this addon
+            response = requests.get(
+                "http://supervisor/addons/self/info",
+                headers=headers,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                addon_info = response.json()
+                slug = addon_info.get('data', {}).get('slug', '')
+                if slug:
+                    addon_url = f"http://{slug}:8100"
+                    print(f"📍 Detected add-on URL: {addon_url}")
+                    return addon_url
+    except Exception as e:
+        print(f"⚠️ Could not detect add-on URL via supervisor: {e}")
+    
+    # Fallback 1: Try to get local IP
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        addon_url = f"http://{local_ip}:8100"
+        print(f"📍 Using local IP: {addon_url}")
+        return addon_url
+    except Exception as e:
+        print(f"⚠️ Could not detect local IP: {e}")
+    
+    # Fallback 2: Use homeassistant.local
+    addon_url = "http://homeassistant.local:8100"
+    print(f"📍 Using fallback URL: {addon_url}")
+    return addon_url
+
 app = Flask(__name__)
 
 # TEMPLATE CACHING FIXES - Force template reloading to prevent cache issues
@@ -747,7 +794,7 @@ def handle_pin_entry():
 async def sync_credentials_to_esp32(board_id="door-edge-1"):
     """Push current credentials to ESP32 board"""
     
-    # Get all active users
+    # Get all active users with their credentials
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -774,21 +821,17 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
         }
         credentials["users"].append(user_creds)
     
+    # Convert to JSON string
     creds_json = json.dumps(credentials)
     
-    # Get the add-on's IP address
-    import socket
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    addon_url = f"http://{local_ip}:8100"
+    # Auto-detect add-on URL
+    addon_url = get_addon_url()
     
-    # Alternative: Use supervisor hostname
-    # addon_url = "http://a0d7b954-access-control:8100"  # Use your add-on slug
-    
-    print(f"🔄 Syncing to {board_id}")
+    print(f"🔄 Syncing {len(credentials['users'])} users to {board_id}")
+    print(f"📦 Payload size: {len(creds_json)} bytes")
     print(f"📍 Add-on URL: {addon_url}")
     
-    # Call ESPHome service with BOTH credentials and URL
+    # Call ESPHome service to sync
     url = f"{HA_URL}/services/esphome/{board_id}_sync_credentials"
     headers = {
         "Authorization": f"Bearer {HA_TOKEN}",
@@ -796,7 +839,7 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
     }
     data = {
         "credentials_json": creds_json,
-        "addon_url": addon_url  # ADD THIS
+        "addon_url": addon_url
     }
     
     try:
@@ -805,12 +848,11 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
             print(f"✅ Credentials synced to {board_id}")
             return True
         else:
-            print(f"❌ Sync failed: {response.status_code}")
+            print(f"❌ Sync failed: {response.status_code} - {response.text}")
             return False
     except Exception as e:
         print(f"❌ Sync error: {e}")
         return False
-
 
 # ADD NEW API ENDPOINT
 @app.route('/api/sync-to-boards', methods=['POST'])
