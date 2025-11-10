@@ -144,6 +144,8 @@ def init_db():
         conn.commit()
         print("Database initialized")
 
+init_db()
+
 def call_ha_service(domain, service, entity_id=None, service_data=None):
     url = f"{HA_URL}/services/{domain}/{service}"
     headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
