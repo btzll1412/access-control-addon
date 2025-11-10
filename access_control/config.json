@@ -1,0 +1,28 @@
+{
+  "name": "Access Control System",
+  "version": "1.0.0",
+  "slug": "a0d7b954_access_control",
+  "description": "Professional ESP32-based access control management with Home Assistant integration",
+  "arch": ["amd64", "armv7", "armhf", "aarch64", "i386"],
+  "startup": "application",
+  "boot": "auto",
+  "host_network": false,
+  "ports": {
+    "8100/tcp": 8100
+  },
+  "ports_description": {
+    "8100/tcp": "Web UI"
+  },
+  "options": {
+    "ha_token": "",
+    "log_level": "info"
+  },
+  "schema": {
+    "ha_token": "str",
+    "log_level": "list(debug|info|warning|error)?"
+  },
+  "ingress": false,
+  "panel_icon": "mdi:security",
+  "map": ["config:rw", "share:rw"],
+  "webui": "http://[HOST]:8100"
+}
