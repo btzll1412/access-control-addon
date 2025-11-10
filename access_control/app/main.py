@@ -133,7 +133,7 @@ def init_db():
                 active BOOLEAN DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
-        # ADD THESE TWO NEW TABLES:
+            
             CREATE TABLE IF NOT EXISTS boards (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
