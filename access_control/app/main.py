@@ -6,6 +6,7 @@ import requests
 import datetime
 from contextlib import contextmanager
 import os
+import asyncio
 
 app = Flask(__name__)
 
@@ -276,6 +277,8 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
         ''', (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason))
         conn.commit()
 
+
+
 # CACHE BUSTING HEADERS
 @app.after_request
 def after_request(response):
@@ -374,7 +377,12 @@ def create_user():
         ))
         conn.commit()
     
+    # AUTO-SYNC TO ESP32
+    asyncio.run(sync_credentials_to_esp32("door-edge-1"))
+    
     return jsonify({'success': True})
+
+# Do the same for update_user and delete_user
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
@@ -734,6 +742,79 @@ def handle_pin_entry():
     call_ha_service("switch", "turn_on", "switch.door_edge_1_buzzer_failure")
     
     return jsonify({'success': False, 'message': 'Access denied'})
+
+# ADD THIS NEW FUNCTION
+async def sync_credentials_to_esp32(board_id="door-edge-1"):
+    """Push current credentials to ESP32 board"""
+    
+    # Get all active users with their credentials
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM users 
+            WHERE active = 1 
+            AND (valid_from IS NULL OR valid_from <= date('now'))
+            AND (valid_until IS NULL OR valid_until >= date('now'))
+        ''')
+        users = [dict(row) for row in cursor.fetchall()]
+    
+    # Build credentials JSON
+    credentials = {
+        "users": []
+    }
+    
+    for user in users:
+        user_creds = {
+            "id": user['id'],
+            "name": user['name'],
+            "cards": json.loads(user.get('card_ids', '[]')),
+            "pins": json.loads(user.get('pin_codes', '[]')),
+            "unlock_duration": 5,  # Default, can be customized per user
+            "active": True
+        }
+        credentials["users"].append(user_creds)
+    
+    # Convert to JSON string
+    creds_json = json.dumps(credentials)
+    
+    # Call ESPHome service to sync
+    url = f"{HA_URL}/services/esphome/{board_id}_sync_credentials"
+    headers = {
+        "Authorization": f"Bearer {HA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "credentials_json": creds_json
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            print(f"✅ Credentials synced to {board_id}")
+            return True
+        else:
+            print(f"❌ Sync failed: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
+        return False
+
+# ADD NEW API ENDPOINT
+@app.route('/api/sync-to-boards', methods=['POST'])
+def sync_to_all_boards():
+    """Manually trigger credential sync to all boards"""
+    # For now, sync to door-edge-1
+    # Later can expand to multiple boards
+    success = asyncio.run(sync_credentials_to_esp32("door-edge-1"))
+    
+    return jsonify({
+        'success': success,
+        'message': 'Credentials synced to ESP32 boards' if success else 'Sync failed'
+    })
+
+# UPDATE create_user, update_user, delete_user to auto-sync
+# Add this line at the end of those functions:
+# asyncio.run(sync_credentials_to_esp32("door-edge-1"))
 
 @app.route('/webhook/request_exit', methods=['POST'])
 def handle_request_exit():
