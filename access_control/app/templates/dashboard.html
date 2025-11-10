@@ -421,19 +421,24 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Access Control System</h1>
-            <p>Professional access management for modern security</p>
-            <div class="nav">
-                <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
-                <button class="nav-btn" onclick="showSection('users')">Users</button>
-                <button class="nav-btn" onclick="showSection('groups')">Door Groups</button>
-                <button class="nav-btn" onclick="showSection('schedules')">Time Schedules</button>
-                <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
-                <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
-            </div>
-        </div>
+    <div class="header">
+    <h1>Access Control System</h1>
+    <p>Professional access management for modern security</p>
+    <div class="nav">
+        <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
+        <button class="nav-btn" onclick="showSection('users')">Users</button>
+        <button class="nav-btn" onclick="showSection('groups')">Door Groups</button>
+        <button class="nav-btn" onclick="showSection('schedules')">Time Schedules</button>
+        <button class="nav-btn" onclick="showSection('logs')">Access Logs</button>
+        <button class="nav-btn" onclick="showSection('live')">Live Monitor</button>
+        <!-- Sync button -->
+        <button class="btn" onclick="syncToBoards()" style="background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);">
+            🔄 Sync to ESP32
+        </button>
+    </div>
+</div>
+
+
 
         <div class="content">
             <!-- Dashboard Section -->
@@ -1432,6 +1437,20 @@ document.getElementById('door-group-form').addEventListener('submit', function(e
                 closeDoorGroupModal();
                 loadDoorGroups();
                 addLogEntry(`Door group "${groupData.name}" ${editingDoorGroupId ? 'updated' : 'created'} successfully`, 'success');
+            }
+        }
+
+        // ADD THIS FUNCTION - Sync credentials to ESP32 boards
+        async function syncToBoards() {
+            addLogEntry('Syncing credentials to ESP32 boards...', 'info');
+            const result = await apiCall('/sync-to-boards', 'POST');
+    
+            if (result && result.success) {
+                addLogEntry('✅ Credentials synced successfully!', 'success');
+                alert('Credentials synced to all ESP32 boards!');
+            } else {
+                addLogEntry('❌ Sync failed', 'failed');
+                alert('Failed to sync credentials. Check logs.');
             }
         }
 
