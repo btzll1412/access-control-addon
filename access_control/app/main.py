@@ -158,8 +158,209 @@ def init_db():
         
         conn.commit()
         print("Database initialized")
+        
+        # Add default door groups if none exist
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM user_groups')
+        group_count = cursor.fetchone()[0]
+        
+        if group_count == 0:
+            default_groups = [
+                {
+                    'name': 'Main Access',
+                    'description': 'Access to main entrance doors',
+                    'color': '#2196F3',
+                    'doors': ['door-edge-1', 'main-entrance']
+                },
+                {
+                    'name': 'All Areas',
+                    'description': 'Access to all doors and areas',
+                    'color': '#4CAF50', 
+                    'doors': ['door-edge-1', 'main-entrance', 'emergency-exit', 'loading-dock']
+                }
+            ]
+            
+            for group in default_groups:
+                conn.execute('''
+                    INSERT INTO user_groups (name, description, color, doors, active)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (group['name'], group['description'], group['color'], json.dumps(group['doors']), True))
+            
+            print(f"Added {len(default_groups)} default door groups")
+        
+        cursor.execute('SELECT COUNT(*) FROM time_schedules')
+        schedule_count = cursor.fetchone()[0]
+        
+        if schedule_count == 0:
+            default_schedules = [
+                {
+                    'name': 'Business Hours',
+                    'description': 'Standard Monday-Friday 9AM-5PM',
+                    'schedule_data': {
+                        'monday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'tuesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'wednesday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'thursday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'friday': {'enabled': True, 'start': '09:00', 'end': '17:00'},
+                        'saturday': {'enabled': False},
+                        'sunday': {'enabled': False}
+                    }
+                },
+                {
+                    'name': '24/7 Access',
+                    'description': 'Unrestricted access all day, every day',
+                    'schedule_data': {
+                        'monday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'tuesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'wednesday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'thursday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'friday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'saturday': {'enabled': True, 'start': '00:00', 'end': '23:59'},
+                        'sunday': {'enabled': True, 'start': '00:00', 'end': '23:59'}
+                    }
+                }
+            ]
+            
+            for schedule in default_schedules:
+                conn.execute('''
+                    INSERT INTO time_schedules (name, description, schedule_data, active)
+                    VALUES (?, ?, ?, ?)
+                ''', (schedule['name'], schedule['description'], json.dumps(schedule['schedule_data']), True))
+            
+            print(f"Added {len(default_schedules)} default time schedules")
+        
+        conn.commit()
+# ← init_db() ENDS HERE
 
-        # BOARDS API
+# Home Assistant API helper
+def call_ha_service(domain, service, entity_id=None, service_data=None):
+    url = f"{HA_URL}/services/{domain}/{service}"
+    headers = {
+        "Authorization": f"Bearer {HA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {"entity_id": entity_id}
+    if service_data:
+        data.update(service_data)
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        return response.status_code == 200
+    except:
+        return False
+
+# User management functions
+def get_user_by_credential(credential, credential_type):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM users 
+            WHERE active = 1 
+            AND (valid_from IS NULL OR valid_from <= date('now'))
+            AND (valid_until IS NULL OR valid_until >= date('now'))
+        ''')
+        users = cursor.fetchall()
+        
+        for user in users:
+            if credential_type == 'card':
+                card_ids = json.loads(user['card_ids'])
+                if str(credential) in [str(card) for card in card_ids]:
+                    return dict(user)
+            elif credential_type == 'pin':
+                pin_codes = json.loads(user['pin_codes'])
+                if str(credential) in [str(pin) for pin in pin_codes]:
+                    return dict(user)
+    return None
+
+def is_access_allowed(user, door_id, current_time=None):
+    if not current_time:
+        current_time = datetime.datetime.now()
+    
+    if not user:
+        return False, "No user found"
+    
+    # Get user's door groups and time schedules
+    user_door_groups = json.loads(user.get('door_groups', '[]'))
+    user_time_schedules = json.loads(user.get('time_schedules', '[]'))
+    
+    # Check door access first
+    if user_door_groups:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_groups WHERE active = 1')
+            door_groups = cursor.fetchall()
+        
+        # Check if user has access to this door through any of their groups
+        has_door_access = False
+        for group_name in user_door_groups:
+            group = next((g for g in door_groups if g['name'] == group_name), None)
+            if group:
+                group_doors = json.loads(group['doors'])
+                if door_id in group_doors:
+                    has_door_access = True
+                    break
+        
+        if not has_door_access:
+            return False, f"No door access to {door_id}"
+    
+    # Check time restrictions if user has schedules
+    if user_time_schedules:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM time_schedules WHERE active = 1')
+            schedules = cursor.fetchall()
+        
+        # Check each assigned schedule
+        current_weekday = current_time.strftime('%A').lower()
+        current_time_str = current_time.strftime('%H:%M')
+        
+        for schedule_name in user_time_schedules:
+            schedule = next((s for s in schedules if s['name'] == schedule_name), None)
+            if schedule:
+                schedule_data = json.loads(schedule['schedule_data'])
+                
+                # Check if current day has time restrictions
+                if current_weekday in schedule_data:
+                    day_schedule = schedule_data[current_weekday]
+                    if day_schedule.get('enabled', True):
+                        start_time = day_schedule.get('start', '00:00')
+                        end_time = day_schedule.get('end', '23:59')
+                        
+                        if start_time <= current_time_str <= end_time:
+                            return True, f"Access granted - {schedule['name']}"
+                        else:
+                            return False, f"Outside allowed hours ({start_time}-{end_time})"
+        
+        # If user has schedules but none currently allow access
+        return False, "Outside permitted hours"
+    
+    # If no schedules assigned, allow access (only door restriction)
+    return True, "No time restrictions"
+
+def log_access_attempt(user_id, user_name, door_id, credential, credential_type, success, reader_location, reason):
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO access_logs 
+            (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, user_name, door_id, credential, credential_type, success, reader_location, reason))
+        conn.commit()
+
+# CACHE BUSTING HEADERS
+@app.after_request
+def after_request(response):
+    """Add cache control headers to prevent caching issues"""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+# Web Routes
+@app.route('/')
+def dashboard():
+    return render_template('dashboard.html')
+
+# BOARDS API - Now at module level, NOT inside init_db()
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
     """Get all ESP32 boards"""
@@ -198,6 +399,8 @@ def create_board():
         conn.commit()
     
     return jsonify({'success': True})
+
+# ... continue with rest of board endpoints and other routes ...
 
 @app.route('/api/boards/<board_id>', methods=['PUT'])
 def update_board(board_id):
