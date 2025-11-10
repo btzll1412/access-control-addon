@@ -65,6 +65,9 @@ app.jinja_env.cache = {}
 HA_URL = "http://supervisor/core/api"
 HA_TOKEN = os.environ.get('HA_TOKEN', None)
 
+# TEMPORARY: Override with your new token for testing
+HA_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxM2U0YWJlMjI2ZjI0NDVkOWY0NzMzZmU1NTRjYTIxYSIsImlhdCI6MTc2MjgxNjI3NSwiZXhwIjoyMDc4MTc2Mjc1fQ.IavVVUM3ZjBfgfAeiG0etOOSa_lJMSZ753xlRnbMuBk"  # Remove this after testing!
+
 if HA_TOKEN:
     logger.info(f"✅ Home Assistant token loaded (length: {len(HA_TOKEN)})")
 else:
