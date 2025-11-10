@@ -747,7 +747,7 @@ def handle_pin_entry():
 async def sync_credentials_to_esp32(board_id="door-edge-1"):
     """Push current credentials to ESP32 board"""
     
-    # Get all active users with their credentials
+    # Get all active users
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -769,22 +769,34 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
             "name": user['name'],
             "cards": json.loads(user.get('card_ids', '[]')),
             "pins": json.loads(user.get('pin_codes', '[]')),
-            "unlock_duration": 5,  # Default, can be customized per user
+            "unlock_duration": 5,
             "active": True
         }
         credentials["users"].append(user_creds)
     
-    # Convert to JSON string
     creds_json = json.dumps(credentials)
     
-    # Call ESPHome service to sync
+    # Get the add-on's IP address
+    import socket
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    addon_url = f"http://{local_ip}:8100"
+    
+    # Alternative: Use supervisor hostname
+    # addon_url = "http://a0d7b954-access-control:8100"  # Use your add-on slug
+    
+    print(f"🔄 Syncing to {board_id}")
+    print(f"📍 Add-on URL: {addon_url}")
+    
+    # Call ESPHome service with BOTH credentials and URL
     url = f"{HA_URL}/services/esphome/{board_id}_sync_credentials"
     headers = {
         "Authorization": f"Bearer {HA_TOKEN}",
         "Content-Type": "application/json"
     }
     data = {
-        "credentials_json": creds_json
+        "credentials_json": creds_json,
+        "addon_url": addon_url  # ADD THIS
     }
     
     try:
@@ -798,6 +810,7 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
     except Exception as e:
         print(f"❌ Sync error: {e}")
         return False
+
 
 # ADD NEW API ENDPOINT
 @app.route('/api/sync-to-boards', methods=['POST'])
