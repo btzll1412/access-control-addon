@@ -7,6 +7,15 @@ import datetime
 from contextlib import contextmanager
 import os
 import asyncio
+import sys
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 def get_addon_url():
     """Detect the accessible URL for this add-on"""
@@ -23,10 +32,10 @@ def get_addon_url():
                 slug = addon_info.get('data', {}).get('slug', '')
                 if slug:
                     addon_url = f"http://{slug}:8100"
-                    print(f"📍 Detected add-on URL: {addon_url}")
+                    logger.info(f"📍 Detected add-on URL: {addon_url}")
                     return addon_url
     except Exception as e:
-        print(f"⚠️ Could not detect add-on URL via supervisor: {e}")
+        logger.warning(f"⚠️ Could not detect add-on URL via supervisor: {e}")
     
     try:
         import socket
@@ -35,13 +44,13 @@ def get_addon_url():
         local_ip = s.getsockname()[0]
         s.close()
         addon_url = f"http://{local_ip}:8100"
-        print(f"📍 Using local IP: {addon_url}")
+        logger.info(f"📍 Using local IP: {addon_url}")
         return addon_url
     except Exception as e:
-        print(f"⚠️ Could not detect local IP: {e}")
+        logger.warning(f"⚠️ Could not detect local IP: {e}")
     
     addon_url = "http://homeassistant.local:8100"
-    print(f"📍 Using fallback URL: {addon_url}")
+    logger.info(f"📍 Using fallback URL: {addon_url}")
     return addon_url
 
 app = Flask(__name__)
@@ -57,9 +66,9 @@ HA_URL = "http://supervisor/core/api"
 HA_TOKEN = os.environ.get('HA_TOKEN', None)
 
 if HA_TOKEN:
-    print(f"✅ Home Assistant token loaded (length: {len(HA_TOKEN)})")
+    logger.info(f"✅ Home Assistant token loaded (length: {len(HA_TOKEN)})")
 else:
-    print(f"⚠️ WARNING: No Home Assistant token configured!")
+    logger.warning(f"⚠️ WARNING: No Home Assistant token configured!")
 
 @contextmanager
 def get_db():
@@ -142,7 +151,7 @@ def init_db():
             );
         ''')
         conn.commit()
-        print("Database initialized")
+        logger.info("Database initialized")
 
 init_db()
 
@@ -239,7 +248,7 @@ def log_access_attempt(user_id, user_name, door_id, credential, credential_type,
 async def sync_credentials_to_esp32(board_id="door-edge-1"):
     """Push current credentials to ESP32 board"""
     try:
-        print(f"📦 Starting sync for board: {board_id}")
+        logger.info(f"📦 Starting sync for board: {board_id}")
         if not HA_TOKEN:
             print("❌ HA_TOKEN not configured!")
             return False
@@ -254,7 +263,7 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
             ''')
             users = [dict(row) for row in cursor.fetchall()]
         
-        print(f"👥 Found {len(users)} active users")
+        logger.info(f"👥 Found {len(users)} active users")
         
         credentials = {"users": []}
         for user in users:
@@ -272,31 +281,31 @@ async def sync_credentials_to_esp32(board_id="door-edge-1"):
         creds_json = json.dumps(credentials)
         addon_url = get_addon_url()
         
-        print(f"🔄 Syncing {len(credentials['users'])} users to {board_id}")
-        print(f"📦 Payload size: {len(creds_json)} bytes")
-        print(f"📍 Add-on URL: {addon_url}")
+        logger.info(f"🔄 Syncing {len(credentials['users'])} users to {board_id}")
+        logger.info(f"📦 Payload size: {len(creds_json)} bytes")
+        logger.info(f"📍 Add-on URL: {addon_url}")
         
         service_name = f"{board_id.replace('-', '_')}_sync_credentials"
         url = f"{HA_URL}/services/esphome/{service_name}"
         
-        print(f"🌐 Calling: {url}")
+        logger.info(f"🌐 Calling: {url}")
         
         headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
         data = {"credentials_json": creds_json, "addon_url": addon_url}
         
         response = requests.post(url, headers=headers, json=data, timeout=10)
         
-        print(f"📡 Response status: {response.status_code}")
-        print(f"📡 Response body: {response.text}")
+        logger.info(f"📡 Response status: {response.status_code}")
+        logger.info(f"📡 Response body: {response.text}")
         
         if response.status_code == 200:
-            print(f"✅ Credentials synced to {board_id}")
+            logger.info(f"✅ Credentials synced to {board_id}")
             return True
         else:
-            print(f"❌ Sync failed: {response.status_code} - {response.text}")
+            logger.error(f"❌ Sync failed: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Sync error for {board_id}: {e}")
+        logger.error(f"❌ Sync error for {board_id}: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -433,7 +442,7 @@ def sync_single_board(board_id):
 @app.route('/api/sync-to-boards', methods=['POST'])
 def sync_to_all_boards():
     try:
-        print("🔄 Sync request received")
+        logger.info("🔄 Sync request received")
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT id, board_id FROM boards WHERE active = 1')
@@ -448,7 +457,7 @@ def sync_to_all_boards():
         results = []
         for board in boards:
             board_id = board['board_id']
-            print(f"🔄 Syncing to board: {board_id}")
+            logger.info(f"🔄 Syncing to board: {board_id}")
             try:
                 success = asyncio.run(sync_credentials_to_esp32(board_id))
                 results.append({'board_id': board_id, 'success': success})
@@ -456,11 +465,11 @@ def sync_to_all_boards():
                     with get_db() as conn:
                         conn.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board['id'],))
                         conn.commit()
-                    print(f"✅ Successfully synced to {board_id}")
+                    logger.info(f"✅ Successfully synced to {board_id}")
                 else:
-                    print(f"❌ Failed to sync to {board_id}")
+                    logger.error(f"❌ Failed to sync to {board_id}")
             except Exception as e:
-                print(f"❌ Exception syncing to {board_id}: {e}")
+                logger.error(f"❌ Exception syncing to {board_id}: {e}")
                 import traceback
                 traceback.print_exc()
                 results.append({'board_id': board_id, 'success': False, 'error': str(e)})
@@ -472,7 +481,7 @@ def sync_to_all_boards():
             'message': f'Synced to {len([r for r in results if r["success"]])} of {len(results)} boards'
         })
     except Exception as e:
-        print(f"❌ Critical error in sync_to_all_boards: {e}")
+        logger.error(f"❌ Critical error in sync_to_all_boards: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Sync failed: {str(e)}'}), 500
@@ -636,7 +645,7 @@ def get_access_logs():
 def receive_access_log():
     try:
         data = request.json
-        print(f"📥 Received access log from {data.get('board_id', 'unknown')}")
+        logger.info(f"📥 Received access log from {data.get('board_id', 'unknown')}")
         user_id = None
         with get_db() as conn:
             cursor = conn.cursor()
@@ -650,7 +659,7 @@ def receive_access_log():
                           data.get('reason', 'ESP32 access'))
         return jsonify({'success': True})
     except Exception as e:
-        print(f"❌ Error processing access log: {e}")
+        logger.error(f"❌ Error processing access log: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # WEBHOOKS
