@@ -14,16 +14,13 @@
     "8100/tcp": "Web UI"
   },
   "options": {
-    "ha_token": "",
     "log_level": "info"
   },
   "schema": {
-    "ha_token": "str",
     "log_level": "list(debug|info|warning|error)?"
   },
   "ingress": true,
   "panel_icon": "mdi:door",
   "panel_title": "Access Control",
-  "map": ["config:rw", "share:rw"],
   "webui": "http://[HOST]:8100"
 }
