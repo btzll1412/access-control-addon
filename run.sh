@@ -1,21 +1,21 @@
-#!/usr/bin/env bashio
+#!/bin/bash
+set -e
 
-# Get configuration
-HA_TOKEN=$(bashio::config 'ha_token')
-LOG_LEVEL=$(bashio::config 'log_level')
+# Load configuration
+CONFIG_PATH=/data/options.json
 
-# Export environment variables
-export HA_TOKEN
-export LOG_LEVEL
+if [ -f "$CONFIG_PATH" ]; then
+    export HA_TOKEN=$(jq -r '.ha_token // empty' $CONFIG_PATH)
+    export LOG_LEVEL=$(jq -r '.log_level // "info"' $CONFIG_PATH)
+fi
 
-# Log startup
-bashio::log.info "🚪 Starting Access Control System..."
-bashio::log.info "Log level: ${LOG_LEVEL}"
+echo "🚪 Starting Access Control System..."
+echo "Log level: ${LOG_LEVEL}"
 
 if [ -n "$HA_TOKEN" ]; then
-    bashio::log.info "✅ Home Assistant token configured"
+    echo "✅ Home Assistant token configured"
 else
-    bashio::log.warning "⚠️ No Home Assistant token configured!"
+    echo "⚠️ No Home Assistant token configured!"
 fi
 
 # Start application
