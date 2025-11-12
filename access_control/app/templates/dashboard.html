@@ -523,92 +523,96 @@
             }
         }
 
-        // Render boards grid
-        function renderBoards() {
-            console.log('🎨 Rendering boards... Count:', boards.length);
-            
-            const grid = document.getElementById('boards-grid');
-            const empty = document.getElementById('boards-empty');
-            
-            if (!grid || !empty) {
-                console.error('❌ Could not find boards-grid or boards-empty elements!');
-                return;
-            }
-            
-            if (boards.length === 0) {
-                console.log('📭 No boards - showing empty state');
-                grid.style.display = 'none';
-                empty.style.display = 'block';
-                return;
-            }
-            
-            console.log('📋 Showing', boards.length, 'boards');
-            grid.style.display = 'grid';
-            empty.style.display = 'none';
-            
-            grid.innerHTML = boards.map(board => `
-                <div class="glass-card rounded-2xl p-6">
-                    <div class="flex items-start justify-between mb-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl shadow-lg">
-                                🖥️
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-gray-800">${board.name}</h3>
-                                <p class="text-sm text-gray-500">${board.ip_address}</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="px-3 py-1 rounded-full text-xs font-medium ${board.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
-                                ${board.online ? '🟢 Online' : '⚫ Offline'}
-                            </span>
-                        </div>
+        // UPDATED renderBoards() function for dashboard with heartbeat info
+
+function renderBoards() {
+    console.log('🎨 Rendering boards... Count:', boards.length);
+    
+    const grid = document.getElementById('boards-grid');
+    const empty = document.getElementById('boards-empty');
+    
+    if (!grid || !empty) {
+        console.error('❌ Could not find boards-grid or boards-empty elements!');
+        return;
+    }
+    
+    if (boards.length === 0) {
+        console.log('📭 No boards - showing empty state');
+        grid.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    
+    console.log('📋 Showing', boards.length, 'boards');
+    grid.style.display = 'grid';
+    empty.style.display = 'none';
+    
+    grid.innerHTML = boards.map(board => `
+        <div class="glass-card rounded-2xl p-6">
+            <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl shadow-lg">
+                        🖥️
                     </div>
-                    <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
-                        <div class="flex justify-between text-sm">
-                            <span class="text-gray-600">Last Sync:</span>
-                            <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
-                        </div>
-                        ${board.api_key ? `
-                        <div class="flex justify-between text-sm">
-                            <span class="text-gray-600">Encryption:</span>
-                            <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
-                        </div>
-                        ` : ''}
-                    </div>
-                    <div class="space-y-2 mb-4">
-                        <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                            <span class="text-lg">🚪</span>
-                            <div class="flex-1">
-                                <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
-                                <p class="text-xs text-gray-500">Door 1</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                            <span class="text-lg">🚪</span>
-                            <div class="flex-1">
-                                <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
-                                <p class="text-xs text-gray-500">Door 2</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
-                            🔄 Sync
-                        </button>
-                        <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
-                            ✏️ Edit
-                        </button>
-                        <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
-                            🗑️
-                        </button>
+                    <div>
+                        <h3 class="font-bold text-gray-800">${board.name}</h3>
+                        <p class="text-sm text-gray-500">${board.ip_address}</p>
                     </div>
                 </div>
-            `).join('');
-            
-            console.log('✅ Boards rendered successfully');
-        }
-
+                <div class="flex items-center gap-2">
+                    <span class="px-3 py-1 rounded-full text-xs font-medium ${board.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
+                        ${board.online ? '🟢 Online' : '⚫ Offline'}
+                    </span>
+                </div>
+            </div>
+            <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Last Seen:</span>
+                    <span class="font-medium ${board.online ? 'text-green-600' : 'text-gray-500'}">${board.last_seen || 'Never'}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Last Sync:</span>
+                    <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
+                </div>
+                ${board.api_key ? `
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Encryption:</span>
+                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
+                </div>
+                ` : ''}
+            </div>
+            <div class="space-y-2 mb-4">
+                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                    <span class="text-lg">🚪</span>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
+                        <p class="text-xs text-gray-500">Door 1</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                    <span class="text-lg">🚪</span>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
+                        <p class="text-xs text-gray-500">Door 2</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                    🔄 Sync
+                </button>
+                <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
+                    ✏️ Edit
+                </button>
+                <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
+                    🗑️
+                </button>
+            </div>
+        </div>
+    `).join('');
+    
+    console.log('✅ Boards rendered successfully');
+}
         // Submit board form
         async function submitBoard(event) {
             event.preventDefault();
