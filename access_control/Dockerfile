@@ -1,17 +1,23 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
-FROM $BUILD_FROM
+FROM python:3.11-alpine
 
-RUN apk add --no-cache python3 py3-pip sqlite
+# Install system dependencies
+RUN apk add --no-cache sqlite
 
+# Set working directory
 WORKDIR /app
 
+# Copy and install Python requirements
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application files
 COPY app/ ./app/
 
+# Create data directory
 RUN mkdir -p /data
 
+# Expose port
 EXPOSE 8100
 
+# Run the application directly
 CMD ["python3", "-m", "waitress", "--host=0.0.0.0", "--port=8100", "app.main:app"]
