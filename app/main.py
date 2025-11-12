@@ -62,14 +62,8 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 app.jinja_env.auto_reload = True
 app.jinja_env.cache = {}
 
-# Home Assistant configuration
-HA_URL = "http://supervisor/core/api"
-HA_TOKEN = os.environ.get('HA_TOKEN', None)
-
-if HA_TOKEN:
-    logger.info(f"✅ Home Assistant token loaded (length: {len(HA_TOKEN)})")
-else:
-    logger.warning(f"⚠️ WARNING: No Home Assistant token configured!")
+# No Home Assistant API needed - Direct ESP32 communication
+logger.info("✅ Using direct HTTP communication with ESP32 boards")
 
 @contextmanager
 def get_db():
