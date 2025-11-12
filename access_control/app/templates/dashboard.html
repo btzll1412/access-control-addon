@@ -30,6 +30,21 @@
             color: white;
         }
         
+        /* Emergency button active states */
+        .emergency-btn {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .emergency-btn.active {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+            50% { opacity: 0.8; box-shadow: 0 0 20px currentColor; }
+        }
+        
         /* Modal styles */
         .modal {
             display: none;
@@ -97,15 +112,15 @@
                         <p class="text-sm text-gray-600">Professional Access Management</p>
                     </div>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200">
                         <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                         <span class="text-sm text-green-700 font-medium">0 Boards Online</span>
                     </div>
-                    <button onclick="emergencyUnlock()" class="px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium">
-                        ⚠️ Emergency Unlock
+                    <button id="unlockBtn" onclick="toggleEmergencyUnlock()" class="emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium">
+                        🔓 Emergency Unlock
                     </button>
-                    <button onclick="emergencyLock()" class="px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium">
+                    <button id="lockBtn" onclick="toggleEmergencyLock()" class="emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium">
                         🔒 Emergency Lock
                     </button>
                 </div>
@@ -289,6 +304,10 @@
     </div>
 
     <script>
+        // Emergency mode states
+        let emergencyUnlockActive = false;
+        let emergencyLockActive = false;
+
         function showSection(section) {
             document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -311,6 +330,76 @@
             // TODO: Actually save the board via API
         }
 
+        function toggleEmergencyUnlock() {
+            const btn = document.getElementById('unlockBtn');
+            
+            if (emergencyUnlockActive) {
+                // Turn OFF emergency unlock
+                if (confirm('✅ Deactivate Emergency Unlock and return to normal operation?')) {
+                    emergencyUnlockActive = false;
+                    btn.classList.remove('active');
+                    btn.innerHTML = '🔓 Emergency Unlock';
+                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
+                    showToast('Emergency unlock deactivated - Normal operation resumed', 'success');
+                    // TODO: API call to deactivate
+                }
+            } else {
+                // Turn ON emergency unlock
+                if (confirm('⚠️ Are you sure you want to UNLOCK all doors? This will override all access controls!')) {
+                    // Deactivate emergency lock if active
+                    if (emergencyLockActive) {
+                        emergencyLockActive = false;
+                        const lockBtn = document.getElementById('lockBtn');
+                        lockBtn.classList.remove('active');
+                        lockBtn.innerHTML = '🔒 Emergency Lock';
+                        lockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
+                    }
+                    
+                    emergencyUnlockActive = true;
+                    btn.classList.add('active');
+                    btn.innerHTML = '✅ Unlock Active - Click to Deactivate';
+                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-orange-600 text-white font-medium border-2 border-orange-300';
+                    showToast('🚨 EMERGENCY UNLOCK ACTIVATED - All doors unlocked!', 'warning');
+                    // TODO: API call to activate
+                }
+            }
+        }
+
+        function toggleEmergencyLock() {
+            const btn = document.getElementById('lockBtn');
+            
+            if (emergencyLockActive) {
+                // Turn OFF emergency lock
+                if (confirm('✅ Deactivate Emergency Lock and return to normal operation?')) {
+                    emergencyLockActive = false;
+                    btn.classList.remove('active');
+                    btn.innerHTML = '🔒 Emergency Lock';
+                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
+                    showToast('Emergency lock deactivated - Normal operation resumed', 'success');
+                    // TODO: API call to deactivate
+                }
+            } else {
+                // Turn ON emergency lock
+                if (confirm('🔒 Are you sure you want to LOCK all doors? This will prevent ALL access!')) {
+                    // Deactivate emergency unlock if active
+                    if (emergencyUnlockActive) {
+                        emergencyUnlockActive = false;
+                        const unlockBtn = document.getElementById('unlockBtn');
+                        unlockBtn.classList.remove('active');
+                        unlockBtn.innerHTML = '🔓 Emergency Unlock';
+                        unlockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
+                    }
+                    
+                    emergencyLockActive = true;
+                    btn.classList.add('active');
+                    btn.innerHTML = '🔒 Lock Active - Click to Deactivate';
+                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-red-600 text-white font-medium border-2 border-red-300';
+                    showToast('🚨 EMERGENCY LOCK ACTIVATED - All access denied!', 'error');
+                    // TODO: API call to activate
+                }
+            }
+        }
+
         function showToast(message, type = 'info') {
             const colors = {
                 success: 'bg-green-500',
@@ -329,18 +418,6 @@
                 toast.style.opacity = '0';
                 setTimeout(() => toast.remove(), 300);
             }, 3000);
-        }
-
-        function emergencyUnlock() {
-            if (confirm('⚠️ Are you sure you want to UNLOCK all doors?')) {
-                showToast('Emergency unlock activated!', 'warning');
-            }
-        }
-
-        function emergencyLock() {
-            if (confirm('🔒 Are you sure you want to LOCK all doors?')) {
-                showToast('Emergency lock activated!', 'error');
-            }
         }
 
         // Close modal when clicking outside
