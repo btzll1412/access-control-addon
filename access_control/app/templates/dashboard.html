@@ -115,7 +115,7 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200">
                         <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        <span class="text-sm text-green-700 font-medium">0 Boards Online</span>
+                        <span class="text-sm text-green-700 font-medium boards-online-count">0 Boards Online</span>
                     </div>
                     <button id="unlockBtn" onclick="toggleEmergencyUnlock()" class="emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium">
                         🔓 Emergency Unlock
@@ -165,18 +165,18 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="w-14 h-14 rounded-xl bg-purple-100 flex items-center justify-center text-2xl">👥</div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-purple-600">0</div>
+                            <div class="text-3xl font-bold text-purple-600" id="stat-users">0</div>
                             <div class="text-sm text-gray-500">Total Users</div>
                         </div>
                     </div>
-                    <div class="text-sm text-gray-600"><span class="text-green-600 font-medium">0 Active</span></div>
+                    <div class="text-sm text-gray-600"><span class="text-green-600 font-medium" id="stat-active-users">0 Active</span></div>
                 </div>
 
                 <div class="glass-card rounded-2xl p-6">
                     <div class="flex items-center justify-between mb-4">
                         <div class="w-14 h-14 rounded-xl bg-blue-100 flex items-center justify-center text-2xl">🚪</div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-blue-600">0</div>
+                            <div class="text-3xl font-bold text-blue-600" id="stat-doors">0</div>
                             <div class="text-sm text-gray-500">Total Doors</div>
                         </div>
                     </div>
@@ -187,7 +187,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="w-14 h-14 rounded-xl bg-green-100 flex items-center justify-center text-2xl">✅</div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-green-600">0</div>
+                            <div class="text-3xl font-bold text-green-600" id="stat-access">0</div>
                             <div class="text-sm text-gray-500">Today's Access</div>
                         </div>
                     </div>
@@ -208,422 +208,40 @@
             </div>
         </div>
 
-        <!-- Boards Section - SIMPLIFIED -->
-<div id="boards-section" class="section hidden">
-    <!-- Header -->
-    <div class="glass-card rounded-2xl p-6 mb-6">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-                <h2 class="text-2xl font-bold text-gray-800 mb-2">Board Management</h2>
-                <p class="text-sm text-gray-600">Configure and manage your ESP32 access control boards</p>
-            </div>
-            <div class="flex gap-3">
-                <button onclick="syncAllBoards()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2">
-                    <span class="text-lg">🔄</span> Sync All Boards
-                </button>
-                <button onclick="openModal('addBoardModal')" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium flex items-center gap-2">
-                    <span class="text-lg">➕</span> Add New Board
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Boards Grid -->
-    <div id="boards-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Boards will be loaded here dynamically -->
-    </div>
-
-    <!-- Empty State -->
-    <div id="boards-empty" class="glass-card rounded-2xl p-12 text-center">
-        <div class="text-6xl mb-4 opacity-20">🖥️</div>
-        <h3 class="text-xl font-bold text-gray-800 mb-2">No Boards Configured</h3>
-        <p class="text-gray-600 mb-6">Add your first ESP32 board to get started</p>
-        <button onclick="openModal('addBoardModal')" class="px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
-            ➕ Add Your First Board
-        </button>
-    </div>
-</div>
-
-<!-- Add/Edit Board Modal - SIMPLIFIED -->
-<div id="addBoardModal" class="modal">
-    <div class="modal-content" style="max-width: 600px;">
-        <div class="p-6">
-            <div class="flex items-center justify-between mb-6">
-                <h3 class="text-xl font-bold text-gray-800" id="boardModalTitle">Add New Board</h3>
-                <button onclick="closeModal('addBoardModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-            </div>
-            <form id="boardForm" onsubmit="submitBoard(event)">
-                <input type="hidden" id="boardId" name="id">
-                
-                <!-- Board Info -->
-                <div class="mb-6">
-                    <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        <span class="text-xl">🖥️</span> Board Information
-                    </h4>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Board Name *</label>
-                            <input type="text" id="boardName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Office Board">
-                            <p class="text-xs text-gray-500 mt-1">Friendly name to identify this board</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IP Address *</label>
-                            <input type="text" id="boardIp" required pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
-                            <p class="text-xs text-gray-500 mt-1">Static IP address of your ESP32 board</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">API Encryption Key (Optional)</label>
-                            <input type="text" id="boardApiKey" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Leave empty if not using encryption">
-                            <p class="text-xs text-gray-500 mt-1">ESPHome API encryption key if configured</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="h-px bg-gray-200 my-6"></div>
-
-                <!-- Door Configuration -->
-                <div class="mb-6">
-                    <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        <span class="text-xl">🚪</span> Doors on This Board
-                    </h4>
-                    <p class="text-sm text-gray-600 mb-4">Each board controls 2 doors. Name them according to their physical location.</p>
-                    
-                    <div class="space-y-4">
-                        <!-- Door 1 -->
-                        <div class="p-4 bg-blue-50 rounded-lg">
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 1 Name *</label>
-                            <input type="text" id="door1Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Main Entrance">
-                            <p class="text-xs text-gray-500 mt-1">E.g., "Main Entrance", "Front Door", "Lobby Door"</p>
-                        </div>
-
-                        <!-- Door 2 -->
-                        <div class="p-4 bg-blue-50 rounded-lg">
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 2 Name *</label>
-                            <input type="text" id="door2Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Back Entrance">
-                            <p class="text-xs text-gray-500 mt-1">E.g., "Back Entrance", "Side Door", "Garage Door"</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Info Note -->
-                <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
-                    <div class="flex gap-3">
-                        <span class="text-2xl">💡</span>
-                        <div class="text-sm text-gray-700">
-                            <p class="font-medium mb-1">Important:</p>
-                            <ul class="list-disc list-inside space-y-1 text-xs">
-                                <li>Make sure the ESP32 board is already flashed with ESPHome firmware</li>
-                                <li>The IP address should be static (set in your router or ESPHome config)</li>
-                                <li>Doors will automatically appear in the "Doors" section after saving</li>
-                                <li>GPIO pins are configured in your ESPHome YAML (not needed here)</li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Actions -->
-                <div class="flex gap-3 pt-4 border-t">
-                    <button type="submit" class="flex-1 px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
-                        <span id="boardSubmitText">💾 Save Board</span>
-                    </button>
-                    <button type="button" onclick="closeModal('addBoardModal')" class="px-6 py-3 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium">
-                        Cancel
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<script>
-// Board management functions
-let boards = [];
-
-// Load boards on page load
-async function loadBoards() {
-    try {
-        const response = await fetch('/api/boards');
-        const data = await response.json();
-        boards = data.boards || [];
-        renderBoards();
-        updateStats(); // Update dashboard stats
-    } catch (error) {
-        console.error('Error loading boards:', error);
-        showToast('Failed to load boards', 'error');
-    }
-}
-
-// Render boards grid
-function renderBoards() {
-    const grid = document.getElementById('boards-grid');
-    const empty = document.getElementById('boards-empty');
-    
-    if (boards.length === 0) {
-        grid.style.display = 'none';
-        empty.style.display = 'block';
-        return;
-    }
-    
-    grid.style.display = 'grid';
-    empty.style.display = 'none';
-    
-    grid.innerHTML = boards.map(board => `
-        <div class="glass-card rounded-2xl p-6">
-            <!-- Board Header -->
-            <div class="flex items-start justify-between mb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl shadow-lg">
-                        🖥️
-                    </div>
+        <!-- Boards Section -->
+        <div id="boards-section" class="section hidden">
+            <!-- Header -->
+            <div class="glass-card rounded-2xl p-6 mb-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div>
-                        <h3 class="font-bold text-gray-800">${board.name}</h3>
-                        <p class="text-sm text-gray-500">${board.ip_address}</p>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-2">Board Management</h2>
+                        <p class="text-sm text-gray-600">Configure and manage your ESP32 access control boards</p>
                     </div>
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="px-3 py-1 rounded-full text-xs font-medium ${board.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
-                        ${board.online ? '🟢 Online' : '⚫ Offline'}
-                    </span>
-                </div>
-            </div>
-
-            <!-- Board Info -->
-            <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Last Sync:</span>
-                    <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
-                </div>
-                ${board.api_key ? `
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Encryption:</span>
-                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
-                </div>
-                ` : ''}
-            </div>
-
-            <!-- Doors -->
-            <div class="space-y-2 mb-4">
-                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                    <span class="text-lg">🚪</span>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
-                        <p class="text-xs text-gray-500">Door 1</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                    <span class="text-lg">🚪</span>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
-                        <p class="text-xs text-gray-500">Door 2</p>
+                    <div class="flex gap-3">
+                        <button onclick="syncAllBoards()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2">
+                            <span class="text-lg">🔄</span> Sync All Boards
+                        </button>
+                        <button onclick="openModal('addBoardModal')" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium flex items-center gap-2">
+                            <span class="text-lg">➕</span> Add New Board
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Actions -->
-            <div class="flex gap-2">
-                <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
-                    🔄 Sync
-                </button>
-                <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
-                    ✏️ Edit
-                </button>
-                <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
-                    🗑️
+            <!-- Boards Grid -->
+            <div id="boards-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Boards will be loaded here dynamically -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="boards-empty" class="glass-card rounded-2xl p-12 text-center">
+                <div class="text-6xl mb-4 opacity-20">🖥️</div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">No Boards Configured</h3>
+                <p class="text-gray-600 mb-6">Add your first ESP32 board to get started</p>
+                <button onclick="openModal('addBoardModal')" class="px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
+                    ➕ Add Your First Board
                 </button>
             </div>
-        </div>
-    `).join('');
-}
-
-// Submit board form (Add or Edit)
-async function submitBoard(event) {
-    event.preventDefault();
-    
-    const boardData = {
-        id: document.getElementById('boardId').value,
-        name: document.getElementById('boardName').value,
-        ip_address: document.getElementById('boardIp').value,
-        api_key: document.getElementById('boardApiKey').value || null,
-        door1_name: document.getElementById('door1Name').value,
-        door2_name: document.getElementById('door2Name').value
-    };
-    
-    try {
-        const url = boardData.id ? `/api/boards/${boardData.id}` : '/api/boards';
-        const method = boardData.id ? 'PUT' : 'POST';
-        
-        const response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(boardData)
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            closeModal('addBoardModal');
-            showToast(boardData.id ? 'Board updated successfully!' : 'Board created successfully!', 'success');
-            await loadBoards();
-        } else {
-            showToast(result.message || 'Failed to save board', 'error');
-        }
-    } catch (error) {
-        console.error('Error saving board:', error);
-        showToast('Failed to save board', 'error');
-    }
-}
-
-// Edit board
-async function editBoard(boardId) {
-    const board = boards.find(b => b.id === boardId);
-    if (!board) return;
-    
-    // Populate form
-    document.getElementById('boardModalTitle').textContent = 'Edit Board';
-    document.getElementById('boardSubmitText').textContent = '💾 Update Board';
-    document.getElementById('boardId').value = board.id;
-    document.getElementById('boardName').value = board.name;
-    document.getElementById('boardIp').value = board.ip_address;
-    document.getElementById('boardApiKey').value = board.api_key || '';
-    document.getElementById('door1Name').value = board.door1_name;
-    document.getElementById('door2Name').value = board.door2_name;
-    
-    openModal('addBoardModal');
-}
-
-// Delete board
-async function deleteBoard(boardId) {
-    const board = boards.find(b => b.id === boardId);
-    if (!board) return;
-    
-    if (!confirm(`Are you sure you want to delete "${board.name}"?\n\nThis will also remove the 2 doors associated with this board.\n\nThis action cannot be undone.`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch(`/api/boards/${board.id}`, {
-            method: 'DELETE'
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showToast('Board deleted successfully!', 'success');
-            await loadBoards();
-        } else {
-            showToast(result.message || 'Failed to delete board', 'error');
-        }
-    } catch (error) {
-        console.error('Error deleting board:', error);
-        showToast('Failed to delete board', 'error');
-    }
-}
-
-// Sync single board
-async function syncBoard(boardId) {
-    const board = boards.find(b => b.id === boardId);
-    if (!board) return;
-    
-    showToast(`Syncing ${board.name}...`, 'info');
-    
-    try {
-        const response = await fetch(`/api/boards/${board.id}/sync`, {
-            method: 'POST'
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showToast(`${board.name} synced successfully!`, 'success');
-            await loadBoards();
-        } else {
-            showToast(result.message || `Failed to sync ${board.name}`, 'error');
-        }
-    } catch (error) {
-        console.error('Error syncing board:', error);
-        showToast(`Failed to sync ${board.name}`, 'error');
-    }
-}
-
-// Sync all boards
-async function syncAllBoards() {
-    if (boards.length === 0) {
-        showToast('No boards to sync', 'warning');
-        return;
-    }
-    
-    if (!confirm(`Sync all ${boards.length} board(s)?`)) {
-        return;
-    }
-    
-    showToast('Syncing all boards...', 'info');
-    
-    try {
-        const response = await fetch('/api/boards/sync-all', {
-            method: 'POST'
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showToast('All boards synced successfully!', 'success');
-            await loadBoards();
-        } else {
-            showToast(result.message || 'Failed to sync boards', 'error');
-        }
-    } catch (error) {
-        console.error('Error syncing boards:', error);
-        showToast('Failed to sync boards', 'error');
-    }
-}
-
-// Reset board form when modal closes
-function resetBoardForm() {
-    document.getElementById('boardForm').reset();
-    document.getElementById('boardModalTitle').textContent = 'Add New Board';
-    document.getElementById('boardSubmitText').textContent = '💾 Save Board';
-    document.getElementById('boardId').value = '';
-}
-
-// Update dashboard stats
-async function updateStats() {
-    try {
-        const response = await fetch('/api/stats');
-        const data = await response.json();
-        
-        if (data.success) {
-            // Update stats in dashboard if elements exist
-            const stats = data.stats;
-            
-            // Update boards online count
-            const boardsOnlineEl = document.querySelector('.boards-online-count');
-            if (boardsOnlineEl) {
-                boardsOnlineEl.textContent = `${stats.online_boards} Boards Online`;
-            }
-        }
-    } catch (error) {
-        console.error('Error updating stats:', error);
-    }
-}
-
-// Override closeModal to reset form
-const originalCloseModal = window.closeModal;
-window.closeModal = function(modalId) {
-    if (modalId === 'addBoardModal') {
-        resetBoardForm();
-    }
-    originalCloseModal(modalId);
-};
-
-// Load boards when switching to boards section
-const originalShowSection = window.showSection;
-window.showSection = function(section) {
-    originalShowSection(section);
-    if (section === 'boards') {
-        loadBoards();
-    }
-};
-</script>
         </div>
 
         <!-- Other sections placeholders -->
@@ -670,34 +288,89 @@ window.showSection = function(section) {
         </div>
     </div>
 
-    <!-- Add Board Modal -->
+    <!-- Add Board Modal - SIMPLIFIED -->
     <div id="addBoardModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 600px;">
             <div class="p-6">
                 <div class="flex items-center justify-between mb-6">
-                    <h3 class="text-xl font-bold text-gray-800">Add New Board</h3>
+                    <h3 class="text-xl font-bold text-gray-800" id="boardModalTitle">Add New Board</h3>
                     <button onclick="closeModal('addBoardModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                 </div>
-                <form onsubmit="submitBoard(event)">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Board Name</label>
-                            <input type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Entrance Board">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Board ID</label>
-                            <input type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="door_edge_1">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IP Address</label>
-                            <input type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
+                <form id="boardForm" onsubmit="submitBoard(event)">
+                    <input type="hidden" id="boardId" name="id">
+                    
+                    <!-- Board Info -->
+                    <div class="mb-6">
+                        <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                            <span class="text-xl">🖥️</span> Board Information
+                        </h4>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Board Name *</label>
+                                <input type="text" id="boardName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Office Board">
+                                <p class="text-xs text-gray-500 mt-1">Friendly name to identify this board</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">IP Address *</label>
+                                <input type="text" id="boardIp" required pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
+                                <p class="text-xs text-gray-500 mt-1">Static IP address of your ESP32 board</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">API Encryption Key (Optional)</label>
+                                <input type="text" id="boardApiKey" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Leave empty if not using encryption">
+                                <p class="text-xs text-gray-500 mt-1">ESPHome API encryption key if configured</p>
+                            </div>
                         </div>
                     </div>
-                    <div class="flex gap-3 mt-6">
-                        <button type="submit" class="flex-1 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
-                            Save Board
+
+                    <div class="h-px bg-gray-200 my-6"></div>
+
+                    <!-- Door Configuration -->
+                    <div class="mb-6">
+                        <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                            <span class="text-xl">🚪</span> Doors on This Board
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-4">Each board controls 2 doors. Name them according to their physical location.</p>
+                        
+                        <div class="space-y-4">
+                            <!-- Door 1 -->
+                            <div class="p-4 bg-blue-50 rounded-lg">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 1 Name *</label>
+                                <input type="text" id="door1Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Main Entrance">
+                                <p class="text-xs text-gray-500 mt-1">E.g., "Main Entrance", "Front Door", "Lobby Door"</p>
+                            </div>
+
+                            <!-- Door 2 -->
+                            <div class="p-4 bg-blue-50 rounded-lg">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 2 Name *</label>
+                                <input type="text" id="door2Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Back Entrance">
+                                <p class="text-xs text-gray-500 mt-1">E.g., "Back Entrance", "Side Door", "Garage Door"</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Info Note -->
+                    <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
+                        <div class="flex gap-3">
+                            <span class="text-2xl">💡</span>
+                            <div class="text-sm text-gray-700">
+                                <p class="font-medium mb-1">Important:</p>
+                                <ul class="list-disc list-inside space-y-1 text-xs">
+                                    <li>Make sure the ESP32 board is already flashed with ESPHome firmware</li>
+                                    <li>The IP address should be static (set in your router or ESPHome config)</li>
+                                    <li>Doors will automatically appear in the "Doors" section after saving</li>
+                                    <li>GPIO pins are configured in your ESPHome YAML (not needed here)</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex gap-3 pt-4 border-t">
+                        <button type="submit" class="flex-1 px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
+                            <span id="boardSubmitText">💾 Save Board</span>
                         </button>
-                        <button type="button" onclick="closeModal('addBoardModal')" class="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium">
+                        <button type="button" onclick="closeModal('addBoardModal')" class="px-6 py-3 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium">
                             Cancel
                         </button>
                     </div>
@@ -707,102 +380,45 @@ window.showSection = function(section) {
     </div>
 
     <script>
+        console.log('🚀 Access Control Dashboard Starting...');
+        
         // Emergency mode states
         let emergencyUnlockActive = false;
         let emergencyLockActive = false;
+        
+        // Boards data
+        let boards = [];
 
+        // Navigation
         function showSection(section) {
+            console.log('📍 Switching to section:', section);
             document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(section + '-section').classList.remove('hidden');
             event.target.classList.add('active');
+            
+            // Load boards when switching to boards section
+            if (section === 'boards') {
+                console.log('🖥️ Boards section activated - loading boards...');
+                loadBoards();
+            } else if (section === 'dashboard') {
+                updateStats();
+            }
         }
 
+        // Modal functions
         function openModal(modalId) {
             document.getElementById(modalId).classList.add('show');
         }
 
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('show');
-        }
-
-        function submitBoard(event) {
-            event.preventDefault();
-            closeModal('addBoardModal');
-            showToast('Board created successfully!', 'success');
-            // TODO: Actually save the board via API
-        }
-
-        function toggleEmergencyUnlock() {
-            const btn = document.getElementById('unlockBtn');
-            
-            if (emergencyUnlockActive) {
-                // Turn OFF emergency unlock
-                if (confirm('✅ Deactivate Emergency Unlock and return to normal operation?')) {
-                    emergencyUnlockActive = false;
-                    btn.classList.remove('active');
-                    btn.innerHTML = '🔓 Emergency Unlock';
-                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
-                    showToast('Emergency unlock deactivated - Normal operation resumed', 'success');
-                    // TODO: API call to deactivate
-                }
-            } else {
-                // Turn ON emergency unlock
-                if (confirm('⚠️ Are you sure you want to UNLOCK all doors? This will override all access controls!')) {
-                    // Deactivate emergency lock if active
-                    if (emergencyLockActive) {
-                        emergencyLockActive = false;
-                        const lockBtn = document.getElementById('lockBtn');
-                        lockBtn.classList.remove('active');
-                        lockBtn.innerHTML = '🔒 Emergency Lock';
-                        lockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
-                    }
-                    
-                    emergencyUnlockActive = true;
-                    btn.classList.add('active');
-                    btn.innerHTML = '✅ Unlock Active - Click to Deactivate';
-                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-orange-600 text-white font-medium border-2 border-orange-300';
-                    showToast('🚨 EMERGENCY UNLOCK ACTIVATED - All doors unlocked!', 'warning');
-                    // TODO: API call to activate
-                }
+            if (modalId === 'addBoardModal') {
+                resetBoardForm();
             }
         }
 
-        function toggleEmergencyLock() {
-            const btn = document.getElementById('lockBtn');
-            
-            if (emergencyLockActive) {
-                // Turn OFF emergency lock
-                if (confirm('✅ Deactivate Emergency Lock and return to normal operation?')) {
-                    emergencyLockActive = false;
-                    btn.classList.remove('active');
-                    btn.innerHTML = '🔒 Emergency Lock';
-                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
-                    showToast('Emergency lock deactivated - Normal operation resumed', 'success');
-                    // TODO: API call to deactivate
-                }
-            } else {
-                // Turn ON emergency lock
-                if (confirm('🔒 Are you sure you want to LOCK all doors? This will prevent ALL access!')) {
-                    // Deactivate emergency unlock if active
-                    if (emergencyUnlockActive) {
-                        emergencyUnlockActive = false;
-                        const unlockBtn = document.getElementById('unlockBtn');
-                        unlockBtn.classList.remove('active');
-                        unlockBtn.innerHTML = '🔓 Emergency Unlock';
-                        unlockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
-                    }
-                    
-                    emergencyLockActive = true;
-                    btn.classList.add('active');
-                    btn.innerHTML = '🔒 Lock Active - Click to Deactivate';
-                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-red-600 text-white font-medium border-2 border-red-300';
-                    showToast('🚨 EMERGENCY LOCK ACTIVATED - All access denied!', 'error');
-                    // TODO: API call to activate
-                }
-            }
-        }
-
+        // Toast notifications
         function showToast(message, type = 'info') {
             const colors = {
                 success: 'bg-green-500',
@@ -823,12 +439,372 @@ window.showSection = function(section) {
             }, 3000);
         }
 
+        // Emergency functions
+        function toggleEmergencyUnlock() {
+            const btn = document.getElementById('unlockBtn');
+            
+            if (emergencyUnlockActive) {
+                if (confirm('✅ Deactivate Emergency Unlock and return to normal operation?')) {
+                    emergencyUnlockActive = false;
+                    btn.classList.remove('active');
+                    btn.innerHTML = '🔓 Emergency Unlock';
+                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
+                    showToast('Emergency unlock deactivated', 'success');
+                }
+            } else {
+                if (confirm('⚠️ Are you sure you want to UNLOCK all doors?')) {
+                    if (emergencyLockActive) {
+                        emergencyLockActive = false;
+                        const lockBtn = document.getElementById('lockBtn');
+                        lockBtn.classList.remove('active');
+                        lockBtn.innerHTML = '🔒 Emergency Lock';
+                        lockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
+                    }
+                    
+                    emergencyUnlockActive = true;
+                    btn.classList.add('active');
+                    btn.innerHTML = '✅ Unlock Active - Click to Deactivate';
+                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-orange-600 text-white font-medium border-2 border-orange-300';
+                    showToast('🚨 EMERGENCY UNLOCK ACTIVATED', 'warning');
+                }
+            }
+        }
+
+        function toggleEmergencyLock() {
+            const btn = document.getElementById('lockBtn');
+            
+            if (emergencyLockActive) {
+                if (confirm('✅ Deactivate Emergency Lock and return to normal operation?')) {
+                    emergencyLockActive = false;
+                    btn.classList.remove('active');
+                    btn.innerHTML = '🔒 Emergency Lock';
+                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
+                    showToast('Emergency lock deactivated', 'success');
+                }
+            } else {
+                if (confirm('🔒 Are you sure you want to LOCK all doors?')) {
+                    if (emergencyUnlockActive) {
+                        emergencyUnlockActive = false;
+                        const unlockBtn = document.getElementById('unlockBtn');
+                        unlockBtn.classList.remove('active');
+                        unlockBtn.innerHTML = '🔓 Emergency Unlock';
+                        unlockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
+                    }
+                    
+                    emergencyLockActive = true;
+                    btn.classList.add('active');
+                    btn.innerHTML = '🔒 Lock Active - Click to Deactivate';
+                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-red-600 text-white font-medium border-2 border-red-300';
+                    showToast('🚨 EMERGENCY LOCK ACTIVATED', 'error');
+                }
+            }
+        }
+
+        // ==================== BOARD MANAGEMENT ====================
+
+        // Load boards
+        async function loadBoards() {
+            console.log('🔍 Loading boards...');
+            try {
+                const response = await fetch('/api/boards');
+                console.log('📡 GET /api/boards - Status:', response.status);
+                
+                const data = await response.json();
+                console.log('📦 Response data:', data);
+                
+                boards = data.boards || [];
+                console.log('📋 Loaded', boards.length, 'boards');
+                
+                renderBoards();
+                updateStats();
+            } catch (error) {
+                console.error('❌ Error loading boards:', error);
+                showToast('Failed to load boards', 'error');
+            }
+        }
+
+        // Render boards grid
+        function renderBoards() {
+            console.log('🎨 Rendering boards... Count:', boards.length);
+            
+            const grid = document.getElementById('boards-grid');
+            const empty = document.getElementById('boards-empty');
+            
+            if (!grid || !empty) {
+                console.error('❌ Could not find boards-grid or boards-empty elements!');
+                return;
+            }
+            
+            if (boards.length === 0) {
+                console.log('📭 No boards - showing empty state');
+                grid.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+            
+            console.log('📋 Showing', boards.length, 'boards');
+            grid.style.display = 'grid';
+            empty.style.display = 'none';
+            
+            grid.innerHTML = boards.map(board => `
+                <div class="glass-card rounded-2xl p-6">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl shadow-lg">
+                                🖥️
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-800">${board.name}</h3>
+                                <p class="text-sm text-gray-500">${board.ip_address}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="px-3 py-1 rounded-full text-xs font-medium ${board.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
+                                ${board.online ? '🟢 Online' : '⚫ Offline'}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">Last Sync:</span>
+                            <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
+                        </div>
+                        ${board.api_key ? `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">Encryption:</span>
+                            <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div class="space-y-2 mb-4">
+                        <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                            <span class="text-lg">🚪</span>
+                            <div class="flex-1">
+                                <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
+                                <p class="text-xs text-gray-500">Door 1</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                            <span class="text-lg">🚪</span>
+                            <div class="flex-1">
+                                <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
+                                <p class="text-xs text-gray-500">Door 2</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                            🔄 Sync
+                        </button>
+                        <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
+                            ✏️ Edit
+                        </button>
+                        <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            console.log('✅ Boards rendered successfully');
+        }
+
+        // Submit board form
+        async function submitBoard(event) {
+            event.preventDefault();
+            
+            const boardData = {
+                id: document.getElementById('boardId').value,
+                name: document.getElementById('boardName').value,
+                ip_address: document.getElementById('boardIp').value,
+                api_key: document.getElementById('boardApiKey').value || null,
+                door1_name: document.getElementById('door1Name').value,
+                door2_name: document.getElementById('door2Name').value
+            };
+            
+            console.log('💾 Submitting board:', boardData);
+            
+            try {
+                const url = boardData.id ? `/api/boards/${boardData.id}` : '/api/boards';
+                const method = boardData.id ? 'PUT' : 'POST';
+                
+                console.log(`📤 ${method} ${url}`);
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(boardData)
+                });
+                
+                const result = await response.json();
+                console.log('📦 Response:', result);
+                
+                if (result.success) {
+                    closeModal('addBoardModal');
+                    showToast(boardData.id ? 'Board updated!' : 'Board created!', 'success');
+                    
+                    // Reload boards
+                    console.log('🔄 Reloading boards...');
+                    await loadBoards();
+                } else {
+                    showToast(result.message || 'Failed to save board', 'error');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Failed to save board', 'error');
+            }
+        }
+
+        // Edit board
+        async function editBoard(boardId) {
+            const board = boards.find(b => b.id === boardId);
+            if (!board) return;
+            
+            document.getElementById('boardModalTitle').textContent = 'Edit Board';
+            document.getElementById('boardSubmitText').textContent = '💾 Update Board';
+            document.getElementById('boardId').value = board.id;
+            document.getElementById('boardName').value = board.name;
+            document.getElementById('boardIp').value = board.ip_address;
+            document.getElementById('boardApiKey').value = board.api_key || '';
+            document.getElementById('door1Name').value = board.door1_name;
+            document.getElementById('door2Name').value = board.door2_name;
+            
+            openModal('addBoardModal');
+        }
+
+        // Delete board
+        async function deleteBoard(boardId) {
+            const board = boards.find(b => b.id === boardId);
+            if (!board) return;
+            
+            if (!confirm(`Delete "${board.name}"?\n\nThis will remove the board and its 2 doors.\n\nThis cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/boards/${board.id}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('Board deleted!', 'success');
+                    await loadBoards();
+                } else {
+                    showToast(result.message || 'Failed to delete board', 'error');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Failed to delete board', 'error');
+            }
+        }
+
+        // Sync board
+        async function syncBoard(boardId) {
+            const board = boards.find(b => b.id === boardId);
+            if (!board) return;
+            
+            showToast(`Syncing ${board.name}...`, 'info');
+            
+            try {
+                const response = await fetch(`/api/boards/${board.id}/sync`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast(`${board.name} synced!`, 'success');
+                    await loadBoards();
+                } else {
+                    showToast(result.message || 'Sync failed', 'error');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Sync failed', 'error');
+            }
+        }
+
+        // Sync all boards
+        async function syncAllBoards() {
+            if (boards.length === 0) {
+                showToast('No boards to sync', 'warning');
+                return;
+            }
+            
+            if (!confirm(`Sync all ${boards.length} board(s)?`)) {
+                return;
+            }
+            
+            showToast('Syncing all boards...', 'info');
+            
+            try {
+                const response = await fetch('/api/boards/sync-all', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('All boards synced!', 'success');
+                    await loadBoards();
+                } else {
+                    showToast(result.message || 'Sync failed', 'error');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Sync failed', 'error');
+            }
+        }
+
+        // Reset board form
+        function resetBoardForm() {
+            document.getElementById('boardForm').reset();
+            document.getElementById('boardModalTitle').textContent = 'Add New Board';
+            document.getElementById('boardSubmitText').textContent = '💾 Save Board';
+            document.getElementById('boardId').value = '';
+        }
+
+        // Update dashboard stats
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const stats = data.stats;
+                    
+                    document.getElementById('stat-users').textContent = stats.total_users;
+                    document.getElementById('stat-active-users').textContent = `${stats.active_users} Active`;
+                    document.getElementById('stat-doors').textContent = stats.total_doors;
+                    document.getElementById('stat-access').textContent = stats.today_access;
+                    
+                    const boardsOnline = document.querySelector('.boards-online-count');
+                    if (boardsOnline) {
+                        boardsOnline.textContent = `${stats.online_boards} Boards Online`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }
+
         // Close modal when clicking outside
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) {
                 event.target.classList.remove('show');
             }
         }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('✅ Dashboard loaded');
+            updateStats();
+            showToast('System Online', 'success');
+        });
+        
+        console.log('✅ Dashboard JavaScript loaded');
     </script>
 </body>
 </html>
