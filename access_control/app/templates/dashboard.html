@@ -11,98 +11,100 @@
             theme: {
                 extend: {
                     colors: {
-                        'cyber-dark': '#0a0e27',
-                        'cyber-darker': '#060913',
-                        'cyber-card': '#141b3d',
-                        'cyber-border': '#1e2a5e',
-                        'cyber-cyan': '#00d9ff',
-                        'cyber-blue': '#4d6dff',
-                        'cyber-green': '#00ff88',
-                        'cyber-orange': '#ff6b35',
-                        'cyber-red': '#ff3366',
-                        'cyber-purple': '#a855f7'
+                        'primary': '#0ea5e9',
+                        'primary-dark': '#0284c7',
+                        'success': '#10b981',
+                        'warning': '#f59e0b',
+                        'danger': '#ef4444',
+                        'gray-50': '#f9fafb',
+                        'gray-100': '#f3f4f6',
+                        'gray-200': '#e5e7eb',
+                        'gray-300': '#d1d5db',
+                        'gray-400': '#9ca3af',
+                        'gray-500': '#6b7280',
+                        'gray-600': '#4b5563',
+                        'gray-700': '#374151',
+                        'gray-800': '#1f2937',
+                        'gray-900': '#111827'
                     }
                 }
             }
         }
     </script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
         body {
-            background: linear-gradient(135deg, #0a0e27 0%, #060913 100%);
+            background: linear-gradient(to bottom, #ffffff 0%, #f9fafb 100%);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
         
-        /* Smooth animations */
+        /* Smooth transitions */
         * {
-            transition: all 0.3s ease;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        /* Glassmorphism card effect */
-        .glass-card {
-            background: rgba(20, 27, 61, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(77, 109, 255, 0.2);
-            box-shadow: 0 8px 32px 0 rgba(0, 217, 255, 0.1);
+        /* Card styles */
+        .card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
         }
         
-        .glass-card:hover {
-            border-color: rgba(77, 109, 255, 0.4);
-            box-shadow: 0 12px 48px 0 rgba(0, 217, 255, 0.2);
+        .card:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             transform: translateY(-2px);
         }
         
-        /* Neon glow effects */
-        .neon-cyan {
-            box-shadow: 0 0 20px rgba(0, 217, 255, 0.5);
+        /* Navigation active state */
+        .nav-btn {
+            color: #6b7280;
+            font-weight: 500;
         }
         
-        .neon-green {
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        .nav-btn:hover {
+            color: #0ea5e9;
+            background: #eff6ff;
         }
         
-        .neon-red {
-            box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
+        .nav-btn.active {
+            color: #0ea5e9;
+            background: #eff6ff;
+            font-weight: 600;
         }
         
-        /* Stat card pulse animation */
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 15px rgba(77, 109, 255, 0.3); }
-            50% { box-shadow: 0 0 25px rgba(77, 109, 255, 0.6); }
+        /* Button styles */
+        .btn {
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        /* Stat card animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         .stat-card {
-            animation: pulse-glow 3s infinite;
+            animation: fadeIn 0.5s ease-out;
         }
         
-        /* Navigation active state */
-        .nav-btn.active {
-            background: linear-gradient(135deg, #4d6dff 0%, #00d9ff 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(77, 109, 255, 0.4);
+        /* Badge pulse */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
         }
         
-        /* Button hover effects */
-        .cyber-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 25px currentColor;
-        }
-        
-        /* Scanline effect */
-        @keyframes scanline {
-            0% { transform: translateY(-100%); }
-            100% { transform: translateY(100vh); }
-        }
-        
-        .scanline {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: linear-gradient(transparent, rgba(0, 217, 255, 0.3), transparent);
-            animation: scanline 8s linear infinite;
-            pointer-events: none;
-            z-index: 9999;
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         
         /* Toast notifications */
@@ -115,63 +117,67 @@
             to { transform: translateX(0); opacity: 1; }
         }
         
-        /* Hexagon pattern background */
-        .hex-bg {
-            background-image: 
-                radial-gradient(circle at 20% 50%, rgba(77, 109, 255, 0.03) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(0, 217, 255, 0.03) 0%, transparent 50%);
-        }
-        
         /* Custom scrollbar */
         ::-webkit-scrollbar {
             width: 8px;
         }
         
         ::-webkit-scrollbar-track {
-            background: #0a0e27;
+            background: #f3f4f6;
         }
         
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, #4d6dff 0%, #00d9ff 100%);
+            background: #d1d5db;
             border-radius: 10px;
         }
         
         ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(180deg, #00d9ff 0%, #4d6dff 100%);
+            background: #9ca3af;
+        }
+        
+        /* Icon styles */
+        .icon-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+        }
+        
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #e5e7eb, transparent);
         }
     </style>
 </head>
-<body class="hex-bg min-h-screen text-white">
-    <!-- Scanline effect -->
-    <div class="scanline"></div>
-    
+<body class="min-h-screen">
     <!-- Toast Container -->
     <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
 
     <div class="container mx-auto px-4 py-6 max-w-7xl">
         <!-- Header -->
-        <header class="glass-card rounded-2xl p-6 mb-6">
+        <header class="card rounded-2xl p-6 mb-6">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-cyan to-cyber-blue flex items-center justify-center text-2xl neon-cyan">
+                    <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-2xl text-white shadow-lg">
                         🚪
                     </div>
                     <div>
-                        <h1 class="text-2xl font-bold bg-gradient-to-r from-cyber-cyan to-cyber-blue bg-clip-text text-transparent">
+                        <h1 class="text-2xl font-bold text-gray-900">
                             Access Control System
                         </h1>
-                        <p class="text-sm text-gray-400">Professional Security Management</p>
+                        <p class="text-sm text-gray-500">Professional Security Management</p>
                     </div>
                 </div>
-                <div class="flex items-center gap-3">
-                    <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyber-darker border border-cyber-green/30">
-                        <div class="w-2 h-2 rounded-full bg-cyber-green animate-pulse"></div>
-                        <span class="text-sm text-cyber-green font-medium">0 Boards Online</span>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-success/10 border border-success/20">
+                        <div class="w-2 h-2 rounded-full bg-success pulse"></div>
+                        <span class="text-sm text-success font-medium">0 Boards Online</span>
                     </div>
-                    <button onclick="emergencyUnlock()" class="cyber-btn px-6 py-2 rounded-lg bg-cyber-orange/10 text-cyber-orange border border-cyber-orange/30 hover:bg-cyber-orange/20 font-medium">
+                    <button onclick="emergencyUnlock()" class="btn px-4 py-2 rounded-lg bg-warning/10 text-warning border border-warning/20 hover:bg-warning/20">
                         ⚠️ Emergency Unlock
                     </button>
-                    <button onclick="emergencyLock()" class="cyber-btn px-6 py-2 rounded-lg bg-cyber-red/10 text-cyber-red border border-cyber-red/30 hover:bg-cyber-red/20 font-medium">
+                    <button onclick="emergencyLock()" class="btn px-4 py-2 rounded-lg bg-danger/10 text-danger border border-danger/20 hover:bg-danger/20">
                         🔒 Emergency Lock
                     </button>
                 </div>
@@ -179,30 +185,30 @@
         </header>
 
         <!-- Navigation -->
-        <nav class="glass-card rounded-2xl p-2 mb-6">
+        <nav class="card rounded-2xl p-2 mb-6">
             <div class="grid grid-cols-4 md:grid-cols-8 gap-2">
-                <button class="nav-btn active px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('dashboard')">
+                <button class="nav-btn active px-4 py-3 rounded-xl text-sm" onclick="showSection('dashboard')">
                     🏠 Dashboard
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('groups')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('groups')">
                     👥 Groups
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('doors')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('doors')">
                     🚪 Doors
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('schedules')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('schedules')">
                     📅 Schedules
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('users')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('users')">
                     👤 Users
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('logs')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('logs')">
                     📜 Access Logs
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('monitor')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('monitor')">
                     📡 Live Monitor
                 </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-cyber-card" onclick="showSection('boards')">
+                <button class="nav-btn px-4 py-3 rounded-xl text-sm" onclick="showSection('boards')">
                     🖥️ Boards
                 </button>
             </div>
@@ -213,114 +219,179 @@
             <!-- Stats Grid -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                 <!-- Users Card -->
-                <div class="glass-card stat-card rounded-2xl p-6">
+                <div class="card stat-card rounded-2xl p-6" style="animation-delay: 0s">
                     <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-cyber-purple/20 border border-cyber-purple/30 flex items-center justify-center text-2xl">
+                        <div class="icon-box w-12 h-12 bg-purple-100 text-purple-600">
                             👥
                         </div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-cyber-cyan">0</div>
-                            <div class="text-sm text-gray-400">Total Users</div>
+                            <div class="text-3xl font-bold text-gray-900">0</div>
+                            <div class="text-sm text-gray-500">Total Users</div>
                         </div>
                     </div>
-                    <div class="text-sm text-gray-400">
-                        <span class="text-cyber-green">0 Active</span>
+                    <div class="divider mb-3"></div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-500">Active</span>
+                        <span class="font-semibold text-success">0</span>
                     </div>
                 </div>
 
                 <!-- Doors Card -->
-                <div class="glass-card stat-card rounded-2xl p-6">
+                <div class="card stat-card rounded-2xl p-6" style="animation-delay: 0.1s">
                     <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-cyber-blue/20 border border-cyber-blue/30 flex items-center justify-center text-2xl">
+                        <div class="icon-box w-12 h-12 bg-blue-100 text-blue-600">
                             🚪
                         </div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-cyber-cyan">0</div>
-                            <div class="text-sm text-gray-400">Total Doors</div>
+                            <div class="text-3xl font-bold text-gray-900">0</div>
+                            <div class="text-sm text-gray-500">Total Doors</div>
                         </div>
                     </div>
-                    <div class="text-sm text-gray-400">
-                        <span class="text-cyber-blue">Configured</span>
+                    <div class="divider mb-3"></div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-500">Status</span>
+                        <span class="font-semibold text-primary">Configured</span>
                     </div>
                 </div>
 
                 <!-- Access Today Card -->
-                <div class="glass-card stat-card rounded-2xl p-6">
+                <div class="card stat-card rounded-2xl p-6" style="animation-delay: 0.2s">
                     <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-cyber-green/20 border border-cyber-green/30 flex items-center justify-center text-2xl">
+                        <div class="icon-box w-12 h-12 bg-green-100 text-green-600">
                             ✅
                         </div>
                         <div class="text-right">
-                            <div class="text-3xl font-bold text-cyber-cyan">0</div>
-                            <div class="text-sm text-gray-400">Today's Access</div>
+                            <div class="text-3xl font-bold text-gray-900">0</div>
+                            <div class="text-sm text-gray-500">Today's Access</div>
                         </div>
                     </div>
-                    <div class="text-sm text-gray-400">
-                        <span class="text-cyber-green">Successful</span>
+                    <div class="divider mb-3"></div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-500">Success Rate</span>
+                        <span class="font-semibold text-success">100%</span>
                     </div>
                 </div>
             </div>
 
             <!-- Recent Activity -->
-            <div class="glass-card rounded-2xl p-6">
-                <div class="flex items-center gap-3 mb-6">
-                    <div class="text-2xl">📊</div>
-                    <h2 class="text-xl font-bold text-cyber-cyan">Recent Activity</h2>
+            <div class="card rounded-2xl p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <div class="icon-box w-10 h-10 bg-gray-100 text-gray-600 text-lg">
+                            📊
+                        </div>
+                        <h2 class="text-xl font-semibold text-gray-900">Recent Activity</h2>
+                    </div>
+                    <button class="text-sm text-primary hover:text-primary-dark font-medium">
+                        View All →
+                    </button>
                 </div>
-                <div class="text-center py-12 text-gray-500">
-                    <div class="text-4xl mb-4 opacity-20">📭</div>
-                    <p>No recent activity to display</p>
+                <div class="text-center py-16">
+                    <div class="icon-box w-16 h-16 bg-gray-100 text-gray-400 text-4xl mx-auto mb-4">
+                        📭
+                    </div>
+                    <p class="text-gray-500 font-medium">No recent activity</p>
+                    <p class="text-sm text-gray-400 mt-1">Access events will appear here</p>
                 </div>
             </div>
         </div>
 
         <!-- Other Sections (Hidden by default) -->
         <div id="groups-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Access Groups</h2>
-                <p class="text-gray-400">Group management coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-purple-100 text-purple-600 text-xl">
+                        👥
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Access Groups</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Group management coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="doors-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Door Management</h2>
-                <p class="text-gray-400">Door configuration coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-blue-100 text-blue-600 text-xl">
+                        🚪
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Door Management</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Door configuration coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="schedules-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Access Schedules</h2>
-                <p class="text-gray-400">Schedule management coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-orange-100 text-orange-600 text-xl">
+                        📅
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Access Schedules</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Schedule management coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="users-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">User Management</h2>
-                <p class="text-gray-400">User management coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-indigo-100 text-indigo-600 text-xl">
+                        👤
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">User Management</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">User management coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="logs-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Access Logs</h2>
-                <p class="text-gray-400">Access logs coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-gray-100 text-gray-600 text-xl">
+                        📜
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Access Logs</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Access logs coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="monitor-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Live Monitor</h2>
-                <p class="text-gray-400">Real-time monitoring coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-green-100 text-green-600 text-xl">
+                        📡
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Live Monitor</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Real-time monitoring coming soon...</p>
+                </div>
             </div>
         </div>
 
         <div id="boards-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-cyber-cyan mb-4">Board Management</h2>
-                <p class="text-gray-400">Board configuration coming soon...</p>
+            <div class="card rounded-2xl p-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="icon-box w-12 h-12 bg-blue-100 text-blue-600 text-xl">
+                        🖥️
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-900">Board Management</h2>
+                </div>
+                <div class="text-center py-12">
+                    <p class="text-gray-500">Board configuration coming soon...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -328,26 +399,19 @@
     <script>
         // Navigation
         function showSection(section) {
-            // Hide all sections
             document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
-            
-            // Remove active class from all nav buttons
             document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            
-            // Show selected section
             document.getElementById(section + '-section').classList.remove('hidden');
-            
-            // Add active class to clicked button
             event.target.classList.add('active');
         }
 
         // Toast notifications
         function showToast(message, type = 'info') {
             const colors = {
-                success: 'border-cyber-green text-cyber-green bg-cyber-green/10',
-                error: 'border-cyber-red text-cyber-red bg-cyber-red/10',
-                warning: 'border-cyber-orange text-cyber-orange bg-cyber-orange/10',
-                info: 'border-cyber-cyan text-cyber-cyan bg-cyber-cyan/10'
+                success: 'bg-success/10 border-success text-success',
+                error: 'bg-danger/10 border-danger text-danger',
+                warning: 'bg-warning/10 border-warning text-warning',
+                info: 'bg-primary/10 border-primary text-primary'
             };
             
             const icons = {
@@ -358,9 +422,9 @@
             };
             
             const toast = document.createElement('div');
-            toast.className = `toast glass-card ${colors[type]} border px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 min-w-[300px]`;
+            toast.className = `toast card ${colors[type]} border-2 px-5 py-3 rounded-xl flex items-center gap-3 min-w-[300px] shadow-lg`;
             toast.innerHTML = `
-                <span class="text-2xl">${icons[type]}</span>
+                <span class="text-xl">${icons[type]}</span>
                 <span class="font-medium">${message}</span>
             `;
             
@@ -376,21 +440,19 @@
         // Emergency functions
         function emergencyUnlock() {
             if (confirm('⚠️ Are you sure you want to UNLOCK all doors?')) {
-                showToast('Emergency unlock activated!', 'warning');
-                // TODO: API call
+                showToast('Emergency unlock activated', 'warning');
             }
         }
 
         function emergencyLock() {
             if (confirm('🔒 Are you sure you want to LOCK all doors?')) {
-                showToast('Emergency lock activated!', 'error');
-                // TODO: API call
+                showToast('Emergency lock activated', 'error');
             }
         }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            showToast('Access Control System Online', 'success');
+            showToast('System Online', 'success');
         });
     </script>
 </body>
