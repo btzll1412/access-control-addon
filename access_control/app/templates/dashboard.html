@@ -208,8 +208,8 @@
             </div>
         </div>
 
-        <!-- Boards Section -->
-        <div id="boards-section" class="section hidden">
+        <!-- Boards Section - SIMPLIFIED -->
+<div id="boards-section" class="section hidden">
     <!-- Header -->
     <div class="glass-card rounded-2xl p-6 mb-6">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -244,9 +244,9 @@
     </div>
 </div>
 
-<!-- Add/Edit Board Modal -->
+<!-- Add/Edit Board Modal - SIMPLIFIED -->
 <div id="addBoardModal" class="modal">
-    <div class="modal-content" style="max-width: 700px;">
+    <div class="modal-content" style="max-width: 600px;">
         <div class="p-6">
             <div class="flex items-center justify-between mb-6">
                 <h3 class="text-xl font-bold text-gray-800" id="boardModalTitle">Add New Board</h3>
@@ -257,76 +257,66 @@
                 
                 <!-- Board Info -->
                 <div class="mb-6">
-                    <h4 class="font-semibold text-gray-800 mb-4">Board Information</h4>
+                    <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <span class="text-xl">🖥️</span> Board Information
+                    </h4>
                     <div class="space-y-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Board Name *</label>
-                            <input type="text" id="boardName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Entrance Board">
+                            <input type="text" id="boardName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Office Board">
+                            <p class="text-xs text-gray-500 mt-1">Friendly name to identify this board</p>
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Board ID *</label>
-                                <input type="text" id="boardIdField" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="door_edge_1">
-                                <p class="text-xs text-gray-500 mt-1">Must match ESPHome device name</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">IP Address *</label>
-                                <input type="text" id="boardIp" required pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
-                            </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">IP Address *</label>
+                            <input type="text" id="boardIp" required pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
+                            <p class="text-xs text-gray-500 mt-1">Static IP address of your ESP32 board</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">API Encryption Key (Optional)</label>
+                            <input type="text" id="boardApiKey" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Leave empty if not using encryption">
+                            <p class="text-xs text-gray-500 mt-1">ESPHome API encryption key if configured</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Door 1 Configuration -->
+                <div class="h-px bg-gray-200 my-6"></div>
+
+                <!-- Door Configuration -->
                 <div class="mb-6">
                     <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        🚪 Door 1 Configuration
+                        <span class="text-xl">🚪</span> Doors on This Board
                     </h4>
+                    <p class="text-sm text-gray-600 mb-4">Each board controls 2 doors. Name them according to their physical location.</p>
+                    
                     <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Door 1 Name *</label>
-                            <input type="text" id="door1Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Front Door">
+                        <!-- Door 1 -->
+                        <div class="p-4 bg-blue-50 rounded-lg">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 1 Name *</label>
+                            <input type="text" id="door1Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Main Entrance">
+                            <p class="text-xs text-gray-500 mt-1">E.g., "Main Entrance", "Front Door", "Lobby Door"</p>
                         </div>
-                        <div class="grid grid-cols-3 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Door ID *</label>
-                                <input type="text" id="door1Id" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="door1">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Relay GPIO *</label>
-                                <input type="number" id="door1Relay" required min="0" max="39" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="12">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">REX GPIO *</label>
-                                <input type="number" id="door1Rex" required min="0" max="39" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="14">
-                            </div>
+
+                        <!-- Door 2 -->
+                        <div class="p-4 bg-blue-50 rounded-lg">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 2 Name *</label>
+                            <input type="text" id="door2Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Back Entrance">
+                            <p class="text-xs text-gray-500 mt-1">E.g., "Back Entrance", "Side Door", "Garage Door"</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Door 2 Configuration -->
-                <div class="mb-6">
-                    <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        🚪 Door 2 Configuration
-                    </h4>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Door 2 Name *</label>
-                            <input type="text" id="door2Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Lobby Door">
-                        </div>
-                        <div class="grid grid-cols-3 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Door ID *</label>
-                                <input type="text" id="door2Id" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="door2">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Relay GPIO *</label>
-                                <input type="number" id="door2Relay" required min="0" max="39" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="13">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">REX GPIO *</label>
-                                <input type="number" id="door2Rex" required min="0" max="39" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="15">
-                            </div>
+                <!-- Info Note -->
+                <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
+                    <div class="flex gap-3">
+                        <span class="text-2xl">💡</span>
+                        <div class="text-sm text-gray-700">
+                            <p class="font-medium mb-1">Important:</p>
+                            <ul class="list-disc list-inside space-y-1 text-xs">
+                                <li>Make sure the ESP32 board is already flashed with ESPHome firmware</li>
+                                <li>The IP address should be static (set in your router or ESPHome config)</li>
+                                <li>Doors will automatically appear in the "Doors" section after saving</li>
+                                <li>GPIO pins are configured in your ESPHome YAML (not needed here)</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -356,6 +346,7 @@ async function loadBoards() {
         const data = await response.json();
         boards = data.boards || [];
         renderBoards();
+        updateStats(); // Update dashboard stats
     } catch (error) {
         console.error('Error loading boards:', error);
         showToast('Failed to load boards', 'error');
@@ -386,7 +377,7 @@ function renderBoards() {
                     </div>
                     <div>
                         <h3 class="font-bold text-gray-800">${board.name}</h3>
-                        <p class="text-sm text-gray-500">${board.board_id}</p>
+                        <p class="text-sm text-gray-500">${board.ip_address}</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -399,46 +390,44 @@ function renderBoards() {
             <!-- Board Info -->
             <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
                 <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">IP Address:</span>
-                    <span class="font-medium text-gray-800">${board.ip_address}</span>
-                </div>
-                <div class="flex justify-between text-sm">
                     <span class="text-gray-600">Last Sync:</span>
                     <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
                 </div>
+                ${board.api_key ? `
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Encryption:</span>
+                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
+                </div>
+                ` : ''}
             </div>
 
             <!-- Doors -->
-            <div class="space-y-3 mb-4">
-                <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <span class="text-lg">🚪</span>
-                        <div>
-                            <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
-                            <p class="text-xs text-gray-500">Relay: GPIO ${board.door1_relay} | REX: GPIO ${board.door1_rex}</p>
-                        </div>
+            <div class="space-y-2 mb-4">
+                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                    <span class="text-lg">🚪</span>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
+                        <p class="text-xs text-gray-500">Door 1</p>
                     </div>
                 </div>
-                <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <span class="text-lg">🚪</span>
-                        <div>
-                            <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
-                            <p class="text-xs text-gray-500">Relay: GPIO ${board.door2_relay} | REX: GPIO ${board.door2_rex}</p>
-                        </div>
+                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                    <span class="text-lg">🚪</span>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
+                        <p class="text-xs text-gray-500">Door 2</p>
                     </div>
                 </div>
             </div>
 
             <!-- Actions -->
             <div class="flex gap-2">
-                <button onclick="syncBoard('${board.board_id}')" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
                     🔄 Sync
                 </button>
-                <button onclick="editBoard('${board.board_id}')" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
+                <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
                     ✏️ Edit
                 </button>
-                <button onclick="deleteBoard('${board.board_id}')" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
+                <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
                     🗑️
                 </button>
             </div>
@@ -453,16 +442,10 @@ async function submitBoard(event) {
     const boardData = {
         id: document.getElementById('boardId').value,
         name: document.getElementById('boardName').value,
-        board_id: document.getElementById('boardIdField').value,
         ip_address: document.getElementById('boardIp').value,
+        api_key: document.getElementById('boardApiKey').value || null,
         door1_name: document.getElementById('door1Name').value,
-        door1_id: document.getElementById('door1Id').value,
-        door1_relay: parseInt(document.getElementById('door1Relay').value),
-        door1_rex: parseInt(document.getElementById('door1Rex').value),
-        door2_name: document.getElementById('door2Name').value,
-        door2_id: document.getElementById('door2Id').value,
-        door2_relay: parseInt(document.getElementById('door2Relay').value),
-        door2_rex: parseInt(document.getElementById('door2Rex').value)
+        door2_name: document.getElementById('door2Name').value
     };
     
     try {
@@ -492,7 +475,7 @@ async function submitBoard(event) {
 
 // Edit board
 async function editBoard(boardId) {
-    const board = boards.find(b => b.board_id === boardId);
+    const board = boards.find(b => b.id === boardId);
     if (!board) return;
     
     // Populate form
@@ -500,26 +483,20 @@ async function editBoard(boardId) {
     document.getElementById('boardSubmitText').textContent = '💾 Update Board';
     document.getElementById('boardId').value = board.id;
     document.getElementById('boardName').value = board.name;
-    document.getElementById('boardIdField').value = board.board_id;
     document.getElementById('boardIp').value = board.ip_address;
+    document.getElementById('boardApiKey').value = board.api_key || '';
     document.getElementById('door1Name').value = board.door1_name;
-    document.getElementById('door1Id').value = board.door1_id;
-    document.getElementById('door1Relay').value = board.door1_relay;
-    document.getElementById('door1Rex').value = board.door1_rex;
     document.getElementById('door2Name').value = board.door2_name;
-    document.getElementById('door2Id').value = board.door2_id;
-    document.getElementById('door2Relay').value = board.door2_relay;
-    document.getElementById('door2Rex').value = board.door2_rex;
     
     openModal('addBoardModal');
 }
 
 // Delete board
 async function deleteBoard(boardId) {
-    const board = boards.find(b => b.board_id === boardId);
+    const board = boards.find(b => b.id === boardId);
     if (!board) return;
     
-    if (!confirm(`Are you sure you want to delete "${board.name}"? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete "${board.name}"?\n\nThis will also remove the 2 doors associated with this board.\n\nThis action cannot be undone.`)) {
         return;
     }
     
@@ -544,7 +521,7 @@ async function deleteBoard(boardId) {
 
 // Sync single board
 async function syncBoard(boardId) {
-    const board = boards.find(b => b.board_id === boardId);
+    const board = boards.find(b => b.id === boardId);
     if (!board) return;
     
     showToast(`Syncing ${board.name}...`, 'info');
@@ -606,6 +583,27 @@ function resetBoardForm() {
     document.getElementById('boardModalTitle').textContent = 'Add New Board';
     document.getElementById('boardSubmitText').textContent = '💾 Save Board';
     document.getElementById('boardId').value = '';
+}
+
+// Update dashboard stats
+async function updateStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update stats in dashboard if elements exist
+            const stats = data.stats;
+            
+            // Update boards online count
+            const boardsOnlineEl = document.querySelector('.boards-online-count');
+            if (boardsOnlineEl) {
+                boardsOnlineEl.textContent = `${stats.online_boards} Boards Online`;
+            }
+        }
+    } catch (error) {
+        console.error('Error updating stats:', error);
+    }
 }
 
 // Override closeModal to reset form
