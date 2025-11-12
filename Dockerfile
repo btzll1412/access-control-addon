@@ -7,7 +7,9 @@ RUN apk add --no-cache \
     py3-pip \
     py3-flask \
     py3-requests \
-    sqlite
+    sqlite \
+    jq \
+    bash
 
 # Copy application files
 COPY app /app
@@ -15,7 +17,7 @@ COPY app /app
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies with --break-system-packages flag
+# Install Python dependencies
 RUN pip3 install --no-cache-dir --break-system-packages \
     waitress==2.1.2
 
