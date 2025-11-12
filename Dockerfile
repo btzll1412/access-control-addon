@@ -8,7 +8,6 @@ RUN apk add --no-cache \
     py3-flask \
     py3-requests \
     sqlite \
-    jq \
     bash
 
 # Copy application files
@@ -21,12 +20,8 @@ WORKDIR /app
 RUN pip3 install --no-cache-dir --break-system-packages \
     waitress==2.1.2
 
-# Copy run script
-COPY run.sh /
-RUN chmod a+x /run.sh
-
 # Expose port
 EXPOSE 8100
 
-# Run
-CMD [ "/run.sh" ]
+# Run directly without shell script
+CMD ["python3", "-m", "waitress", "--host=0.0.0.0", "--port=8100", "main:app"]
