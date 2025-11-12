@@ -1,0 +1,31 @@
+{
+  "name": "Access Control System",
+  "version": "1.0.0",
+  "slug": "15d67320_access_control",
+  "description": "Professional access control system with ESP32 board management",
+  "arch": ["aarch64", "amd64", "armhf", "armv7", "i386"],
+  "startup": "application",
+  "boot": "auto",
+  "ports": {
+    "8100/tcp": 8100
+  },
+  "ports_description": {
+    "8100/tcp": "Web UI and API"
+  },
+  "ingress": true,
+  "ingress_port": 8100,
+  "panel_icon": "mdi:door",
+  "panel_title": "Access Control",
+  "homeassistant_api": true,
+  "hassio_api": true,
+  "hassio_role": "default",
+  "options": {
+    "ha_token": "",
+    "log_level": "info"
+  },
+  "schema": {
+    "ha_token": "str",
+    "log_level": "list(debug|info|warning|error)?"
+  },
+  "image": "ghcr.io/btzll1412/access-control-addon"
+}
