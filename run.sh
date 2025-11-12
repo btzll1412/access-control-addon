@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/env bashio
 
 # Get configuration
 HA_TOKEN=$(bashio::config 'ha_token')
@@ -20,4 +20,4 @@ fi
 
 # Start application
 cd /app
-python3 -m waitress --host=0.0.0.0 --port=8100 main:app
+exec python3 -m waitress --host=0.0.0.0 --port=8100 main:app
