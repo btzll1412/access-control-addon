@@ -15,11 +15,9 @@ COPY app /app
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir \
-    waitress==2.1.2 \
-    flask==2.3.2 \
-    requests==2.31.0
+# Install Python dependencies with --break-system-packages flag
+RUN pip3 install --no-cache-dir --break-system-packages \
+    waitress==2.1.2
 
 # Copy run script
 COPY run.sh /
