@@ -1,12 +1,15 @@
 from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
 # Database path
 DB_PATH = '/data/access_control.db'
+
+# Configuration
+HEARTBEAT_TIMEOUT_MINUTES = 5  # Board is offline if no heartbeat for 5 minutes
 
 def get_db():
     """Get database connection"""
@@ -28,7 +31,7 @@ def init_db():
     except:
         pass
     
-    # Boards table - SIMPLIFIED SCHEMA
+    # Boards table - WITH HEARTBEAT
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +40,7 @@ def init_db():
             api_key TEXT,
             door1_name TEXT NOT NULL,
             door2_name TEXT NOT NULL,
-            online BOOLEAN DEFAULT 0,
+            last_heartbeat TIMESTAMP,
             last_sync TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -98,6 +101,21 @@ def init_db():
     conn.close()
     print("✅ Database initialized successfully")
 
+def is_board_online(last_heartbeat):
+    """Check if board is online based on last heartbeat timestamp"""
+    if not last_heartbeat:
+        return False
+    
+    try:
+        heartbeat_time = datetime.fromisoformat(last_heartbeat)
+        now = datetime.now()
+        time_diff = now - heartbeat_time
+        
+        # Online if heartbeat within last 5 minutes
+        return time_diff.total_seconds() < (HEARTBEAT_TIMEOUT_MINUTES * 60)
+    except:
+        return False
+
 @app.route('/')
 def index():
     """Main dashboard page"""
@@ -107,7 +125,7 @@ def index():
 
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
-    """Get all boards"""
+    """Get all boards with online/offline status"""
     try:
         # Ensure database is initialized
         init_db()
@@ -122,12 +140,44 @@ def get_boards():
         for board in boards_data:
             board_dict = dict(board)
             
+            # Calculate online status based on last_heartbeat
+            board_dict['online'] = is_board_online(board_dict.get('last_heartbeat'))
+            
+            # Format last_heartbeat for display
+            if board_dict.get('last_heartbeat'):
+                try:
+                    hb_time = datetime.fromisoformat(board_dict['last_heartbeat'])
+                    board_dict['last_heartbeat_display'] = hb_time.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Calculate time since last heartbeat
+                    now = datetime.now()
+                    diff = now - hb_time
+                    minutes_ago = int(diff.total_seconds() / 60)
+                    
+                    if minutes_ago < 1:
+                        board_dict['last_seen'] = 'Just now'
+                    elif minutes_ago == 1:
+                        board_dict['last_seen'] = '1 minute ago'
+                    elif minutes_ago < 60:
+                        board_dict['last_seen'] = f'{minutes_ago} minutes ago'
+                    else:
+                        hours_ago = int(minutes_ago / 60)
+                        board_dict['last_seen'] = f'{hours_ago} hour(s) ago'
+                except:
+                    board_dict['last_heartbeat_display'] = 'Never'
+                    board_dict['last_seen'] = 'Never'
+            else:
+                board_dict['last_heartbeat_display'] = 'Never'
+                board_dict['last_seen'] = 'Never'
+            
             # Format last_sync
-            if board_dict['last_sync']:
+            if board_dict.get('last_sync'):
                 try:
                     board_dict['last_sync'] = datetime.fromisoformat(board_dict['last_sync']).strftime('%Y-%m-%d %H:%M')
                 except:
-                    board_dict['last_sync'] = 'Error'
+                    board_dict['last_sync'] = 'Never'
+            else:
+                board_dict['last_sync'] = 'Never'
             
             boards.append(board_dict)
         
@@ -138,7 +188,6 @@ def get_boards():
     
     except Exception as e:
         print(f"❌ Error getting boards: {e}")
-        # Try to reinitialize database
         try:
             init_db()
             return jsonify({'success': True, 'boards': []})
@@ -150,12 +199,12 @@ def create_board():
     """Create a new board"""
     try:
         data = request.json
-        print(f"💾 Creating board: {data.get('name')}")
+        print(f"💾 Creating board: {data.get('name')} at {data.get('ip_address')}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Insert board
+        # Insert board (no heartbeat yet, will be offline)
         cursor.execute('''
             INSERT INTO boards (name, ip_address, api_key, door1_name, door2_name)
             VALUES (?, ?, ?, ?, ?)
@@ -172,6 +221,7 @@ def create_board():
         conn.close()
         
         print(f"✅ Board '{data['name']}' created successfully (ID: {board_id})")
+        print(f"  ℹ️  Board will show as OFFLINE until it sends first heartbeat")
         return jsonify({'success': True, 'message': f"Board '{data['name']}' created successfully", 'id': board_id})
     
     except sqlite3.IntegrityError as e:
@@ -191,7 +241,7 @@ def update_board(board_id):
         conn = get_db()
         cursor = conn.cursor()
         
-        # Update board
+        # Update board (preserve last_heartbeat)
         cursor.execute('''
             UPDATE boards 
             SET name = ?, ip_address = ?, api_key = ?, door1_name = ?, door2_name = ?
@@ -246,7 +296,7 @@ def delete_board(board_id):
 
 @app.route('/api/boards/<int:board_id>/sync', methods=['POST'])
 def sync_board(board_id):
-    """Sync a single board with ESP32"""
+    """Sync a single board - updates last_sync timestamp only"""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -269,17 +319,18 @@ def sync_board(board_id):
         #     headers['Authorization'] = f"Bearer {board['api_key']}"
         # response = requests.post(url, json=sync_data, headers=headers)
         
-        # For now, just update last_sync timestamp
+        # Update last_sync timestamp (does NOT affect online status)
         cursor.execute('''
             UPDATE boards 
-            SET last_sync = CURRENT_TIMESTAMP, online = 1
+            SET last_sync = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (board_id,))
         
         conn.commit()
         conn.close()
         
-        print(f"🔄 Board '{board_name}' (ID: {board_id}) synced successfully")
+        print(f"🔄 Board '{board_name}' (ID: {board_id}) synced")
+        print(f"  ℹ️  Online status depends on heartbeat, not sync")
         return jsonify({'success': True, 'message': f"Board '{board_name}' synced successfully"})
     
     except Exception as e:
@@ -288,7 +339,7 @@ def sync_board(board_id):
 
 @app.route('/api/boards/sync-all', methods=['POST'])
 def sync_all_boards():
-    """Sync all boards"""
+    """Sync all boards - updates last_sync timestamp only"""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -296,18 +347,73 @@ def sync_all_boards():
         # Update all boards
         cursor.execute('''
             UPDATE boards 
-            SET last_sync = CURRENT_TIMESTAMP, online = 1
+            SET last_sync = CURRENT_TIMESTAMP
         ''')
         
         count = cursor.rowcount
         conn.commit()
         conn.close()
         
-        print(f"🔄 All {count} boards synced successfully")
+        print(f"🔄 All {count} boards synced")
+        print(f"  ℹ️  Online status depends on heartbeat, not sync")
         return jsonify({'success': True, 'message': f'All {count} boards synced successfully'})
     
     except Exception as e:
         print(f"❌ Error syncing all boards: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ==================== HEARTBEAT ENDPOINT ====================
+
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    """Receive heartbeat from board
+    
+    Expected JSON:
+    {
+        "ip_address": "192.168.1.100",
+        "board_name": "Optional board name",
+        "status": "online"
+    }
+    """
+    try:
+        data = request.json
+        ip_address = data.get('ip_address')
+        
+        if not ip_address:
+            return jsonify({'success': False, 'message': 'IP address required'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Find board by IP address
+        cursor.execute('SELECT * FROM boards WHERE ip_address = ?', (ip_address,))
+        board = cursor.fetchone()
+        
+        if not board:
+            print(f"⚠️  Heartbeat from unknown board: {ip_address}")
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        # Update last_heartbeat timestamp
+        cursor.execute('''
+            UPDATE boards 
+            SET last_heartbeat = CURRENT_TIMESTAMP
+            WHERE ip_address = ?
+        ''', (ip_address,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"💓 Heartbeat received from '{board['name']}' ({ip_address})")
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Heartbeat received',
+            'board_id': board['id'],
+            'board_name': board['name']
+        })
+    
+    except Exception as e:
+        print(f"❌ Error processing heartbeat: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== STATS API ENDPOINTS ====================
@@ -341,9 +447,10 @@ def get_stats():
         ''')
         today_access = cursor.fetchone()['count']
         
-        # Online boards
-        cursor.execute('SELECT COUNT(*) as count FROM boards WHERE online = 1')
-        online_boards = cursor.fetchone()['count']
+        # Online boards (based on heartbeat within last 5 minutes)
+        cursor.execute('SELECT last_heartbeat FROM boards')
+        boards = cursor.fetchall()
+        online_boards = sum(1 for board in boards if is_board_online(board['last_heartbeat']))
         
         conn.close()
         
@@ -380,6 +487,13 @@ def unlock_door(board_id, door_num):
         
         door_name = board[f'door{door_num}_name']
         
+        # Check if board is online
+        if not is_board_online(board['last_heartbeat']):
+            return jsonify({
+                'success': False, 
+                'message': f"Board '{board['name']}' is offline. Cannot unlock door."
+            }), 503
+        
         # TODO: Send unlock command to ESP32
         # import requests
         # url = f"http://{board['ip_address']}/unlock_{door_num}"
@@ -400,7 +514,7 @@ def unlock_door(board_id, door_num):
 if __name__ == '__main__':
     # Initialize database BEFORE starting server
     print("=" * 60)
-    print("🚪 Access Control System - Starting...")
+    print("🚪 Access Control System - Heartbeat Mode")
     print("=" * 60)
     
     # Check if database exists
@@ -413,9 +527,9 @@ if __name__ == '__main__':
     init_db()
     
     print("✅ Direct HTTP communication with ESP32 boards")
-    print("📦 Simplified database schema (no GPIO config needed)")
-    print("🎯 Board ID = Friendly name (not tied to ESPHome)")
-    print("🚪 Doors auto-created from boards (2 per board)")
+    print("💓 Heartbeat-based online/offline detection")
+    print(f"⏱️  Boards offline if no heartbeat for {HEARTBEAT_TIMEOUT_MINUTES} minutes")
+    print("📡 Boards should POST to /api/heartbeat every 60 seconds")
     print("🌐 Serving on http://0.0.0.0:8100")
     print("=" * 60)
     
