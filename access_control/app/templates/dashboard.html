@@ -4,811 +4,2461 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Access Control System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚪</text></svg>">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #f5e6d3 0%, #d4a574 100%);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            padding: 20px;
         }
-        
-        .glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(139, 92, 246, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(139, 92, 246, 0.1);
-            transition: all 0.3s ease;
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
         }
-        
-        .glass-card:hover {
-            box-shadow: 0 12px 48px 0 rgba(139, 92, 246, 0.15);
-            transform: translateY(-2px);
-        }
-        
-        .nav-btn.active {
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 30px;
+            border-radius: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             color: white;
         }
-        
-        /* Emergency button active states */
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        /* Emergency Controls */
+        .emergency-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
         .emergency-btn {
-            position: relative;
+            flex: 1;
+            padding: 20px;
+            border: none;
+            border-radius: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
             transition: all 0.3s ease;
-        }
-        
-        .emergency-btn.active {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
-            50% { opacity: 0.8; box-shadow: 0 0 20px currentColor; }
-        }
-        
-        /* Modal styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.3s;
-        }
-        
-        .modal.show {
             display: flex;
             align-items: center;
             justify-content: center;
+            gap: 10px;
         }
-        
+
+        .emergency-unlock {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+
+        .emergency-lock {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .emergency-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .emergency-btn.active {
+            animation: pulse 2s infinite;
+            border: 3px solid white;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        /* Navigation */
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .nav-tab {
+            padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #64748b;
+        }
+
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateY(-2px);
+        }
+
+        .nav-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        /* Sections */
+        .section {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Section Header */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #475569;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .card-subtitle {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 3px;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-online {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-offline {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .badge-active {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .badge-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .empty-state-text {
+            color: #64748b;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
         .modal-content {
             background: white;
-            border-radius: 16px;
-            max-width: 500px;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 600px;
             width: 90%;
             max-height: 90vh;
             overflow-y: auto;
-            animation: slideUp 0.3s;
+            animation: slideUp 0.3s ease;
         }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
+
         @keyframes slideUp {
             from { transform: translateY(50px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
-        
-        /* Toast */
-        .toast {
-            animation: slideInRight 0.3s;
+
+        .modal-header {
+            margin-bottom: 25px;
         }
-        
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .modal-body {
+            margin-bottom: 25px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-input,
+        .form-select,
+        .form-textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-help {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 5px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-checkbox input {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Dynamic List (Cards, PINs) */
+        .dynamic-list {
+            margin-bottom: 20px;
+        }
+
+        .dynamic-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .dynamic-item .form-input {
+            flex: 1;
+        }
+
+        .btn-remove {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-add {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        /* Multi-select checkboxes */
+        .checkbox-group {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+        }
+
+        .checkbox-item input {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+        }
+
+        .checkbox-item label {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        /* Schedule Builder */
+        .schedule-builder {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .schedule-day {
+            margin-bottom: 15px;
+        }
+
+        .schedule-day-header {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #334155;
+        }
+
+        .time-range {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .time-range input[type="time"] {
+            padding: 8px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+        }
+
+        /* Table */
+        .table-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f8fafc;
+        }
+
+        th {
+            padding: 15px 20px;
+            text-align: left;
+            font-weight: 600;
+            color: #334155;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 15px 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #475569;
+        }
+
+        tr:hover {
+            background: #f8fafc;
+        }
+
+        /* Toast Notifications */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: white;
+            padding: 20px 25px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: none;
+            align-items: center;
+            gap: 15px;
+            z-index: 2000;
+            animation: slideInRight 0.3s ease;
+        }
+
         @keyframes slideInRight {
             from { transform: translateX(400px); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
+
+        .toast.show {
+            display: flex;
+        }
+
+        .toast-icon {
+            font-size: 24px;
+        }
+
+        .toast-message {
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .toast.success { border-left: 4px solid #10b981; }
+        .toast.error { border-left: 4px solid #ef4444; }
+        .toast.warning { border-left: 4px solid #f59e0b; }
+
+        /* Info boxes in cards */
+        .info-box {
+            background: #f8fafc;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        .info-label {
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .info-value {
+            color: #1e293b;
+        }
+
+        /* Credentials display */
+        .credentials-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .credential-badge {
+            background: #f1f5f9;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: monospace;
+            color: #475569;
+        }
+
+        /* Color picker for groups */
+        .color-picker-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .color-picker {
+            width: 50px;
+            height: 40px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        /* Filters */
+        .filters {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .emergency-controls {
+                flex-direction: column;
+            }
+
+            .modal-content {
+                width: 95%;
+                padding: 20px;
+            }
+        }
+
+        /* Hidden class */
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
-<body class="min-h-screen">
-    <!-- Toast Container -->
-    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
-
-    <div class="container mx-auto px-4 py-6 max-w-7xl">
+<body>
+    <div class="container">
         <!-- Header -->
-        <header class="glass-card rounded-2xl p-6 mb-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-2xl shadow-lg">
-                        🚪
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-800">Access Control System</h1>
-                        <p class="text-sm text-gray-600">Professional Access Management</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-3 flex-wrap">
-                    <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200">
-                        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        <span class="text-sm text-green-700 font-medium boards-online-count">0 Boards Online</span>
-                    </div>
-                    <button id="unlockBtn" onclick="toggleEmergencyUnlock()" class="emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium">
-                        🔓 Emergency Unlock
-                    </button>
-                    <button id="lockBtn" onclick="toggleEmergencyLock()" class="emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium">
-                        🔒 Emergency Lock
-                    </button>
-                </div>
-            </div>
-        </header>
+        <div class="header">
+            <h1>🔐 Access Control System</h1>
+            <p>Professional ESP32-based access control management</p>
+        </div>
 
-        <!-- Navigation -->
-        <nav class="glass-card rounded-2xl p-2 mb-6">
-            <div class="grid grid-cols-4 md:grid-cols-8 gap-2">
-                <button class="nav-btn active px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('dashboard')">
-                    🏠 Dashboard
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('groups')">
-                    👥 Groups
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('doors')">
-                    🚪 Doors
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('schedules')">
-                    📅 Schedules
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('users')">
-                    👤 Users
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('logs')">
-                    📜 Access Logs
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('monitor')">
-                    📡 Live Monitor
-                </button>
-                <button class="nav-btn px-4 py-3 rounded-xl text-sm font-medium hover:bg-purple-50 text-gray-700" onclick="showSection('boards')">
-                    🖥️ Boards
-                </button>
+        <!-- Emergency Controls -->
+        <div class="emergency-controls">
+            <button class="emergency-btn emergency-unlock" id="emergencyUnlockBtn">
+                <span id="unlockIcon">🔓</span>
+                <span id="unlockText">Emergency Unlock</span>
+            </button>
+            <button class="emergency-btn emergency-lock" id="emergencyLockBtn">
+                <span id="lockIcon">🔒</span>
+                <span id="lockText">Emergency Lock</span>
+            </button>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="statBoards">0</div>
+                <div class="stat-label">Total Boards</div>
             </div>
-        </nav>
+            <div class="stat-card">
+                <div class="stat-number" id="statOnline">0</div>
+                <div class="stat-label">Boards Online</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statUsers">0</div>
+                <div class="stat-label">Active Users</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statDoors">0</div>
+                <div class="stat-label">Total Doors</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statEvents">0</div>
+                <div class="stat-label">Today's Events</div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="showSection('dashboard')">📊 Dashboard</button>
+            <button class="nav-tab" onclick="showSection('boards')">🖥️ Boards</button>
+            <button class="nav-tab" onclick="showSection('users')">👤 Users</button>
+            <button class="nav-tab" onclick="showSection('doors')">🚪 Doors</button>
+            <button class="nav-tab" onclick="showSection('groups')">👥 Groups</button>
+            <button class="nav-tab" onclick="showSection('schedules')">📅 Schedules</button>
+            <button class="nav-tab" onclick="showSection('logs')">📜 Access Logs</button>
+        </div>
 
         <!-- Dashboard Section -->
-        <div id="dashboard-section" class="section">
-            <!-- Stats Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div class="glass-card rounded-2xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-purple-100 flex items-center justify-center text-2xl">👥</div>
-                        <div class="text-right">
-                            <div class="text-3xl font-bold text-purple-600" id="stat-users">0</div>
-                            <div class="text-sm text-gray-500">Total Users</div>
-                        </div>
-                    </div>
-                    <div class="text-sm text-gray-600"><span class="text-green-600 font-medium" id="stat-active-users">0 Active</span></div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-blue-100 flex items-center justify-center text-2xl">🚪</div>
-                        <div class="text-right">
-                            <div class="text-3xl font-bold text-blue-600" id="stat-doors">0</div>
-                            <div class="text-sm text-gray-500">Total Doors</div>
-                        </div>
-                    </div>
-                    <div class="text-sm text-gray-600"><span class="text-blue-600 font-medium">Configured</span></div>
-                </div>
-
-                <div class="glass-card rounded-2xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="w-14 h-14 rounded-xl bg-green-100 flex items-center justify-center text-2xl">✅</div>
-                        <div class="text-right">
-                            <div class="text-3xl font-bold text-green-600" id="stat-access">0</div>
-                            <div class="text-sm text-gray-500">Today's Access</div>
-                        </div>
-                    </div>
-                    <div class="text-sm text-gray-600"><span class="text-green-600 font-medium">Successful</span></div>
-                </div>
+        <div id="dashboard-section" class="section active">
+            <div class="section-header">
+                <h2 class="section-title">📊 System Overview</h2>
             </div>
-
-            <!-- Recent Activity -->
-            <div class="glass-card rounded-2xl p-6">
-                <div class="flex items-center gap-3 mb-6">
-                    <div class="text-2xl">📊</div>
-                    <h2 class="text-xl font-bold text-gray-800">Recent Activity</h2>
-                </div>
-                <div class="text-center py-12 text-gray-500">
-                    <div class="text-4xl mb-4 opacity-20">📭</div>
-                    <p>No recent activity to display</p>
+            <div class="card">
+                <h3 style="margin-bottom: 15px;">Welcome to Access Control System</h3>
+                <p style="color: #64748b; margin-bottom: 20px;">
+                    Manage your ESP32-based access control system. Add boards, configure users, 
+                    set up access groups and schedules, and monitor all access attempts in real-time.
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="showSection('boards')">Configure Boards</button>
+                    <button class="btn btn-primary" onclick="showSection('users')">Manage Users</button>
+                    <button class="btn btn-primary" onclick="showSection('groups')">Setup Groups</button>
                 </div>
             </div>
         </div>
 
         <!-- Boards Section -->
-        <div id="boards-section" class="section hidden">
-            <!-- Header -->
-            <div class="glass-card rounded-2xl p-6 mb-6">
-                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-800 mb-2">Board Management</h2>
-                        <p class="text-sm text-gray-600">Configure and manage your ESP32 access control boards</p>
-                    </div>
-                    <div class="flex gap-3">
-                        <button onclick="syncAllBoards()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2">
-                            <span class="text-lg">🔄</span> Sync All Boards
-                        </button>
-                        <button onclick="openModal('addBoardModal')" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium flex items-center gap-2">
-                            <span class="text-lg">➕</span> Add New Board
-                        </button>
-                    </div>
+        <div id="boards-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">🖥️ Boards Management</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-success" onclick="syncAllBoards()">🔄 Sync All</button>
+                    <button class="btn btn-primary" onclick="openAddBoardModal()">➕ Add New Board</button>
+                </div>
+            </div>
+            <div id="boardsContainer"></div>
+        </div>
+
+        <!-- Users Section -->
+        <div id="users-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">👤 Users Management</h2>
+                <button class="btn btn-primary" onclick="openAddUserModal()">➕ Add New User</button>
+            </div>
+            <div id="usersContainer"></div>
+        </div>
+
+        <!-- Doors Section -->
+        <div id="doors-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">🚪 Doors Management</h2>
+            </div>
+            <div id="doorsContainer"></div>
+        </div>
+
+        <!-- Groups Section -->
+        <div id="groups-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">👥 Access Groups</h2>
+                <button class="btn btn-primary" onclick="openAddGroupModal()">➕ Create New Group</button>
+            </div>
+            <div id="groupsContainer"></div>
+        </div>
+
+        <!-- Schedules Section -->
+        <div id="schedules-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">📅 Access Schedules</h2>
+                <button class="btn btn-primary" onclick="openAddScheduleModal()">➕ Create New Schedule</button>
+            </div>
+            <div id="schedulesContainer"></div>
+        </div>
+
+        <!-- Logs Section -->
+        <div id="logs-section" class="section">
+            <div class="section-header">
+                <h2 class="section-title">📜 Access Logs</h2>
+                <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Refresh</button>
+            </div>
+            
+            <!-- Filters -->
+            <div class="filters">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Date From</label>
+                    <input type="date" class="form-input" id="filterDateFrom">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Date To</label>
+                    <input type="date" class="form-input" id="filterDateTo">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">User</label>
+                    <select class="form-select" id="filterUser">
+                        <option value="">All Users</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Door</label>
+                    <select class="form-select" id="filterDoor">
+                        <option value="">All Doors</option>
+                    </select>
                 </div>
             </div>
 
-            <!-- Boards Grid -->
-            <div id="boards-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Boards will be loaded here dynamically -->
-            </div>
-
-            <!-- Empty State -->
-            <div id="boards-empty" class="glass-card rounded-2xl p-12 text-center">
-                <div class="text-6xl mb-4 opacity-20">🖥️</div>
-                <h3 class="text-xl font-bold text-gray-800 mb-2">No Boards Configured</h3>
-                <p class="text-gray-600 mb-6">Add your first ESP32 board to get started</p>
-                <button onclick="openModal('addBoardModal')" class="px-6 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
-                    ➕ Add Your First Board
-                </button>
-            </div>
-        </div>
-
-        <!-- Other sections placeholders -->
-        <div id="groups-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Access Groups</h2>
-                <p class="text-gray-500">Group management coming soon...</p>
-            </div>
-        </div>
-
-        <div id="doors-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Door Management</h2>
-                <p class="text-gray-500">Door configuration coming soon...</p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>User</th>
+                            <th>Door</th>
+                            <th>Credential</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody">
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px;">
+                                Loading logs...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <div id="schedules-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Access Schedules</h2>
-                <p class="text-gray-500">Schedule management coming soon...</p>
-            </div>
-        </div>
-
-        <div id="users-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">User Management</h2>
-                <p class="text-gray-500">User management coming soon...</p>
-            </div>
-        </div>
-
-        <div id="logs-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Access Logs</h2>
-                <p class="text-gray-500">Access logs coming soon...</p>
-            </div>
-        </div>
-
-        <div id="monitor-section" class="section hidden">
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Live Monitor</h2>
-                <p class="text-gray-500">Real-time monitoring coming soon...</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Board Modal - SIMPLIFIED -->
-    <div id="addBoardModal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
-            <div class="p-6">
-                <div class="flex items-center justify-between mb-6">
-                    <h3 class="text-xl font-bold text-gray-800" id="boardModalTitle">Add New Board</h3>
-                    <button onclick="closeModal('addBoardModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        <!-- Board Modal -->
+        <div id="boardModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="boardModalTitle">Add New Board</h3>
                 </div>
-                <form id="boardForm" onsubmit="submitBoard(event)">
-                    <input type="hidden" id="boardId" name="id">
-                    
-                    <!-- Board Info -->
-                    <div class="mb-6">
-                        <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                            <span class="text-xl">🖥️</span> Board Information
-                        </h4>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Board Name *</label>
-                                <input type="text" id="boardName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Main Office Board">
-                                <p class="text-xs text-gray-500 mt-1">Friendly name to identify this board</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">IP Address *</label>
-                                <input type="text" id="boardIp" required pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="192.168.1.100">
-                                <p class="text-xs text-gray-500 mt-1">Static IP address of your ESP32 board</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">API Encryption Key (Optional)</label>
-                                <input type="text" id="boardApiKey" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Leave empty if not using encryption">
-                                <p class="text-xs text-gray-500 mt-1">ESPHome API encryption key if configured</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="h-px bg-gray-200 my-6"></div>
-
-                    <!-- Door Configuration -->
-                    <div class="mb-6">
-                        <h4 class="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                            <span class="text-xl">🚪</span> Doors on This Board
-                        </h4>
-                        <p class="text-sm text-gray-600 mb-4">Each board controls 2 doors. Name them according to their physical location.</p>
+                <div class="modal-body">
+                    <form id="boardForm">
+                        <input type="hidden" id="boardId">
                         
-                        <div class="space-y-4">
-                            <!-- Door 1 -->
-                            <div class="p-4 bg-blue-50 rounded-lg">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 1 Name *</label>
-                                <input type="text" id="door1Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Main Entrance">
-                                <p class="text-xs text-gray-500 mt-1">E.g., "Main Entrance", "Front Door", "Lobby Door"</p>
-                            </div>
-
-                            <!-- Door 2 -->
-                            <div class="p-4 bg-blue-50 rounded-lg">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">🚪 Door 2 Name *</label>
-                                <input type="text" id="door2Name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white" placeholder="Back Entrance">
-                                <p class="text-xs text-gray-500 mt-1">E.g., "Back Entrance", "Side Door", "Garage Door"</p>
-                            </div>
+                        <div class="form-group">
+                            <label class="form-label">Board Name *</label>
+                            <input type="text" class="form-input" id="boardName" required 
+                                   placeholder="e.g., Main Office Board">
                         </div>
-                    </div>
 
-                    <!-- Info Note -->
-                    <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
-                        <div class="flex gap-3">
-                            <span class="text-2xl">💡</span>
-                            <div class="text-sm text-gray-700">
-                                <p class="font-medium mb-1">Important:</p>
-                                <ul class="list-disc list-inside space-y-1 text-xs">
-                                    <li>Make sure the ESP32 board is already flashed with ESPHome firmware</li>
-                                    <li>The IP address should be static (set in your router or ESPHome config)</li>
-                                    <li>Doors will automatically appear in the "Doors" section after saving</li>
-                                    <li>GPIO pins are configured in your ESPHome YAML (not needed here)</li>
-                                </ul>
-                            </div>
+                        <div class="form-group">
+                            <label class="form-label">IP Address *</label>
+                            <input type="text" class="form-input" id="boardIP" required 
+                                   placeholder="e.g., 192.168.1.100"
+                                   pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$">
+                            <div class="form-help">Enter the static IP address of the ESP32 board</div>
                         </div>
-                    </div>
 
-                    <!-- Actions -->
-                    <div class="flex gap-3 pt-4 border-t">
-                        <button type="submit" class="flex-1 px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium">
-                            <span id="boardSubmitText">💾 Save Board</span>
-                        </button>
-                        <button type="button" onclick="closeModal('addBoardModal')" class="px-6 py-3 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
+                        <div class="form-group">
+                            <label class="form-label">Door 1 Name *</label>
+                            <input type="text" class="form-input" id="door1Name" required 
+                                   placeholder="e.g., Front Entrance">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Door 2 Name *</label>
+                            <input type="text" class="form-input" id="door2Name" required 
+                                   placeholder="e.g., Back Door">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeBoardModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveBoard()">Save Board</button>
+                </div>
             </div>
+        </div>
+
+        <!-- User Modal -->
+        <div id="userModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="userModalTitle">Add New User</h3>
+                </div>
+                <div class="modal-body">
+                    <form id="userForm">
+                        <input type="hidden" id="userId">
+                        
+                        <div class="form-group">
+                            <label class="form-label">User Name *</label>
+                            <input type="text" class="form-input" id="userName" required 
+                                   placeholder="e.g., John Doe">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Valid From</label>
+                                <input type="date" class="form-input" id="userValidFrom">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Valid Until</label>
+                                <input type="date" class="form-input" id="userValidUntil">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="form-checkbox">
+                                <input type="checkbox" id="userActive" checked>
+                                <label for="userActive">User is Active</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">RFID Cards</label>
+                            <div id="cardsContainer" class="dynamic-list"></div>
+                            <button type="button" class="btn-add" onclick="addCardField()">➕ Add Card</button>
+                            <div class="form-help">Format: 173 37764 (Facility Code + Card Number)</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">PIN Codes</label>
+                            <div id="pinsContainer" class="dynamic-list"></div>
+                            <button type="button" class="btn-add" onclick="addPinField()">➕ Add PIN</button>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Access Groups</label>
+                            <div id="userGroupsCheckboxes" class="checkbox-group">
+                                <p style="color: #64748b; text-align: center;">Loading groups...</p>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Schedules</label>
+                            <div id="userSchedulesCheckboxes" class="checkbox-group">
+                                <p style="color: #64748b; text-align: center;">Loading schedules...</p>
+                            </div>
+                            <div class="form-help">Leave empty for 24/7 access</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Notes</label>
+                            <textarea class="form-textarea" id="userNotes" 
+                                      placeholder="Optional notes about this user..."></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveUser()">Save User</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Group Modal -->
+        <div id="groupModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="groupModalTitle">Create New Group</h3>
+                </div>
+                <div class="modal-body">
+                    <form id="groupForm">
+                        <input type="hidden" id="groupId">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Group Name *</label>
+                            <input type="text" class="form-input" id="groupName" required 
+                                   placeholder="e.g., All Entrances">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-input" id="groupDescription" 
+                                   placeholder="Optional description">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Color</label>
+                            <div class="color-picker-group">
+                                <input type="color" class="color-picker" id="groupColor" value="#6366f1">
+                                <span style="color: #64748b; font-size: 13px;">Choose a color for this group</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Select Doors for This Group</label>
+                            <div id="groupDoorsCheckboxes" class="checkbox-group">
+                                <p style="color: #64748b; text-align: center;">Loading doors...</p>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveGroup()">Save Group</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Modal -->
+        <div id="scheduleModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="scheduleModalTitle">Create New Schedule</h3>
+                </div>
+                <div class="modal-body">
+                    <form id="scheduleForm">
+                        <input type="hidden" id="scheduleId">
+                        
+                        <div class="form-group">
+                            <label class="form-label">Schedule Name *</label>
+                            <input type="text" class="form-input" id="scheduleName" required 
+                                   placeholder="e.g., Business Hours">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-input" id="scheduleDescription" 
+                                   placeholder="Optional description">
+                        </div>
+
+                        <div class="form-group">
+                            <div class="form-checkbox">
+                                <input type="checkbox" id="scheduleActive" checked>
+                                <label for="scheduleActive">Schedule is Active</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Time Ranges</label>
+                            <div class="schedule-builder">
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Monday</div>
+                                    <div id="monday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('monday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Tuesday</div>
+                                    <div id="tuesday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('tuesday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Wednesday</div>
+                                    <div id="wednesday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('wednesday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Thursday</div>
+                                    <div id="thursday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('thursday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Friday</div>
+                                    <div id="friday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('friday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Saturday</div>
+                                    <div id="saturday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('saturday')">➕ Add Time Range</button>
+                                </div>
+                                <div class="schedule-day">
+                                    <div class="schedule-day-header">Sunday</div>
+                                    <div id="sunday-times"></div>
+                                    <button type="button" class="btn-add" onclick="addTimeRange('sunday')">➕ Add Time Range</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeScheduleModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveSchedule()">Save Schedule</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast">
+            <div class="toast-icon" id="toastIcon"></div>
+            <div class="toast-message" id="toastMessage"></div>
         </div>
     </div>
 
     <script>
-        console.log('🚀 Access Control Dashboard Starting...');
-        
-        // Emergency mode states
+        // Global state
         let emergencyUnlockActive = false;
         let emergencyLockActive = false;
-        
-        // Boards data
-        let boards = [];
+        let currentEditingBoard = null;
+        let currentEditingUser = null;
+        let currentEditingGroup = null;
+        let currentEditingSchedule = null;
 
-        // Navigation
-        function showSection(section) {
-            console.log('📍 Switching to section:', section);
-            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(section + '-section').classList.remove('hidden');
-            event.target.classList.add('active');
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Access Control System initialized');
+            loadStats();
+            loadBoards();
+            setupEmergencyButtons();
             
-            // Load boards when switching to boards section
-            if (section === 'boards') {
-                console.log('🖥️ Boards section activated - loading boards...');
-                loadBoards();
-            } else if (section === 'dashboard') {
-                updateStats();
-            }
-        }
+            // Setup filter listeners
+            document.getElementById('filterDateFrom')?.addEventListener('change', loadLogs);
+            document.getElementById('filterDateTo')?.addEventListener('change', loadLogs);
+            document.getElementById('filterUser')?.addEventListener('change', loadLogs);
+            document.getElementById('filterDoor')?.addEventListener('change', loadLogs);
+        });
 
-        // Modal functions
-        function openModal(modalId) {
-            document.getElementById(modalId).classList.add('show');
-        }
+        // Show toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastIcon = document.getElementById('toastIcon');
+            const toastMessage = document.getElementById('toastMessage');
 
-        function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('show');
-            if (modalId === 'addBoardModal') {
-                resetBoardForm();
-            }
-        }
+            toast.className = 'toast show ' + type;
+            toastMessage.textContent = message;
 
-        // Toast notifications
-        function showToast(message, type = 'info') {
-            const colors = {
-                success: 'bg-green-500',
-                error: 'bg-red-500',
-                warning: 'bg-orange-500',
-                info: 'bg-blue-500'
-            };
-            
-            const toast = document.createElement('div');
-            toast.className = `toast ${colors[type]} text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3`;
-            toast.textContent = message;
-            
-            document.getElementById('toast-container').appendChild(toast);
-            
+            if (type === 'success') toastIcon.textContent = '✓';
+            else if (type === 'error') toastIcon.textContent = '✗';
+            else if (type === 'warning') toastIcon.textContent = '⚠';
+
             setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 300);
+                toast.classList.remove('show');
             }, 3000);
         }
 
-        // Emergency functions
-        function toggleEmergencyUnlock() {
-            const btn = document.getElementById('unlockBtn');
-            
-            if (emergencyUnlockActive) {
-                if (confirm('✅ Deactivate Emergency Unlock and return to normal operation?')) {
-                    emergencyUnlockActive = false;
-                    btn.classList.remove('active');
-                    btn.innerHTML = '🔓 Emergency Unlock';
-                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
-                    showToast('Emergency unlock deactivated', 'success');
+        // Section navigation
+        function showSection(sectionName) {
+            console.log('📄 Switching to section:', sectionName);
+
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Remove active class from all tabs
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected section
+            document.getElementById(sectionName + '-section').classList.add('active');
+
+            // Set active tab
+            event.target.classList.add('active');
+
+            // Load data for the section
+            if (sectionName === 'boards') loadBoards();
+            else if (sectionName === 'users') loadUsers();
+            else if (sectionName === 'doors') loadDoors();
+            else if (sectionName === 'groups') loadGroups();
+            else if (sectionName === 'schedules') loadSchedules();
+            else if (sectionName === 'logs') loadLogs();
+        }
+
+        // Load dashboard stats
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('statBoards').textContent = data.stats.total_boards;
+                    document.getElementById('statOnline').textContent = data.stats.online_boards;
+                    document.getElementById('statUsers').textContent = data.stats.active_users;
+                    document.getElementById('statDoors').textContent = data.stats.total_doors;
+                    document.getElementById('statEvents').textContent = data.stats.today_events;
                 }
-            } else {
-                if (confirm('⚠️ Are you sure you want to UNLOCK all doors?')) {
-                    if (emergencyLockActive) {
-                        emergencyLockActive = false;
-                        const lockBtn = document.getElementById('lockBtn');
-                        lockBtn.classList.remove('active');
-                        lockBtn.innerHTML = '🔒 Emergency Lock';
-                        lockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
-                    }
-                    
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Emergency buttons
+        function setupEmergencyButtons() {
+            document.getElementById('emergencyUnlockBtn').addEventListener('click', toggleEmergencyUnlock);
+            document.getElementById('emergencyLockBtn').addEventListener('click', toggleEmergencyLock);
+        }
+
+        function toggleEmergencyUnlock() {
+            const btn = document.getElementById('emergencyUnlockBtn');
+            const icon = document.getElementById('unlockIcon');
+            const text = document.getElementById('unlockText');
+
+            if (!emergencyUnlockActive) {
+                if (confirm('⚠️ EMERGENCY UNLOCK\n\nThis will unlock ALL doors immediately!\n\nContinue?')) {
                     emergencyUnlockActive = true;
                     btn.classList.add('active');
-                    btn.innerHTML = '✅ Unlock Active - Click to Deactivate';
-                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-orange-600 text-white font-medium border-2 border-orange-300';
-                    showToast('🚨 EMERGENCY UNLOCK ACTIVATED', 'warning');
+                    icon.textContent = '✅';
+                    text.textContent = 'Unlock Active - Click to Deactivate';
+                    showToast('EMERGENCY UNLOCK ACTIVATED - All doors unlocked!', 'warning');
+                    
+                    if (emergencyLockActive) {
+                        emergencyLockActive = false;
+                        document.getElementById('emergencyLockBtn').classList.remove('active');
+                        document.getElementById('lockIcon').textContent = '🔒';
+                        document.getElementById('lockText').textContent = 'Emergency Lock';
+                    }
                 }
+            } else {
+                emergencyUnlockActive = false;
+                btn.classList.remove('active');
+                icon.textContent = '🔓';
+                text.textContent = 'Emergency Unlock';
+                showToast('Emergency unlock deactivated - Normal operation resumed', 'success');
             }
         }
 
         function toggleEmergencyLock() {
-            const btn = document.getElementById('lockBtn');
-            
-            if (emergencyLockActive) {
-                if (confirm('✅ Deactivate Emergency Lock and return to normal operation?')) {
-                    emergencyLockActive = false;
-                    btn.classList.remove('active');
-                    btn.innerHTML = '🔒 Emergency Lock';
-                    btn.className = 'emergency-btn px-6 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium';
-                    showToast('Emergency lock deactivated', 'success');
-                }
-            } else {
-                if (confirm('🔒 Are you sure you want to LOCK all doors?')) {
-                    if (emergencyUnlockActive) {
-                        emergencyUnlockActive = false;
-                        const unlockBtn = document.getElementById('unlockBtn');
-                        unlockBtn.classList.remove('active');
-                        unlockBtn.innerHTML = '🔓 Emergency Unlock';
-                        unlockBtn.className = 'emergency-btn px-6 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium';
-                    }
-                    
+            const btn = document.getElementById('emergencyLockBtn');
+            const icon = document.getElementById('lockIcon');
+            const text = document.getElementById('lockText');
+
+            if (!emergencyLockActive) {
+                if (confirm('⚠️ EMERGENCY LOCK\n\nThis will lock ALL doors and deny all access immediately!\n\nContinue?')) {
                     emergencyLockActive = true;
                     btn.classList.add('active');
-                    btn.innerHTML = '🔒 Lock Active - Click to Deactivate';
-                    btn.className = 'emergency-btn active px-6 py-2 rounded-lg bg-red-600 text-white font-medium border-2 border-red-300';
-                    showToast('🚨 EMERGENCY LOCK ACTIVATED', 'error');
+                    icon.textContent = '🔒';
+                    text.textContent = 'Lock Active - Click to Deactivate';
+                    showToast('EMERGENCY LOCK ACTIVATED - All access denied!', 'error');
+                    
+                    if (emergencyUnlockActive) {
+                        emergencyUnlockActive = false;
+                        document.getElementById('emergencyUnlockBtn').classList.remove('active');
+                        document.getElementById('unlockIcon').textContent = '🔓';
+                        document.getElementById('unlockText').textContent = 'Emergency Unlock';
+                    }
                 }
+            } else {
+                emergencyLockActive = false;
+                btn.classList.remove('active');
+                icon.textContent = '🔒';
+                text.textContent = 'Emergency Lock';
+                showToast('Emergency lock deactivated - Normal operation resumed', 'success');
             }
         }
 
-        // ==================== BOARD MANAGEMENT ====================
+        // ==================== BOARDS MANAGEMENT ====================
 
-        // Load boards
         async function loadBoards() {
-            console.log('🔍 Loading boards...');
+            console.log('🖥️ Loading boards...');
             try {
                 const response = await fetch('/api/boards');
-                console.log('📡 GET /api/boards - Status:', response.status);
-                
                 const data = await response.json();
-                console.log('📦 Response data:', data);
-                
-                boards = data.boards || [];
-                console.log('📋 Loaded', boards.length, 'boards');
-                
-                renderBoards();
-                updateStats();
+
+                if (data.success) {
+                    renderBoards(data.boards);
+                    loadStats();
+                }
             } catch (error) {
-                console.error('❌ Error loading boards:', error);
-                showToast('Failed to load boards', 'error');
+                console.error('Error loading boards:', error);
+                showToast('Error loading boards', 'error');
             }
         }
 
-        // UPDATED renderBoards() function for dashboard with heartbeat info
+        function renderBoards(boards) {
+            const container = document.getElementById('boardsContainer');
 
-function renderBoards() {
-    console.log('🎨 Rendering boards... Count:', boards.length);
-    
-    const grid = document.getElementById('boards-grid');
-    const empty = document.getElementById('boards-empty');
-    
-    if (!grid || !empty) {
-        console.error('❌ Could not find boards-grid or boards-empty elements!');
-        return;
-    }
-    
-    if (boards.length === 0) {
-        console.log('📭 No boards - showing empty state');
-        grid.style.display = 'none';
-        empty.style.display = 'block';
-        return;
-    }
-    
-    console.log('📋 Showing', boards.length, 'boards');
-    grid.style.display = 'grid';
-    empty.style.display = 'none';
-    
-    grid.innerHTML = boards.map(board => `
-        <div class="glass-card rounded-2xl p-6">
-            <div class="flex items-start justify-between mb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-2xl shadow-lg">
-                        🖥️
+            if (boards.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🖥️</div>
+                        <div class="empty-state-text">No boards configured yet</div>
+                        <button class="btn btn-primary" onclick="openAddBoardModal()">Add Your First Board</button>
                     </div>
-                    <div>
-                        <h3 class="font-bold text-gray-800">${board.name}</h3>
-                        <p class="text-sm text-gray-500">${board.ip_address}</p>
-                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="cards-grid">
+                    ${boards.map(board => `
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">${board.name}</div>
+                                    <div class="card-subtitle">ID: ${board.id} • ${board.ip_address}</div>
+                                </div>
+                                <span class="badge ${board.online ? 'badge-online' : 'badge-offline'}">
+                                    ${board.online ? '🟢 Online' : '⚫ Offline'}
+                                </span>
+                            </div>
+                            
+                            <div class="info-box">
+                                <div class="info-label">Last Seen</div>
+                                <div class="info-value">${board.last_seen_text || 'Never'}</div>
+                            </div>
+                            
+                            <div class="info-box">
+                                <div class="info-label">Last Sync</div>
+                                <div class="info-value">${board.last_sync || 'Never'}</div>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0;">
+                                <div style="background: #dbeafe; padding: 12px; border-radius: 8px;">
+                                    <div style="font-size: 11px; color: #1e40af; font-weight: 600; margin-bottom: 3px;">DOOR 1</div>
+                                    <div style="font-size: 13px; color: #1e293b; font-weight: 600;">${board.door1_name}</div>
+                                </div>
+                                <div style="background: #dbeafe; padding: 12px; border-radius: 8px;">
+                                    <div style="font-size: 11px; color: #1e40af; font-weight: 600; margin-bottom: 3px;">DOOR 2</div>
+                                    <div style="font-size: 13px; color: #1e293b; font-weight: 600;">${board.door2_name}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="card-actions" style="justify-content: flex-start;">
+                                <button class="btn btn-success btn-small" onclick="syncBoard(${board.id})">🔄 Sync</button>
+                                <button class="btn btn-secondary btn-small" onclick="editBoard(${board.id})">✏️ Edit</button>
+                                <button class="btn btn-danger btn-small" onclick="deleteBoard(${board.id})">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="px-3 py-1 rounded-full text-xs font-medium ${board.online ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}">
-                        ${board.online ? '🟢 Online' : '⚫ Offline'}
-                    </span>
-                </div>
-            </div>
-            <div class="space-y-2 mb-4 pb-4 border-b border-gray-200">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Last Seen:</span>
-                    <span class="font-medium ${board.online ? 'text-green-600' : 'text-gray-500'}">${board.last_seen || 'Never'}</span>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Last Sync:</span>
-                    <span class="font-medium text-gray-800">${board.last_sync || 'Never'}</span>
-                </div>
-                ${board.api_key ? `
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Encryption:</span>
-                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">🔒 Enabled</span>
-                </div>
-                ` : ''}
-            </div>
-            <div class="space-y-2 mb-4">
-                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                    <span class="text-lg">🚪</span>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-800 text-sm">${board.door1_name}</p>
-                        <p class="text-xs text-gray-500">Door 1</p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                    <span class="text-lg">🚪</span>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-800 text-sm">${board.door2_name}</p>
-                        <p class="text-xs text-gray-500">Door 2</p>
-                    </div>
-                </div>
-            </div>
-            <div class="flex gap-2">
-                <button onclick="syncBoard(${board.id})" class="flex-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
-                    🔄 Sync
-                </button>
-                <button onclick="editBoard(${board.id})" class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium">
-                    ✏️ Edit
-                </button>
-                <button onclick="deleteBoard(${board.id})" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium">
-                    🗑️
-                </button>
-            </div>
-        </div>
-    `).join('');
-    
-    console.log('✅ Boards rendered successfully');
-}
-        // Submit board form
-        async function submitBoard(event) {
-            event.preventDefault();
-            
+            `;
+        }
+
+        function openAddBoardModal() {
+            document.getElementById('boardModalTitle').textContent = 'Add New Board';
+            document.getElementById('boardForm').reset();
+            document.getElementById('boardId').value = '';
+            currentEditingBoard = null;
+            document.getElementById('boardModal').classList.add('active');
+        }
+
+        function closeBoardModal() {
+            document.getElementById('boardModal').classList.remove('active');
+        }
+
+        async function editBoard(boardId) {
+            try {
+                const response = await fetch('/api/boards');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const board = data.boards.find(b => b.id === boardId);
+                    if (board) {
+                        document.getElementById('boardModalTitle').textContent = 'Edit Board';
+                        document.getElementById('boardId').value = board.id;
+                        document.getElementById('boardName').value = board.name;
+                        document.getElementById('boardIP').value = board.ip_address;
+                        document.getElementById('door1Name').value = board.door1_name;
+                        document.getElementById('door2Name').value = board.door2_name;
+                        currentEditingBoard = board.id;
+                        document.getElementById('boardModal').classList.add('active');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading board:', error);
+                showToast('Error loading board details', 'error');
+            }
+        }
+
+        async function saveBoard() {
+            const boardId = document.getElementById('boardId').value;
             const boardData = {
-                id: document.getElementById('boardId').value,
                 name: document.getElementById('boardName').value,
-                ip_address: document.getElementById('boardIp').value,
-                api_key: document.getElementById('boardApiKey').value || null,
+                ip_address: document.getElementById('boardIP').value,
                 door1_name: document.getElementById('door1Name').value,
                 door2_name: document.getElementById('door2Name').value
             };
-            
-            console.log('💾 Submitting board:', boardData);
-            
+
             try {
-                const url = boardData.id ? `/api/boards/${boardData.id}` : '/api/boards';
-                const method = boardData.id ? 'PUT' : 'POST';
-                
-                console.log(`📤 ${method} ${url}`);
-                
+                const url = boardId ? `/api/boards/${boardId}` : '/api/boards';
+                const method = boardId ? 'PUT' : 'POST';
+
                 const response = await fetch(url, {
                     method: method,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(boardData)
                 });
-                
-                const result = await response.json();
-                console.log('📦 Response:', result);
-                
-                if (result.success) {
-                    closeModal('addBoardModal');
-                    showToast(boardData.id ? 'Board updated!' : 'Board created!', 'success');
-                    
-                    // Reload boards
-                    console.log('🔄 Reloading boards...');
-                    await loadBoards();
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(boardId ? 'Board updated successfully' : 'Board created successfully');
+                    closeBoardModal();
+                    loadBoards();
                 } else {
-                    showToast(result.message || 'Failed to save board', 'error');
+                    showToast(data.message || 'Error saving board', 'error');
                 }
             } catch (error) {
-                console.error('❌ Error:', error);
-                showToast('Failed to save board', 'error');
+                console.error('Error saving board:', error);
+                showToast('Error saving board', 'error');
             }
         }
 
-        // Edit board
-        async function editBoard(boardId) {
-            const board = boards.find(b => b.id === boardId);
-            if (!board) return;
-            
-            document.getElementById('boardModalTitle').textContent = 'Edit Board';
-            document.getElementById('boardSubmitText').textContent = '💾 Update Board';
-            document.getElementById('boardId').value = board.id;
-            document.getElementById('boardName').value = board.name;
-            document.getElementById('boardIp').value = board.ip_address;
-            document.getElementById('boardApiKey').value = board.api_key || '';
-            document.getElementById('door1Name').value = board.door1_name;
-            document.getElementById('door2Name').value = board.door2_name;
-            
-            openModal('addBoardModal');
-        }
-
-        // Delete board
         async function deleteBoard(boardId) {
-            const board = boards.find(b => b.id === boardId);
-            if (!board) return;
-            
-            if (!confirm(`Delete "${board.name}"?\n\nThis will remove the board and its 2 doors.\n\nThis cannot be undone.`)) {
+            if (!confirm('Are you sure you want to delete this board? This will also delete its doors.')) {
                 return;
             }
-            
+
             try {
-                const response = await fetch(`/api/boards/${board.id}`, {
+                const response = await fetch(`/api/boards/${boardId}`, {
                     method: 'DELETE'
                 });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showToast('Board deleted!', 'success');
-                    await loadBoards();
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Board deleted successfully');
+                    loadBoards();
                 } else {
-                    showToast(result.message || 'Failed to delete board', 'error');
+                    showToast(data.message || 'Error deleting board', 'error');
                 }
             } catch (error) {
-                console.error('❌ Error:', error);
-                showToast('Failed to delete board', 'error');
+                console.error('Error deleting board:', error);
+                showToast('Error deleting board', 'error');
             }
         }
 
-        // Sync board
         async function syncBoard(boardId) {
-            const board = boards.find(b => b.id === boardId);
-            if (!board) return;
-            
-            showToast(`Syncing ${board.name}...`, 'info');
-            
             try {
-                const response = await fetch(`/api/boards/${board.id}/sync`, {
+                const response = await fetch(`/api/boards/${boardId}/sync`, {
                     method: 'POST'
                 });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showToast(`${board.name} synced!`, 'success');
-                    await loadBoards();
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Board synced successfully');
+                    loadBoards();
                 } else {
-                    showToast(result.message || 'Sync failed', 'error');
+                    showToast(data.message || 'Error syncing board', 'error');
                 }
             } catch (error) {
-                console.error('❌ Error:', error);
-                showToast('Sync failed', 'error');
+                console.error('Error syncing board:', error);
+                showToast('Error syncing board', 'error');
             }
         }
 
-        // Sync all boards
         async function syncAllBoards() {
-            if (boards.length === 0) {
-                showToast('No boards to sync', 'warning');
-                return;
-            }
-            
-            if (!confirm(`Sync all ${boards.length} board(s)?`)) {
-                return;
-            }
-            
-            showToast('Syncing all boards...', 'info');
-            
             try {
                 const response = await fetch('/api/boards/sync-all', {
                     method: 'POST'
                 });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showToast('All boards synced!', 'success');
-                    await loadBoards();
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'All boards synced successfully');
+                    loadBoards();
                 } else {
-                    showToast(result.message || 'Sync failed', 'error');
+                    showToast(data.message || 'Error syncing boards', 'error');
                 }
             } catch (error) {
-                console.error('❌ Error:', error);
-                showToast('Sync failed', 'error');
+                console.error('Error syncing all boards:', error);
+                showToast('Error syncing boards', 'error');
             }
         }
 
-        // Reset board form
-        function resetBoardForm() {
-            document.getElementById('boardForm').reset();
-            document.getElementById('boardModalTitle').textContent = 'Add New Board';
-            document.getElementById('boardSubmitText').textContent = '💾 Save Board';
-            document.getElementById('boardId').value = '';
+        // ==================== USERS MANAGEMENT ====================
+
+        async function loadUsers() {
+            console.log('👤 Loading users...');
+            try {
+                const response = await fetch('/api/users');
+                const data = await response.json();
+
+                if (data.success) {
+                    renderUsers(data.users);
+                    loadStats();
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+                showToast('Error loading users', 'error');
+            }
         }
 
-        // Update dashboard stats
-        async function updateStats() {
+        function renderUsers(users) {
+            const container = document.getElementById('usersContainer');
+
+            if (users.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👤</div>
+                        <div class="empty-state-text">No users configured yet</div>
+                        <button class="btn btn-primary" onclick="openAddUserModal()">Add Your First User</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="cards-grid">
+                    ${users.map(user => `
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">${user.name}</div>
+                                    <div class="card-subtitle">ID: ${user.id}</div>
+                                </div>
+                                <span class="badge ${user.active ? 'badge-active' : 'badge-inactive'}">
+                                    ${user.active ? '✓ Active' : '✗ Inactive'}
+                                </span>
+                            </div>
+
+                            ${user.valid_from || user.valid_until ? `
+                                <div class="info-box">
+                                    <div class="info-label">Validity Period</div>
+                                    <div class="info-value">
+                                        ${user.valid_from || 'No start'} → ${user.valid_until || 'No end'}
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            <div class="info-box">
+                                <div class="info-label">RFID Cards (${user.cards.length})</div>
+                                <div class="credentials-list">
+                                    ${user.cards.map(card => `
+                                        <span class="credential-badge">${card.card_number}</span>
+                                    `).join('') || '<span style="color: #64748b; font-size: 13px;">No cards</span>'}
+                                </div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">PIN Codes (${user.pins.length})</div>
+                                <div class="credentials-list">
+                                    ${user.pins.map(pin => `
+                                        <span class="credential-badge">****</span>
+                                    `).join('') || '<span style="color: #64748b; font-size: 13px;">No PINs</span>'}
+                                </div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">Access Groups (${user.groups.length})</div>
+                                <div class="credentials-list">
+                                    ${user.groups.map(group => `
+                                        <span class="credential-badge" style="background: ${group.color}22; color: ${group.color};">
+                                            ${group.name}
+                                        </span>
+                                    `).join('') || '<span style="color: #64748b; font-size: 13px;">No groups</span>'}
+                                </div>
+                            </div>
+
+                            ${user.schedules.length > 0 ? `
+                                <div class="info-box">
+                                    <div class="info-label">Schedules (${user.schedules.length})</div>
+                                    <div class="credentials-list">
+                                        ${user.schedules.map(schedule => `
+                                            <span class="credential-badge">${schedule.name}</span>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            ${user.notes ? `
+                                <div class="info-box">
+                                    <div class="info-label">Notes</div>
+                                    <div class="info-value" style="font-size: 13px;">${user.notes}</div>
+                                </div>
+                            ` : ''}
+
+                            <div class="card-actions" style="justify-content: flex-start;">
+                                <button class="btn btn-secondary btn-small" onclick="editUser(${user.id})">✏️ Edit</button>
+                                <button class="btn btn-danger btn-small" onclick="deleteUser(${user.id})">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        async function openAddUserModal() {
+            document.getElementById('userModalTitle').textContent = 'Add New User';
+            document.getElementById('userForm').reset();
+            document.getElementById('userId').value = '';
+            document.getElementById('userActive').checked = true;
+            currentEditingUser = null;
+
+            document.getElementById('cardsContainer').innerHTML = '';
+            document.getElementById('pinsContainer').innerHTML = '';
+
+            addCardField();
+
+            await loadGroupsForUser();
+            await loadSchedulesForUser();
+
+            document.getElementById('userModal').classList.add('active');
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').classList.remove('active');
+        }
+
+        function addCardField(cardNumber = '') {
+            const container = document.getElementById('cardsContainer');
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'dynamic-item';
+            itemDiv.innerHTML = `
+                <input type="text" class="form-input" placeholder="e.g., 173 37764" value="${cardNumber}">
+                <button type="button" class="btn-remove" onclick="this.parentElement.remove()">✗</button>
+            `;
+            container.appendChild(itemDiv);
+        }
+
+        function addPinField(pin = '') {
+            const container = document.getElementById('pinsContainer');
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'dynamic-item';
+            itemDiv.innerHTML = `
+                <input type="text" class="form-input" placeholder="e.g., 1234" value="${pin}" maxlength="8" pattern="[0-9]*">
+                <button type="button" class="btn-remove" onclick="this.parentElement.remove()">✗</button>
+            `;
+            container.appendChild(itemDiv);
+        }
+
+        async function loadGroupsForUser() {
             try {
-                const response = await fetch('/api/stats');
+                const response = await fetch('/api/groups');
                 const data = await response.json();
-                
+
+                const container = document.getElementById('userGroupsCheckboxes');
+
+                if (data.success && data.groups.length > 0) {
+                    container.innerHTML = data.groups.map(group => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="group-${group.id}" value="${group.id}">
+                            <label for="group-${group.id}">
+                                <span style="display: inline-block; width: 12px; height: 12px; background: ${group.color}; border-radius: 3px; margin-right: 8px;"></span>
+                                ${group.name}
+                            </label>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="color: #64748b; text-align: center;">No groups available. Create groups first.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading groups:', error);
+            }
+        }
+
+        async function loadSchedulesForUser() {
+            try {
+                const response = await fetch('/api/schedules');
+                const data = await response.json();
+
+                const container = document.getElementById('userSchedulesCheckboxes');
+
+                if (data.success && data.schedules.length > 0) {
+                    container.innerHTML = data.schedules.map(schedule => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="schedule-${schedule.id}" value="${schedule.id}">
+                            <label for="schedule-${schedule.id}">${schedule.name}</label>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="color: #64748b; text-align: center;">No schedules available.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading schedules:', error);
+            }
+        }
+
+        async function editUser(userId) {
+            try {
+                const response = await fetch('/api/users');
+                const data = await response.json();
+
                 if (data.success) {
-                    const stats = data.stats;
-                    
-                    document.getElementById('stat-users').textContent = stats.total_users;
-                    document.getElementById('stat-active-users').textContent = `${stats.active_users} Active`;
-                    document.getElementById('stat-doors').textContent = stats.total_doors;
-                    document.getElementById('stat-access').textContent = stats.today_access;
-                    
-                    const boardsOnline = document.querySelector('.boards-online-count');
-                    if (boardsOnline) {
-                        boardsOnline.textContent = `${stats.online_boards} Boards Online`;
+                    const user = data.users.find(u => u.id === userId);
+                    if (user) {
+                        document.getElementById('userModalTitle').textContent = 'Edit User';
+                        document.getElementById('userId').value = user.id;
+                        document.getElementById('userName').value = user.name;
+                        document.getElementById('userActive').checked = user.active;
+                        document.getElementById('userValidFrom').value = user.valid_from || '';
+                        document.getElementById('userValidUntil').value = user.valid_until || '';
+                        document.getElementById('userNotes').value = user.notes || '';
+
+                        document.getElementById('cardsContainer').innerHTML = '';
+                        user.cards.forEach(card => addCardField(card.card_number));
+                        if (user.cards.length === 0) addCardField();
+
+                        document.getElementById('pinsContainer').innerHTML = '';
+                        user.pins.forEach(pin => addPinField(pin.pin));
+
+                        await loadGroupsForUser();
+                        await loadSchedulesForUser();
+
+                        user.groups.forEach(group => {
+                            const checkbox = document.getElementById(`group-${group.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+
+                        user.schedules.forEach(schedule => {
+                            const checkbox = document.getElementById(`schedule-${schedule.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+
+                        currentEditingUser = user.id;
+                        document.getElementById('userModal').classList.add('active');
                     }
                 }
             } catch (error) {
-                console.error('Error updating stats:', error);
+                console.error('Error loading user:', error);
+                showToast('Error loading user details', 'error');
             }
         }
 
-        // Close modal when clicking outside
+        async function saveUser() {
+            const userId = document.getElementById('userId').value;
+
+            const cards = [];
+            document.querySelectorAll('#cardsContainer .form-input').forEach(input => {
+                if (input.value.trim()) {
+                    cards.push({number: input.value.trim(), format: 'wiegand26'});
+                }
+            });
+
+            const pins = [];
+            document.querySelectorAll('#pinsContainer .form-input').forEach(input => {
+                if (input.value.trim()) {
+                    pins.push({pin: input.value.trim()});
+                }
+            });
+
+            const groupIds = [];
+            document.querySelectorAll('#userGroupsCheckboxes input[type="checkbox"]:checked').forEach(checkbox => {
+                groupIds.push(parseInt(checkbox.value));
+            });
+
+            const scheduleIds = [];
+            document.querySelectorAll('#userSchedulesCheckboxes input[type="checkbox"]:checked').forEach(checkbox => {
+                scheduleIds.push(parseInt(checkbox.value));
+            });
+
+            const userData = {
+                name: document.getElementById('userName').value,
+                active: document.getElementById('userActive').checked,
+                valid_from: document.getElementById('userValidFrom').value || null,
+                valid_until: document.getElementById('userValidUntil').value || null,
+                notes: document.getElementById('userNotes').value,
+                cards: cards,
+                pins: pins,
+                group_ids: groupIds,
+                schedule_ids: scheduleIds
+            };
+
+            try {
+                const url = userId ? `/api/users/${userId}` : '/api/users';
+                const method = userId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(userId ? 'User updated successfully' : 'User created successfully');
+                    closeUserModal();
+                    loadUsers();
+                } else {
+                    showToast(data.message || 'Error saving user', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving user:', error);
+                showToast('Error saving user', 'error');
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm('Are you sure you want to delete this user? This will remove all their credentials and access.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/users/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('User deleted successfully');
+                    loadUsers();
+                } else {
+                    showToast(data.message || 'Error deleting user', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                showToast('Error deleting user', 'error');
+            }
+        }
+
+        // ==================== DOORS MANAGEMENT ====================
+
+        async function loadDoors() {
+            console.log('🚪 Loading doors...');
+            try {
+                const response = await fetch('/api/doors');
+                const data = await response.json();
+
+                if (data.success) {
+                    renderDoors(data.doors);
+                }
+            } catch (error) {
+                console.error('Error loading doors:', error);
+                showToast('Error loading doors', 'error');
+            }
+        }
+
+        function renderDoors(doors) {
+            const container = document.getElementById('doorsContainer');
+
+            if (doors.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🚪</div>
+                        <div class="empty-state-text">No doors available. Add boards first!</div>
+                        <button class="btn btn-primary" onclick="showSection('boards')">Go to Boards</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="cards-grid">
+                    ${doors.map(door => `
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">${door.name}</div>
+                                    <div class="card-subtitle">${door.board_name} • Door ${door.door_number}</div>
+                                </div>
+                                <span class="badge ${door.board_online ? 'badge-online' : 'badge-offline'}">
+                                    ${door.board_online ? '🟢 Board Online' : '⚫ Board Offline'}
+                                </span>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">Board IP Address</div>
+                                <div class="info-value">${door.ip_address}</div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">Relay Endpoint</div>
+                                <div class="info-value" style="font-family: monospace;">${door.relay_endpoint}</div>
+                            </div>
+
+                            <div class="card-actions" style="justify-content: flex-start;">
+                                <button class="btn btn-success btn-small" 
+                                        onclick="unlockDoor(${door.id})"
+                                        ${!door.board_online ? 'disabled' : ''}>
+                                    🔓 Unlock Now
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        async function unlockDoor(doorId) {
+            if (!confirm('Unlock this door now?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/doors/${doorId}/unlock`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'Door unlocked successfully');
+                } else {
+                    showToast(data.message || 'Error unlocking door', 'error');
+                }
+            } catch (error) {
+                console.error('Error unlocking door:', error);
+                showToast('Error unlocking door', 'error');
+            }
+        }
+
+        // ==================== GROUPS MANAGEMENT ====================
+
+        async function loadGroups() {
+            console.log('👥 Loading groups...');
+            try {
+                const response = await fetch('/api/groups');
+                const data = await response.json();
+
+                if (data.success) {
+                    renderGroups(data.groups);
+                }
+            } catch (error) {
+                console.error('Error loading groups:', error);
+                showToast('Error loading groups', 'error');
+            }
+        }
+
+        function renderGroups(groups) {
+            const container = document.getElementById('groupsContainer');
+
+            if (groups.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <div class="empty-state-text">No access groups configured yet</div>
+                        <button class="btn btn-primary" onclick="openAddGroupModal()">Create Your First Group</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="cards-grid">
+                    ${groups.map(group => `
+                        <div class="card" style="border-left: 4px solid ${group.color};">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">
+                                        <span style="display: inline-block; width: 12px; height: 12px; background: ${group.color}; border-radius: 3px; margin-right: 8px;"></span>
+                                        ${group.name}
+                                    </div>
+                                    ${group.description ? `<div class="card-subtitle">${group.description}</div>` : ''}
+                                </div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">Doors in Group (${group.door_count})</div>
+                                <div class="credentials-list">
+                                    ${group.doors.map(door => `
+                                        <span class="credential-badge">${door.name}</span>
+                                    `).join('') || '<span style="color: #64748b; font-size: 13px;">No doors assigned</span>'}
+                                </div>
+                            </div>
+
+                            <div class="info-box">
+                                <div class="info-label">Users with Access</div>
+                                <div class="info-value">${group.user_count} user${group.user_count !== 1 ? 's' : ''}</div>
+                            </div>
+
+                            <div class="card-actions" style="justify-content: flex-start;">
+                                <button class="btn btn-secondary btn-small" onclick="editGroup(${group.id})">✏️ Edit</button>
+                                <button class="btn btn-danger btn-small" onclick="deleteGroup(${group.id})">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        async function openAddGroupModal() {
+            document.getElementById('groupModalTitle').textContent = 'Create New Group';
+            document.getElementById('groupForm').reset();
+            document.getElementById('groupId').value = '';
+            document.getElementById('groupColor').value = '#6366f1';
+            currentEditingGroup = null;
+
+            await loadDoorsForGroup();
+
+            document.getElementById('groupModal').classList.add('active');
+        }
+
+        function closeGroupModal() {
+            document.getElementById('groupModal').classList.remove('active');
+        }
+
+        async function loadDoorsForGroup() {
+            try {
+                const response = await fetch('/api/doors');
+                const data = await response.json();
+
+                const container = document.getElementById('groupDoorsCheckboxes');
+
+                if (data.success && data.doors.length > 0) {
+                    container.innerHTML = data.doors.map(door => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="door-${door.id}" value="${door.id}">
+                            <label for="door-${door.id}">${door.name} (${door.board_name})</label>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p style="color: #64748b; text-align: center;">No doors available. Add boards first.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading doors:', error);
+            }
+        }
+
+        async function editGroup(groupId) {
+            try {
+                const response = await fetch('/api/groups');
+                const data = await response.json();
+
+                if (data.success) {
+                    const group = data.groups.find(g => g.id === groupId);
+                    if (group) {
+                        document.getElementById('groupModalTitle').textContent = 'Edit Group';
+                        document.getElementById('groupId').value = group.id;
+                        document.getElementById('groupName').value = group.name;
+                        document.getElementById('groupDescription').value = group.description || '';
+                        document.getElementById('groupColor').value = group.color;
+
+                        await loadDoorsForGroup();
+
+                        group.doors.forEach(door => {
+                            const checkbox = document.getElementById(`door-${door.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+
+                        currentEditingGroup = group.id;
+                        document.getElementById('groupModal').classList.add('active');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading group:', error);
+                showToast('Error loading group details', 'error');
+            }
+        }
+
+        async function saveGroup() {
+            const groupId = document.getElementById('groupId').value;
+
+            const doorIds = [];
+            document.querySelectorAll('#groupDoorsCheckboxes input[type="checkbox"]:checked').forEach(checkbox => {
+                doorIds.push(parseInt(checkbox.value));
+            });
+
+            const groupData = {
+                name: document.getElementById('groupName').value,
+                description: document.getElementById('groupDescription').value,
+                color: document.getElementById('groupColor').value,
+                door_ids: doorIds
+            };
+
+            try {
+                const url = groupId ? `/api/groups/${groupId}` : '/api/groups';
+                const method = groupId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(groupData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(groupId ? 'Group updated successfully' : 'Group created successfully');
+                    closeGroupModal();
+                    loadGroups();
+                } else {
+                    showToast(data.message || 'Error saving group', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving group:', error);
+                showToast('Error saving group', 'error');
+            }
+        }
+
+        async function deleteGroup(groupId) {
+            if (!confirm('Are you sure you want to delete this group? Users in this group will lose access to its doors.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/groups/${groupId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Group deleted successfully');
+                    loadGroups();
+                } else {
+                    showToast(data.message || 'Error deleting group', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting group:', error);
+                showToast('Error deleting group', 'error');
+            }
+        }
+
+        // ==================== SCHEDULES MANAGEMENT ====================
+
+        async function loadSchedules() {
+            console.log('📅 Loading schedules...');
+            try {
+                const response = await fetch('/api/schedules');
+                const data = await response.json();
+
+                if (data.success) {
+                    renderSchedules(data.schedules);
+                }
+            } catch (error) {
+                console.error('Error loading schedules:', error);
+                showToast('Error loading schedules', 'error');
+            }
+        }
+
+        function renderSchedules(schedules) {
+            const container = document.getElementById('schedulesContainer');
+
+            if (schedules.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📅</div>
+                        <div class="empty-state-text">No schedules configured yet</div>
+                        <button class="btn btn-primary" onclick="openAddScheduleModal()">Create Your First Schedule</button>
+                    </div>
+                `;
+                return;
+            }
+
+            const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+            container.innerHTML = `
+                <div class="cards-grid">
+                    ${schedules.map(schedule => {
+                        const timesByDay = {};
+                        schedule.times.forEach(time => {
+                            if (!timesByDay[time.day_of_week]) {
+                                timesByDay[time.day_of_week] = [];
+                            }
+                            timesByDay[time.day_of_week].push(time);
+                        });
+
+                        return `
+                            <div class="card">
+                                <div class="card-header">
+                                    <div>
+                                        <div class="card-title">${schedule.name}</div>
+                                        ${schedule.description ? `<div class="card-subtitle">${schedule.description}</div>` : ''}
+                                    </div>
+                                    <span class="badge ${schedule.active ? 'badge-active' : 'badge-inactive'}">
+                                        ${schedule.active ? '✓ Active' : '✗ Inactive'}
+                                    </span>
+                                </div>
+
+                                <div class="info-box">
+                                    <div class="info-label">Time Ranges</div>
+                                    <div style="font-size: 13px; margin-top: 8px;">
+                                        ${dayNames.map((day, index) => {
+                                            const times = timesByDay[index] || [];
+                                            if (times.length === 0) return '';
+                                            return `
+                                                <div style="margin-bottom: 6px;">
+                                                    <strong>${day}:</strong>
+                                                    ${times.map(t => `${t.start_time.slice(0, 5)} - ${t.end_time.slice(0, 5)}`).join(', ')}
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+
+                                <div class="info-box">
+                                    <div class="info-label">Users Using Schedule</div>
+                                    <div class="info-value">${schedule.user_count} user${schedule.user_count !== 1 ? 's' : ''}</div>
+                                </div>
+
+                                <div class="card-actions" style="justify-content: flex-start;">
+                                    <button class="btn btn-secondary btn-small" onclick="editSchedule(${schedule.id})">✏️ Edit</button>
+                                    <button class="btn btn-danger btn-small" onclick="deleteSchedule(${schedule.id})">🗑️ Delete</button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function openAddScheduleModal() {
+            document.getElementById('scheduleModalTitle').textContent = 'Create New Schedule';
+            document.getElementById('scheduleForm').reset();
+            document.getElementById('scheduleId').value = '';
+            document.getElementById('scheduleActive').checked = true;
+            currentEditingSchedule = null;
+
+            ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach(day => {
+                document.getElementById(`${day}-times`).innerHTML = '';
+            });
+
+            document.getElementById('scheduleModal').classList.add('active');
+        }
+
+        function closeScheduleModal() {
+            document.getElementById('scheduleModal').classList.remove('active');
+        }
+
+        function addTimeRange(day, startTime = '09:00', endTime = '17:00') {
+            const container = document.getElementById(`${day}-times`);
+            const rangeDiv = document.createElement('div');
+            rangeDiv.className = 'time-range';
+            rangeDiv.innerHTML = `
+                <input type="time" value="${startTime}" required>
+                <span>to</span>
+                <input type="time" value="${endTime}" required>
+                <button type="button" class="btn-remove" onclick="this.parentElement.remove()">✗</button>
+            `;
+            container.appendChild(rangeDiv);
+        }
+
+        async function editSchedule(scheduleId) {
+            try {
+                const response = await fetch('/api/schedules');
+                const data = await response.json();
+
+                if (data.success) {
+                    const schedule = data.schedules.find(s => s.id === scheduleId);
+                    if (schedule) {
+                        document.getElementById('scheduleModalTitle').textContent = 'Edit Schedule';
+                        document.getElementById('scheduleId').value = schedule.id;
+                        document.getElementById('scheduleName').value = schedule.name;
+                        document.getElementById('scheduleDescription').value = schedule.description || '';
+                        document.getElementById('scheduleActive').checked = schedule.active;
+
+                        ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach(day => {
+                            document.getElementById(`${day}-times`).innerHTML = '';
+                        });
+
+                        const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                        schedule.times.forEach(time => {
+                            const day = dayNames[time.day_of_week];
+                            addTimeRange(day, time.start_time.slice(0, 5), time.end_time.slice(0, 5));
+                        });
+
+                        currentEditingSchedule = schedule.id;
+                        document.getElementById('scheduleModal').classList.add('active');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+                showToast('Error loading schedule details', 'error');
+            }
+        }
+
+        async function saveSchedule() {
+            const scheduleId = document.getElementById('scheduleId').value;
+
+            const times = [];
+            const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            dayNames.forEach((day, dayIndex) => {
+                const container = document.getElementById(`${day}-times`);
+                const ranges = container.querySelectorAll('.time-range');
+
+                ranges.forEach(range => {
+                    const inputs = range.querySelectorAll('input[type="time"]');
+                    if (inputs.length === 2 && inputs[0].value && inputs[1].value) {
+                        times.push({
+                            day_of_week: dayIndex,
+                            start_time: inputs[0].value + ':00',
+                            end_time: inputs[1].value + ':00'
+                        });
+                    }
+                });
+            });
+
+            const scheduleData = {
+                name: document.getElementById('scheduleName').value,
+                description: document.getElementById('scheduleDescription').value,
+                active: document.getElementById('scheduleActive').checked,
+                times: times
+            };
+
+            try {
+                const url = scheduleId ? `/api/schedules/${scheduleId}` : '/api/schedules';
+                const method = scheduleId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(scheduleData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(scheduleId ? 'Schedule updated successfully' : 'Schedule created successfully');
+                    closeScheduleModal();
+                    loadSchedules();
+                } else {
+                    showToast(data.message || 'Error saving schedule', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving schedule:', error);
+                showToast('Error saving schedule', 'error');
+            }
+        }
+
+        async function deleteSchedule(scheduleId) {
+            if (!confirm('Are you sure you want to delete this schedule? Users using this schedule will have 24/7 access.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/schedules/${scheduleId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Schedule deleted successfully');
+                    loadSchedules();
+                } else {
+                    showToast(data.message || 'Error deleting schedule', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting schedule:', error);
+                showToast('Error deleting schedule', 'error');
+            }
+        }
+
+        // ==================== ACCESS LOGS ====================
+
+        async function loadLogs() {
+            console.log('📜 Loading access logs...');
+            try {
+                const params = new URLSearchParams();
+                
+                const dateFrom = document.getElementById('filterDateFrom').value;
+                const dateTo = document.getElementById('filterDateTo').value;
+                const userId = document.getElementById('filterUser').value;
+                const doorId = document.getElementById('filterDoor').value;
+
+                if (dateFrom) params.append('date_from', dateFrom);
+                if (dateTo) params.append('date_to', dateTo);
+                if (userId) params.append('user_id', userId);
+                if (doorId) params.append('door_id', doorId);
+
+                const response = await fetch(`/api/logs?${params}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    renderLogs(data.logs);
+                }
+
+                loadLogFilters();
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                showToast('Error loading logs', 'error');
+            }
+        }
+
+        async function loadLogFilters() {
+            try {
+                const usersResponse = await fetch('/api/users');
+                const usersData = await usersResponse.json();
+                
+                if (usersData.success) {
+                    const userSelect = document.getElementById('filterUser');
+                    const currentValue = userSelect.value;
+                    
+                    userSelect.innerHTML = '<option value="">All Users</option>' +
+                        usersData.users.map(user => 
+                            `<option value="${user.id}">${user.name}</option>`
+                        ).join('');
+                    
+                    userSelect.value = currentValue;
+                }
+
+                const doorsResponse = await fetch('/api/doors');
+                const doorsData = await doorsResponse.json();
+                
+                if (doorsData.success) {
+                    const doorSelect = document.getElementById('filterDoor');
+                    const currentValue = doorSelect.value;
+                    
+                    doorSelect.innerHTML = '<option value="">All Doors</option>' +
+                        doorsData.doors.map(door => 
+                            `<option value="${door.id}">${door.name} (${door.board_name})</option>`
+                        ).join('');
+                    
+                    doorSelect.value = currentValue;
+                }
+            } catch (error) {
+                console.error('Error loading log filters:', error);
+            }
+        }
+
+        function renderLogs(logs) {
+            const tbody = document.getElementById('logsTableBody');
+
+            if (logs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 40px; color: #64748b;">
+                            No access logs found
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = logs.map(log => `
+                <tr>
+                    <td>${log.timestamp}</td>
+                    <td>${log.user_name || '<span style="color: #64748b;">Unknown</span>'}</td>
+                    <td>${log.door_name || log.board_name}</td>
+                    <td style="font-family: monospace; font-size: 12px;">${log.credential}</td>
+                    <td>
+                        <span class="badge" style="background: #f1f5f9; color: #475569;">
+                            ${log.credential_type}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge ${log.access_granted ? 'badge-online' : 'badge-offline'}">
+                            ${log.access_granted ? '✓ Granted' : '✗ Denied'}
+                        </span>
+                    </td>
+                    <td style="color: ${log.access_granted ? '#166534' : '#991b1b'};">
+                        ${log.reason}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Close modals when clicking outside
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) {
-                event.target.classList.remove('show');
+                event.target.classList.remove('active');
             }
         }
 
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('✅ Dashboard loaded');
-            updateStats();
-            showToast('System Online', 'success');
-        });
-        
-        console.log('✅ Dashboard JavaScript loaded');
+        // Auto-refresh stats every 30 seconds
+        setInterval(loadStats, 30000);
+
+        console.log('✅ Complete Access Control System loaded successfully');
     </script>
 </body>
 </html>
