@@ -16,10 +16,19 @@ def get_db():
 
 def init_db():
     """Initialize database with schema"""
+    print("🔧 Initializing database...")
+    
     conn = get_db()
     cursor = conn.cursor()
     
-    # Boards table - SIMPLIFIED
+    # Drop old tables if they exist (migration)
+    try:
+        cursor.execute("DROP TABLE IF EXISTS board_doors")
+        print("  ⚠️  Dropped old board_doors table")
+    except:
+        pass
+    
+    # Boards table - SIMPLIFIED SCHEMA
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +42,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    print("  ✅ Boards table created")
     
     # Users table
     cursor.execute('''
@@ -43,6 +53,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    print("  ✅ Users table created")
     
     # User cards table
     cursor.execute('''
@@ -53,6 +64,7 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     ''')
+    print("  ✅ User cards table created")
     
     # User PINs table
     cursor.execute('''
@@ -63,6 +75,7 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     ''')
+    print("  ✅ User PINs table created")
     
     # Access logs table
     cursor.execute('''
@@ -79,10 +92,11 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     ''')
+    print("  ✅ Access logs table created")
     
     conn.commit()
     conn.close()
-    print("✅ Database initialized")
+    print("✅ Database initialized successfully")
 
 @app.route('/')
 def index():
@@ -95,6 +109,9 @@ def index():
 def get_boards():
     """Get all boards"""
     try:
+        # Ensure database is initialized
+        init_db()
+        
         conn = get_db()
         cursor = conn.cursor()
         
@@ -107,22 +124,34 @@ def get_boards():
             
             # Format last_sync
             if board_dict['last_sync']:
-                board_dict['last_sync'] = datetime.fromisoformat(board_dict['last_sync']).strftime('%Y-%m-%d %H:%M')
+                try:
+                    board_dict['last_sync'] = datetime.fromisoformat(board_dict['last_sync']).strftime('%Y-%m-%d %H:%M')
+                except:
+                    board_dict['last_sync'] = 'Error'
             
             boards.append(board_dict)
         
         conn.close()
+        
+        print(f"📋 GET /api/boards - Returning {len(boards)} boards")
         return jsonify({'success': True, 'boards': boards})
     
     except Exception as e:
         print(f"❌ Error getting boards: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        # Try to reinitialize database
+        try:
+            init_db()
+            return jsonify({'success': True, 'boards': []})
+        except:
+            return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/boards', methods=['POST'])
 def create_board():
     """Create a new board"""
     try:
         data = request.json
+        print(f"💾 Creating board: {data.get('name')}")
+        
         conn = get_db()
         cursor = conn.cursor()
         
@@ -139,12 +168,14 @@ def create_board():
         ))
         
         conn.commit()
+        board_id = cursor.lastrowid
         conn.close()
         
-        print(f"✅ Board '{data['name']}' created successfully")
-        return jsonify({'success': True, 'message': f"Board '{data['name']}' created successfully"})
+        print(f"✅ Board '{data['name']}' created successfully (ID: {board_id})")
+        return jsonify({'success': True, 'message': f"Board '{data['name']}' created successfully", 'id': board_id})
     
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as e:
+        print(f"⚠️  Integrity error: {e}")
         return jsonify({'success': False, 'message': 'A board with this IP address already exists'}), 400
     except Exception as e:
         print(f"❌ Error creating board: {e}")
@@ -155,6 +186,8 @@ def update_board(board_id):
     """Update an existing board"""
     try:
         data = request.json
+        print(f"✏️  Updating board ID {board_id}: {data.get('name')}")
+        
         conn = get_db()
         cursor = conn.cursor()
         
@@ -175,7 +208,7 @@ def update_board(board_id):
         conn.commit()
         conn.close()
         
-        print(f"✅ Board updated successfully")
+        print(f"✅ Board ID {board_id} updated successfully")
         return jsonify({'success': True, 'message': 'Board updated successfully'})
     
     except Exception as e:
@@ -196,14 +229,16 @@ def delete_board(board_id):
         if not board:
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
+        board_name = board['name']
+        
         # Delete board
         cursor.execute('DELETE FROM boards WHERE id = ?', (board_id,))
         
         conn.commit()
         conn.close()
         
-        print(f"✅ Board '{board['name']}' deleted successfully")
-        return jsonify({'success': True, 'message': f"Board '{board['name']}' deleted successfully"})
+        print(f"🗑️  Board '{board_name}' (ID: {board_id}) deleted successfully")
+        return jsonify({'success': True, 'message': f"Board '{board_name}' deleted successfully"})
     
     except Exception as e:
         print(f"❌ Error deleting board: {e}")
@@ -222,6 +257,8 @@ def sync_board(board_id):
         
         if not board:
             return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        board_name = board['name']
         
         # TODO: Send sync data to ESP32 via HTTP
         # Example:
@@ -242,8 +279,8 @@ def sync_board(board_id):
         conn.commit()
         conn.close()
         
-        print(f"✅ Board '{board['name']}' synced successfully")
-        return jsonify({'success': True, 'message': f"Board '{board['name']}' synced successfully"})
+        print(f"🔄 Board '{board_name}' (ID: {board_id}) synced successfully")
+        return jsonify({'success': True, 'message': f"Board '{board_name}' synced successfully"})
     
     except Exception as e:
         print(f"❌ Error syncing board: {e}")
@@ -266,7 +303,7 @@ def sync_all_boards():
         conn.commit()
         conn.close()
         
-        print(f"✅ All {count} boards synced successfully")
+        print(f"🔄 All {count} boards synced successfully")
         return jsonify({'success': True, 'message': f'All {count} boards synced successfully'})
     
     except Exception as e:
@@ -279,6 +316,9 @@ def sync_all_boards():
 def get_stats():
     """Get dashboard statistics"""
     try:
+        # Ensure database is initialized
+        init_db()
+        
         conn = get_db()
         cursor = conn.cursor()
         
@@ -350,7 +390,7 @@ def unlock_door(board_id, door_num):
         
         conn.close()
         
-        print(f"✅ Unlocked {door_name} on {board['name']}")
+        print(f"🔓 Unlocked {door_name} on {board['name']}")
         return jsonify({'success': True, 'message': f"Unlocked {door_name}"})
     
     except Exception as e:
@@ -358,13 +398,20 @@ def unlock_door(board_id, door_num):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
+    # Initialize database BEFORE starting server
+    print("=" * 60)
+    print("🚪 Access Control System - Starting...")
+    print("=" * 60)
+    
+    # Check if database exists
+    if os.path.exists(DB_PATH):
+        print(f"📦 Database found at {DB_PATH}")
+    else:
+        print(f"📦 Database will be created at {DB_PATH}")
+    
     # Initialize database
     init_db()
     
-    # Print startup message
-    print("=" * 60)
-    print("🚪 Access Control System - Simplified Architecture")
-    print("=" * 60)
     print("✅ Direct HTTP communication with ESP32 boards")
     print("📦 Simplified database schema (no GPIO config needed)")
     print("🎯 Board ID = Friendly name (not tied to ESPHome)")
