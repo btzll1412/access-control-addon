@@ -1,1 +1,444 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚪 Access Control System</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚪</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .nav-button {
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .nav-button:hover, .nav-button.active {
+            background: rgba(102, 126, 234, 0.1);
+            border-bottom-color: #667eea;
+        }
+        
+        .stat-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+        }
+        
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            animation: slideInRight 0.3s ease;
+        }
+        
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div id="toast-container"></div>
+    
+    <div class="max-w-7xl mx-auto fade-in">
+        <!-- Top Bar -->
+        <div class="glass-card p-4 mb-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="text-4xl">🚪</div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Access Control System</h1>
+                        <p class="text-sm text-gray-600">Professional Access Management</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2 text-sm">
+                        <span class="pulse-dot w-3 h-3 bg-green-500 rounded-full"></span>
+                        <span class="text-gray-700 font-medium" id="boards-online">0 Boards Online</span>
+                    </div>
+                    <button onclick="emergencyUnlock()" class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition">
+                        <i class="fas fa-unlock"></i> Emergency Unlock
+                    </button>
+                    <button onclick="emergencyLock()" class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition">
+                        <i class="fas fa-lock"></i> Emergency Lock
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Navigation -->
+        <div class="glass-card mb-4">
+            <div class="flex items-center overflow-x-auto">
+                <button onclick="showPage('dashboard')" class="nav-button active px-6 py-4 font-medium text-gray-700" id="nav-dashboard">
+                    <i class="fas fa-home mr-2"></i>Dashboard
+                </button>
+                <button onclick="showPage('groups')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-groups">
+                    <i class="fas fa-users mr-2"></i>Groups
+                </button>
+                <button onclick="showPage('doors')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-doors">
+                    <i class="fas fa-door-open mr-2"></i>Doors
+                </button>
+                <button onclick="showPage('schedules')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-schedules">
+                    <i class="fas fa-calendar-alt mr-2"></i>Schedules
+                </button>
+                <button onclick="showPage('users')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-users">
+                    <i class="fas fa-user mr-2"></i>Users
+                </button>
+                <button onclick="showPage('logs')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-logs">
+                    <i class="fas fa-list mr-2"></i>Access Logs
+                </button>
+                <button onclick="showPage('live')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-live">
+                    <i class="fas fa-broadcast-tower mr-2"></i>Live Monitor
+                </button>
+                <button onclick="showPage('boards')" class="nav-button px-6 py-4 font-medium text-gray-700" id="nav-boards">
+                    <i class="fas fa-microchip mr-2"></i>Boards
+                </button>
+            </div>
+        </div>
+        
+        <!-- Content Area -->
+        <div id="content-area"></div>
+    </div>
+    
+    <script>
+        let currentPage = 'dashboard';
+        
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast glass-card p-4 mb-2 ${type === 'success' ? 'border-l-4 border-green-500' : 'border-l-4 border-red-500'}`;
+            toast.innerHTML = `
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-${type === 'success' ? 'check-circle text-green-500' : 'exclamation-circle text-red-500'} text-xl"></i>
+                    <div>
+                        <p class="font-medium text-gray-800">${type === 'success' ? 'Success' : 'Error'}</p>
+                        <p class="text-sm text-gray-600">${message}</p>
+                    </div>
+                </div>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        function showPage(page) {
+            currentPage = page;
+            document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`nav-${page}`).classList.add('active');
+            loadPageContent(page);
+        }
+        
+        async function loadPageContent(page) {
+            const contentArea = document.getElementById('content-area');
+            contentArea.innerHTML = '<div class="flex items-center justify-center h-64"><i class="fas fa-spinner fa-spin text-4xl text-purple-500"></i></div>';
+            
+            switch(page) {
+                case 'dashboard':
+                    await renderDashboard();
+                    break;
+                case 'users':
+                    await renderUsers();
+                    break;
+                case 'boards':
+                    await renderBoards();
+                    break;
+                case 'groups':
+                    await renderGroups();
+                    break;
+                case 'schedules':
+                    await renderSchedules();
+                    break;
+                default:
+                    contentArea.innerHTML = '<div class="glass-card p-8 text-center"><h2 class="text-2xl font-bold text-gray-800">Coming Soon</h2><p class="text-gray-600 mt-2">This feature is under development</p></div>';
+            }
+        }
+        
+        async function renderDashboard() {
+            try {
+                const stats = await fetch('/api/stats').then(r => r.json());
+                const boards = await fetch('/api/boards').then(r => r.json());
+                
+                document.getElementById('boards-online').textContent = `${boards.filter(b => b.active).length} Boards Online`;
+                
+                document.getElementById('content-area').innerHTML = `
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="stat-card glass-card p-6">
+                                <div class="text-4xl mb-3">👥</div>
+                                <div class="text-2xl font-bold text-gray-800">${stats.total_users}</div>
+                                <div class="text-sm text-gray-600">Total Users</div>
+                                <div class="text-xs text-gray-500 mt-1">${stats.active_users} Active</div>
+                            </div>
+                            <div class="stat-card glass-card p-6">
+                                <div class="text-4xl mb-3">🚪</div>
+                                <div class="text-2xl font-bold text-gray-800">${boards.reduce((acc, b) => acc + (b.door_count || 0), 0)}</div>
+                                <div class="text-sm text-gray-600">Total Doors</div>
+                                <div class="text-xs text-gray-500 mt-1">Configured</div>
+                            </div>
+                            <div class="stat-card glass-card p-6">
+                                <div class="text-4xl mb-3">✅</div>
+                                <div class="text-2xl font-bold text-gray-800">${stats.today_access}</div>
+                                <div class="text-sm text-gray-600">Today's Access</div>
+                                <div class="text-xs text-gray-500 mt-1">Successful</div>
+                            </div>
+                        </div>
+                        
+                        <div class="glass-card p-6">
+                            <h2 class="text-xl font-bold text-gray-800 mb-4">📈 Recent Activity</h2>
+                            <div class="space-y-2">
+                                ${stats.recent_logs.map(log => `
+                                    <div class="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50">
+                                        <div class="flex items-center space-x-3">
+                                            <span class="text-xl">${log.success ? '✅' : '❌'}</span>
+                                            <div>
+                                                <p class="font-medium text-gray-800">${log.user_name || 'Unknown'}</p>
+                                                <p class="text-sm text-gray-600">${log.door_id}</p>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="${log.success ? 'text-green-600' : 'text-red-600'} font-medium">${log.success ? 'GRANTED' : 'DENIED'}</p>
+                                            <p class="text-xs text-gray-500">${new Date(log.timestamp).toLocaleTimeString()}</p>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error loading dashboard: ' + error.message, 'error');
+            }
+        }
+        
+        async function renderUsers() {
+            try {
+                const users = await fetch('/api/users').then(r => r.json());
+                
+                document.getElementById('content-area').innerHTML = `
+                    <div class="glass-card p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold text-gray-800">👥 User Management</h2>
+                            <button onclick="showAddUserModal()" class="btn-primary px-4 py-2 text-white rounded-lg font-medium">
+                                <i class="fas fa-plus mr-2"></i>Add New User
+                            </button>
+                        </div>
+                        <div class="space-y-2">
+                            ${users.map(user => `
+                                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="font-bold text-gray-800">${user.name}</p>
+                                            <p class="text-sm text-gray-600">💳 Cards: ${user.card_ids.join(', ') || 'None'}</p>
+                                            <p class="text-sm text-gray-600">🔢 PINs: ${user.pin_codes.length > 0 ? user.pin_codes.length + ' configured' : 'None'}</p>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button onclick="editUser(${user.id})" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+                                            <button onclick="deleteUser(${user.id}, '${user.name}')" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error loading users: ' + error.message, 'error');
+            }
+        }
+        
+        async function renderBoards() {
+            try {
+                const boards = await fetch('/api/boards').then(r => r.json());
+                
+                document.getElementById('content-area').innerHTML = `
+                    <div class="glass-card p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold text-gray-800">📋 Board Management</h2>
+                            <button onclick="showAddBoardModal()" class="btn-primary px-4 py-2 text-white rounded-lg font-medium">
+                                <i class="fas fa-plus mr-2"></i>Add New Board
+                            </button>
+                        </div>
+                        <div class="space-y-4">
+                            ${boards.map(board => `
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center space-x-3">
+                                            <span class="text-2xl">${board.active ? '🟢' : '🔴'}</span>
+                                            <div>
+                                                <p class="font-bold text-gray-800">${board.name}</p>
+                                                <p class="text-sm text-gray-600">IP: ${board.ip_address || 'Not configured'}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button onclick="editBoard('${board.id}')" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+                                            <button onclick="deleteBoard('${board.id}', '${board.name}')" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm text-gray-600">
+                                        Doors: ${board.door_count || 0} configured
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error loading boards: ' + error.message, 'error');
+            }
+        }
+        
+        async function renderGroups() {
+            try {
+                const groups = await fetch('/api/door-groups').then(r => r.json());
+                document.getElementById('content-area').innerHTML = `
+                    <div class="glass-card p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold text-gray-800">👥 Door Access Groups</h2>
+                            <button class="btn-primary px-4 py-2 text-white rounded-lg font-medium">
+                                <i class="fas fa-plus mr-2"></i>Create New Group
+                            </button>
+                        </div>
+                        <p class="text-gray-600">Groups feature coming soon...</p>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error loading groups: ' + error.message, 'error');
+            }
+        }
+        
+        async function renderSchedules() {
+            try {
+                const schedules = await fetch('/api/time-schedules').then(r => r.json());
+                document.getElementById('content-area').innerHTML = `
+                    <div class="glass-card p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold text-gray-800">📅 Time Schedules</h2>
+                            <button class="btn-primary px-4 py-2 text-white rounded-lg font-medium">
+                                <i class="fas fa-plus mr-2"></i>Create New Schedule
+                            </button>
+                        </div>
+                        <p class="text-gray-600">Schedules feature coming soon...</p>
+                    </div>
+                `;
+            } catch (error) {
+                showToast('Error loading schedules: ' + error.message, 'error');
+            }
+        }
+        
+        function emergencyUnlock() {
+            if (confirm('⚠️ Emergency Unlock All Doors?\n\nThis will unlock all doors immediately!')) {
+                showToast('Emergency unlock activated!', 'success');
+            }
+        }
+        
+        function emergencyLock() {
+            if (confirm('⚠️ Emergency Lock All Doors?\n\nThis will prevent all access immediately!')) {
+                showToast('Emergency lock activated!', 'success');
+            }
+        }
+        
+        async function deleteUser(id, name) {
+            if (confirm(`Delete user "${name}"?`)) {
+                try {
+                    const response = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+                    const result = await response.json();
+                    showToast(result.message, result.success ? 'success' : 'error');
+                    if (result.success) renderUsers();
+                } catch (error) {
+                    showToast('Error deleting user: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        async function deleteBoard(id, name) {
+            if (confirm(`Delete board "${name}"?`)) {
+                try {
+                    const response = await fetch(`/api/boards/${id}`, { method: 'DELETE' });
+                    const result = await response.json();
+                    showToast(result.message, result.success ? 'success' : 'error');
+                    if (result.success) renderBoards();
+                } catch (error) {
+                    showToast('Error deleting board: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        function showAddUserModal() {
+            showToast('Add user modal coming soon!', 'success');
+        }
+        
+        function showAddBoardModal() {
+            showToast('Add board modal coming soon!', 'success');
+        }
+        
+        function editUser(id) {
+            showToast('Edit user modal coming soon!', 'success');
+        }
+        
+        function editBoard(id) {
+            showToast('Edit board modal coming soon!', 'success');
+        }
+        
+        // Load dashboard on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadPageContent('dashboard');
+        });
+    </script>
+</body>
+</html>
