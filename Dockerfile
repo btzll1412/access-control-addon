@@ -1,27 +1,41 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM $BUILD_FROM
 
-# Install requirements
+# Install Python and dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-flask \
-    py3-requests \
-    sqlite \
-    bash
-
-# Copy application files
-COPY app /app
+    sqlite
 
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir --break-system-packages \
-    waitress==2.1.2
+# Copy requirements and install Python packages
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Copy app files
+COPY app/ ./app/
+
+# Copy run script
+COPY run.sh ./
+
+# Create data directory
+RUN mkdir -p /data
+
+# Make run script executable
+RUN chmod +x run.sh
 
 # Expose port
 EXPOSE 8100
 
-# Run directly without shell script
-CMD ["python3", "-m", "waitress", "--host=0.0.0.0", "--port=8100", "main:app"]
+# Labels
+LABEL \
+    io.hass.name="Access Control System" \
+    io.hass.description="ESP32 Access Control System" \
+    io.hass.arch="amd64|aarch64|armv7" \
+    io.hass.type="addon" \
+    io.hass.version="1.0.0"
+
+# Run the application
+CMD ["./run.sh"]
