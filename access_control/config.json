@@ -22,5 +22,5 @@
   "ingress": true,
   "panel_icon": "mdi:door",
   "panel_title": "Access Control",
-  "webui": "http://[HOST]:8100"
+  "webui": "http://[HOST]:[PORT:8100]"
 }
