@@ -26,6 +26,5 @@
   "schema": {
     "ha_token": "str",
     "log_level": "list(debug|info|warning|error)?"
-  },
-  "image": "ghcr.io/btzll1412/access-control-addon"
+  }
 }
