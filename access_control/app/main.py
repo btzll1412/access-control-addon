@@ -10,10 +10,45 @@ app = Flask(__name__)
 DB_PATH = '/data/access_control.db'
 
 def get_db():
-    """Get database connection"""
-    conn = sqlite3.connect(DB_PATH)
+    """Get database connection with proper settings to prevent locks"""
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # Enable WAL mode to prevent database locks
+    conn.execute('PRAGMA journal_mode=WAL')
     return conn
+
+def migrate_database():
+    """Migrate old database schema to new schema"""
+    print("🔄 Checking for database migrations...")
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'valid_from' not in columns:
+                print("  ➕ Adding valid_from column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN valid_from DATE")
+                
+            if 'valid_until' not in columns:
+                print("  ➕ Adding valid_until column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN valid_until DATE")
+                
+            if 'notes' not in columns:
+                print("  ➕ Adding notes column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN notes TEXT")
+            
+            conn.commit()
+            print("  ✅ Migration completed")
+    except Exception as e:
+        print(f"  ⚠️  Migration: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 def init_db():
     """Initialize database with complete schema"""
@@ -188,6 +223,7 @@ def init_db():
 
 # Initialize database on startup
 init_db()
+migrate_database()
 
 @app.route('/')
 def index():
