@@ -451,33 +451,120 @@ def sync_all_boards():
         cursor = conn.cursor()
         
         # Get all boards
-        cursor.execute('SELECT id FROM boards')
+        cursor.execute('SELECT id, name, ip_address, online FROM boards')
         boards = cursor.fetchall()
         
         conn.close()
+        
+        if not boards:
+            return jsonify({'success': True, 'message': 'No boards to sync'})
         
         success_count = 0
         fail_count = 0
         
         # Sync each board
         for board in boards:
+            board_id = board['id']
+            board_name = board['name']
+            
+            print(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
+            
+            # Check if board is online
+            if not board['online']:
+                print(f"    ⚠️  Board {board_name} is offline - skipping")
+                fail_count += 1
+                continue
+            
+            # Call sync function and check result
             try:
-                result = sync_board_full(board['id'])
-                if result[1] == 200:  # HTTP 200 = success
+                # We need to actually call the sync logic directly
+                conn = get_db()
+                cursor = conn.cursor()
+                
+                # Get board info
+                cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+                board_data = cursor.fetchone()
+                
+                if not board_data:
+                    fail_count += 1
+                    continue
+                
+                # Get all active users with credentials and access
+                cursor.execute('SELECT * FROM users WHERE active = 1')
+                users_data = cursor.fetchall()
+                
+                users = []
+                for user in users_data:
+                    user_dict = {
+                        'name': user['name'],
+                        'active': user['active'],
+                        'cards': [],
+                        'pins': [],
+                        'doors': []
+                    }
+                    
+                    # Get cards
+                    cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ? AND active = 1', (user['id'],))
+                    user_dict['cards'] = [row['card_number'] for row in cursor.fetchall()]
+                    
+                    # Get PINs
+                    cursor.execute('SELECT pin FROM user_pins WHERE user_id = ? AND active = 1', (user['id'],))
+                    user_dict['pins'] = [row['pin'] for row in cursor.fetchall()]
+                    
+                    # Get doors user has access to (via groups)
+                    cursor.execute('''
+                        SELECT DISTINCT d.door_number
+                        FROM doors d
+                        JOIN group_doors gd ON d.id = gd.door_id
+                        JOIN user_groups ug ON gd.group_id = ug.group_id
+                        WHERE ug.user_id = ? AND d.board_id = ?
+                    ''', (user['id'], board_id))
+                    
+                    user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
+                    
+                    if user_dict['doors']:  # Only include users who have access to this board
+                        users.append(user_dict)
+                
+                # Build sync payload
+                sync_data = {
+                    'users': users,
+                    'schedules': []
+                }
+                
+                # Send to board
+                board_url = f"http://{board_data['ip_address']}/api/sync"
+                
+                import json
+                response = requests.post(board_url, json=sync_data, timeout=10)
+                
+                if response.status_code == 200:
+                    # Update last_sync
+                    cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
+                    conn.commit()
+                    
+                    print(f"    ✅ Board {board_name} synced - {len(users)} users sent")
                     success_count += 1
                 else:
+                    print(f"    ❌ Board {board_name} sync failed: HTTP {response.status_code}")
                     fail_count += 1
-            except:
+                
+                conn.close()
+                
+            except Exception as e:
+                print(f"    ❌ Error syncing board {board_name}: {e}")
                 fail_count += 1
+                if conn:
+                    conn.close()
         
         total = success_count + fail_count
         
-        print(f"✅ Synced {success_count}/{total} boards successfully")
+        print(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
         
         return jsonify({
             'success': True, 
             'message': f'Synced {success_count}/{total} boards successfully'
         })
+        
     except Exception as e:
         print(f"❌ Error syncing all boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
