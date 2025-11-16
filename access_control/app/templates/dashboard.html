@@ -1119,6 +1119,87 @@
             </div>
         </div>
 
+        <!-- Door Unlock Schedule Modal -->
+        <div id="doorScheduleModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="doorScheduleModalTitle">Door Auto-Unlock Schedule</h3>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="doorScheduleDoorId">
+                    
+                    <p style="color: #64748b; margin-bottom: 20px;">
+                        Configure times when this door should automatically unlock (free access). 
+                        Outside these times, card/PIN access is required.
+                    </p>
+                    
+                    <div class="schedule-builder">
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-monday-enabled" onchange="toggleDoorScheduleDay('monday')">
+                                <label for="door-monday-enabled">Monday</label>
+                            </div>
+                            <div id="door-monday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('monday')" id="door-monday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-tuesday-enabled" onchange="toggleDoorScheduleDay('tuesday')">
+                                <label for="door-tuesday-enabled">Tuesday</label>
+                            </div>
+                            <div id="door-tuesday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('tuesday')" id="door-tuesday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-wednesday-enabled" onchange="toggleDoorScheduleDay('wednesday')">
+                                <label for="door-wednesday-enabled">Wednesday</label>
+                            </div>
+                            <div id="door-wednesday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('wednesday')" id="door-wednesday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-thursday-enabled" onchange="toggleDoorScheduleDay('thursday')">
+                                <label for="door-thursday-enabled">Thursday</label>
+                            </div>
+                            <div id="door-thursday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('thursday')" id="door-thursday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-friday-enabled" onchange="toggleDoorScheduleDay('friday')">
+                                <label for="door-friday-enabled">Friday</label>
+                            </div>
+                            <div id="door-friday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('friday')" id="door-friday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-saturday-enabled" onchange="toggleDoorScheduleDay('saturday')">
+                                <label for="door-saturday-enabled">Saturday</label>
+                            </div>
+                            <div id="door-saturday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('saturday')" id="door-saturday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                        <div class="schedule-day">
+                            <div class="schedule-day-header">
+                                <input type="checkbox" id="door-sunday-enabled" onchange="toggleDoorScheduleDay('sunday')">
+                                <label for="door-sunday-enabled">Sunday</label>
+                            </div>
+                            <div id="door-sunday-times" style="margin-left: 30px;"></div>
+                            <button type="button" class="btn-add" onclick="addDoorTimeRange('sunday')" id="door-sunday-add" style="display:none; margin-left: 30px;">➕ Add Time Range</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-danger" onclick="clearDoorSchedule()">🗑️ Clear All</button>
+                    <button class="btn btn-secondary" onclick="closeDoorScheduleModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveDoorSchedule()">💾 Save Schedule</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Toast Notification -->
         <div id="toast" class="toast">
             <div class="toast-icon" id="toastIcon"></div>
@@ -1889,6 +1970,10 @@
                                         ${!door.board_online ? 'disabled' : ''}>
                                     🔓 Unlock Now
                                 </button>
+                                <button class="btn btn-secondary btn-small" 
+                                        onclick="openDoorScheduleModal(${door.id}, '${door.name}')">
+                                    🕐 Auto-Unlock Schedule
+                                </button>
                             </div>
                         </div>
                     `).join('')}
@@ -2349,6 +2434,178 @@
             } catch (error) {
                 console.error('Error deleting schedule:', error);
                 showToast('Error deleting schedule', 'error');
+            }
+        }
+
+        // ==================== DOOR UNLOCK SCHEDULES ====================
+        
+        async function openDoorScheduleModal(doorId, doorName) {
+            document.getElementById('doorScheduleModalTitle').textContent = `Auto-Unlock Schedule: ${doorName}`;
+            document.getElementById('doorScheduleDoorId').value = doorId;
+            
+            // Clear all schedules
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            days.forEach(day => {
+                document.getElementById(`door-${day}-enabled`).checked = false;
+                document.getElementById(`door-${day}-times`).innerHTML = '';
+                document.getElementById(`door-${day}-add`).style.display = 'none';
+            });
+            
+            // Load existing schedules
+            try {
+                const response = await fetch(`/api/door-unlock-schedules/${doorId}`);
+                const data = await response.json();
+                
+                if (data.success && data.schedules.length > 0) {
+                    // Group by day
+                    const schedulesByDay = {};
+                    data.schedules.forEach(schedule => {
+                        const dayName = days[schedule.day_of_week];
+                        if (!schedulesByDay[dayName]) {
+                            schedulesByDay[dayName] = [];
+                        }
+                        schedulesByDay[dayName].push(schedule);
+                    });
+                    
+                    // Load into UI
+                    Object.keys(schedulesByDay).forEach(dayName => {
+                        document.getElementById(`door-${dayName}-enabled`).checked = true;
+                        document.getElementById(`door-${dayName}-add`).style.display = 'block';
+                        
+                        schedulesByDay[dayName].forEach(schedule => {
+                            addDoorTimeRange(dayName, schedule.start_time.slice(0, 5), schedule.end_time.slice(0, 5));
+                        });
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading door schedules:', error);
+            }
+            
+            document.getElementById('doorScheduleModal').classList.add('active');
+        }
+        
+        function closeDoorScheduleModal() {
+            document.getElementById('doorScheduleModal').classList.remove('active');
+        }
+        
+        function toggleDoorScheduleDay(day) {
+            const checkbox = document.getElementById(`door-${day}-enabled`);
+            const addButton = document.getElementById(`door-${day}-add`);
+            const container = document.getElementById(`door-${day}-times`);
+            
+            if (checkbox.checked) {
+                addButton.style.display = 'block';
+                // Add default time range
+                if (container.children.length === 0) {
+                    addDoorTimeRange(day, '09:00', '17:00');
+                }
+            } else {
+                addButton.style.display = 'none';
+                container.innerHTML = '';
+            }
+        }
+        
+        function addDoorTimeRange(day, startTime = '09:00', endTime = '17:00') {
+            const container = document.getElementById(`door-${day}-times`);
+            const rangeDiv = document.createElement('div');
+            rangeDiv.className = 'time-range';
+            rangeDiv.innerHTML = `
+                <input type="time" value="${startTime}" required>
+                <span>to</span>
+                <input type="time" value="${endTime}" required>
+                <button type="button" class="btn-remove" onclick="this.parentElement.remove()">✗</button>
+            `;
+            container.appendChild(rangeDiv);
+        }
+        
+        async function saveDoorSchedule() {
+            const doorId = document.getElementById('doorScheduleDoorId').value;
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            const schedules = [];
+            
+            days.forEach((day, dayIndex) => {
+                const checkbox = document.getElementById(`door-${day}-enabled`);
+                if (!checkbox.checked) return;
+                
+                const container = document.getElementById(`door-${day}-times`);
+                const ranges = container.querySelectorAll('.time-range');
+                
+                ranges.forEach(range => {
+                    const inputs = range.querySelectorAll('input[type="time"]');
+                    if (inputs.length === 2 && inputs[0].value && inputs[1].value) {
+                        schedules.push({
+                            day_of_week: dayIndex,
+                            start_time: inputs[0].value + ':00',
+                            end_time: inputs[1].value + ':00'
+                        });
+                    }
+                });
+            });
+            
+            try {
+                const response = await fetch(`/api/door-unlock-schedules/${doorId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ schedules: schedules })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Door unlock schedule saved successfully');
+                    closeDoorScheduleModal();
+                    
+                    // Sync board to update schedule
+                    const doorsResponse = await fetch('/api/doors');
+                    const doorsData = await doorsResponse.json();
+                    if (doorsData.success) {
+                        const door = doorsData.doors.find(d => d.id == doorId);
+                        if (door) {
+                            // Find board ID from door
+                            const boardsResponse = await fetch('/api/boards');
+                            const boardsData = await boardsResponse.json();
+                            if (boardsData.success) {
+                                const board = boardsData.boards.find(b => b.ip_address === door.ip_address);
+                                if (board) {
+                                    // Sync board
+                                    await fetch(`/api/boards/${board.id}/sync`, { method: 'POST' });
+                                    showToast('Board synced with new schedule');
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    showToast(data.message || 'Error saving schedule', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving door schedule:', error);
+                showToast('Error saving schedule', 'error');
+            }
+        }
+        
+        async function clearDoorSchedule() {
+            if (!confirm('Clear all unlock schedules for this door?')) {
+                return;
+            }
+            
+            const doorId = document.getElementById('doorScheduleDoorId').value;
+            
+            try {
+                const response = await fetch(`/api/door-unlock-schedules/${doorId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Door unlock schedules cleared');
+                    closeDoorScheduleModal();
+                } else {
+                    showToast(data.message || 'Error clearing schedules', 'error');
+                }
+            } catch (error) {
+                console.error('Error clearing door schedules:', error);
+                showToast('Error clearing schedules', 'error');
             }
         }
 
