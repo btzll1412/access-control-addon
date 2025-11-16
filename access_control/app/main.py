@@ -5,11 +5,78 @@ from datetime import datetime, timedelta
 import json
 import requests
 import time
+import pytz
 
 app = Flask(__name__)
 
 # Database path
 DB_PATH = '/data/access_control.db'
+
+import pytz
+
+# ==================== TIMEZONE CONFIGURATION ====================
+def get_timezone_from_config():
+    """Read timezone from add-on options"""
+    try:
+        # Try to read from Home Assistant add-on options
+        if os.path.exists('/data/options.json'):
+            with open('/data/options.json', 'r') as f:
+                options = json.load(f)
+                return options.get('timezone', 'America/New_York')
+    except Exception as e:
+        print(f"⚠️  Could not read timezone from config: {e}")
+    
+    # Fallback to environment variable or default
+    return os.environ.get('TZ', 'America/New_York')
+
+# Set timezone
+TIMEZONE = get_timezone_from_config()
+os.environ['TZ'] = TIMEZONE
+
+try:
+    time.tzset()
+except:
+    pass
+
+try:
+    LOCAL_TZ = pytz.timezone(TIMEZONE)
+    print(f"🕐 Timezone set to: {TIMEZONE}")
+except Exception as e:
+    print(f"⚠️  Invalid timezone '{TIMEZONE}', using UTC")
+    LOCAL_TZ = pytz.UTC
+    TIMEZONE = 'UTC'
+
+# ==================== TIMEZONE HELPER FUNCTIONS ====================
+def get_local_timestamp():
+    """Get current timestamp in local timezone"""
+    return datetime.now(LOCAL_TZ)
+
+def format_timestamp_for_db(dt=None):
+    """Format datetime for database storage (ISO format)"""
+    if dt is None:
+        dt = get_local_timestamp()
+    return dt.isoformat()
+
+def format_timestamp_for_display(timestamp_str):
+    """Convert database timestamp to display format in local timezone"""
+    try:
+        if not timestamp_str:
+            return 'N/A'
+        
+        # Parse the timestamp
+        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        
+        # If no timezone info, assume UTC
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
+        
+        # Convert to local timezone
+        local_dt = dt.astimezone(LOCAL_TZ)
+        
+        # Format as readable string with 12-hour time
+        return local_dt.strftime('%Y-%m-%d %I:%M:%S %p')
+    except Exception as e:
+        return str(timestamp_str)
 
 def get_db():
     """Get database connection with proper settings to prevent locks"""
@@ -365,6 +432,21 @@ def get_stats():
         print(f"❌ Error getting stats: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/api/timezone', methods=['GET'])
+def get_timezone_info():
+    """Get current timezone configuration"""
+    try:
+        now = get_local_timestamp()
+        return jsonify({
+            'success': True,
+            'timezone': TIMEZONE,
+            'current_time': now.strftime('%Y-%m-%d %I:%M:%S %p %Z'),
+            'utc_offset': now.strftime('%z')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # ==================== EMERGENCY API ====================
 @app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
 def emergency_lock_board(board_id):
@@ -399,9 +481,9 @@ def emergency_lock_board(board_id):
         # Log emergency action
         cursor.execute('''
             INSERT INTO access_logs 
-            (board_name, door_name, credential, credential_type, access_granted, reason)
-            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?)
-        ''', (board['name'], f'Emergency lock activated by {activated_by}'))
+            (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?, ?)
+        ''', (board['name'], f'Emergency lock activated by {activated_by}', format_timestamp_for_db()))
         
         conn.commit()
         conn.close()
@@ -459,9 +541,9 @@ def emergency_unlock_board(board_id):
         # Log emergency action
         cursor.execute('''
             INSERT INTO access_logs 
-            (board_name, door_name, credential, credential_type, access_granted, reason)
-            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 1, ?)
-        ''', (board['name'], f'Emergency unlock activated by {activated_by} (auto-reset in {auto_reset_minutes} min)'))
+            (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?, ?)
+        ''', (board['name'], f'Emergency unlock activated by {activated_by}', format_timestamp_for_db()))
         
         conn.commit()
         conn.close()
@@ -518,9 +600,9 @@ def emergency_reset_board(board_id):
         if previous_mode:
             cursor.execute('''
                 INSERT INTO access_logs 
-                (board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, 'ALL DOORS', 'RESET', 'emergency', 1, ?)
-            ''', (board['name'], f'Emergency mode reset by {reset_by} (was: {previous_mode})'))
+                (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, 'ALL DOORS', 'RESET', 'emergency', 1, ?, ?)
+            ''', (board['name'], f'Emergency mode reset by {reset_by} (was: {previous_mode})', format_timestamp_for_db()))
         
         conn.commit()
         conn.close()
@@ -1019,7 +1101,19 @@ def receive_access_log():
         credential_type = data.get('credential_type')
         access_granted = data.get('access_granted')
         reason = data.get('reason')
-        timestamp = data.get('timestamp')
+        # Get timestamp from ESP32 or use current local time
+        esp32_timestamp = data.get('timestamp')
+        if esp32_timestamp:
+            try:
+                # Parse ESP32 timestamp and convert to local
+                dt = datetime.fromisoformat(esp32_timestamp.replace('Z', '+00:00'))
+                if dt.tzinfo is None:
+                    dt = pytz.utc.localize(dt)
+                timestamp = dt.astimezone(LOCAL_TZ).isoformat()
+            except:
+                timestamp = format_timestamp_for_db()
+        else:
+            timestamp = format_timestamp_for_db()
         
         conn = get_db()
         cursor = conn.cursor()
@@ -1385,9 +1479,9 @@ def unlock_door(door_id):
         
         # Log manual unlock
         cursor.execute('''
-            INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-            VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard')
-        ''', (door_id, door['board_name'], door['name']))
+    INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+    VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard', ?)
+''', (door_id, door['board_name'], door['name'], format_timestamp_for_db()))
         
         conn.commit()
         conn.close()
@@ -2074,12 +2168,10 @@ def get_logs():
         logs = []
         for log in logs_data:
             log_dict = dict(log)
-            
-            try:
-                log_dict['timestamp'] = datetime.fromisoformat(log_dict['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
-            except:
-                pass
-            
+    
+            # Format timestamp in local timezone
+            log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
+    
             logs.append(log_dict)
         
         conn.close()
@@ -2127,7 +2219,7 @@ def validate_access():
         board_name = door_info['board_name']
         
         # STEP 2: Check door schedule (what mode is door in?)
-        now = datetime.now()
+        now = get_local_timestamp()
         current_day = now.weekday()
         current_time = now.strftime('%H:%M:%S')
         
@@ -2228,7 +2320,7 @@ def validate_access():
             })
         
         # Check valid dates
-        today = datetime.now().date()
+        today = get_local_timestamp().date()
         if user['valid_from']:
             valid_from = datetime.fromisoformat(user['valid_from']).date()
             if today < valid_from:
