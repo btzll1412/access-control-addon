@@ -6,6 +6,8 @@ RUN apk add --no-cache sqlite
 # Set working directory
 WORKDIR /app
 
+RUN pip install pytz
+
 # Copy and install Python requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
