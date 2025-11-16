@@ -1406,6 +1406,67 @@ def unlock_door(door_id):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@app.route('/api/doors/<int:door_id>/settings', methods=['POST'])
+def update_door_settings(door_id):
+    """Update door settings (unlock duration, etc.)"""
+    try:
+        data = request.json
+        unlock_duration = data.get('unlock_duration', 3000)
+        
+        # Validate duration
+        if unlock_duration < 500 or unlock_duration > 30000:
+            return jsonify({'success': False, 'message': 'Duration must be between 500-30000ms'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Add unlock_duration column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
+            conn.commit()
+        except:
+            pass  # Column already exists
+        
+        # Update door settings
+        cursor.execute('''
+            UPDATE doors 
+            SET unlock_duration = ?
+            WHERE id = ?
+        ''', (unlock_duration, door_id))
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Door not found'}), 404
+        
+        conn.commit()
+        
+        # Get board IP to sync the setting
+        cursor.execute('''
+            SELECT b.ip_address 
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE d.id = ?
+        ''', (door_id,))
+        
+        board = cursor.fetchone()
+        conn.close()
+        
+        # Send settings to ESP32 (optional - ESP32 will get it on next sync)
+        if board:
+            try:
+                # You can add an endpoint on ESP32 to update this, or it will get it on next sync
+                pass
+            except:
+                pass
+        
+        print(f"✅ Door {door_id} settings updated: unlock_duration={unlock_duration}ms")
+        return jsonify({'success': True, 'message': 'Door settings updated'})
+        
+    except Exception as e:
+        print(f"❌ Error updating door settings: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 # ==================== DOOR SCHEDULES API ====================
 
 
