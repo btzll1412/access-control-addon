@@ -1295,6 +1295,42 @@
         </div>
     </div>
 
+    <!-- Door Settings Modal -->
+<div id="doorSettingsModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="doorSettingsModalTitle">Door Settings</h3>
+            <button class="modal-close" onclick="closeDoorSettingsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="doorSettingsForm" onsubmit="saveDoorSettings(event)">
+                <input type="hidden" id="settingsDoorId">
+                
+                <div class="form-group">
+                    <label class="form-label">Door Name</label>
+                    <input type="text" class="form-input" id="settingsDoorName" readonly disabled>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Unlock Duration (milliseconds)</label>
+                    <input type="number" class="form-input" id="settingsUnlockDuration" 
+                           min="500" max="30000" step="100" value="3000" required>
+                    <div class="form-help">
+                        How long the relay stays active (1000ms = 1 second)<br>
+                        Recommended: 3000-5000ms for standard doors
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeDoorSettingsModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="document.getElementById('doorSettingsForm').requestSubmit()">
+                💾 Save Settings
+            </button>
+        </div>
+    </div>
+</div>
+
     <!-- Pending Boards Modal -->
     <div id="pendingBoardsModal" class="modal">
         <div class="modal-content" style="max-width: 900px;">
@@ -1868,6 +1904,10 @@
                                             onclick="openDoorScheduleModal(${door.id}, '${door.name}')">
                                         📅 Schedule
                                     </button>
+                                    <button class="btn btn-secondary btn-small" 
+                                            onclick="openDoorSettingsModal(${door.id}, '${door.name}', ${door.unlock_duration || 3000})">
+                                        ⚙️ Settings
+                                    </button>
                                 </div>
                             </div>
                         `;
@@ -2367,6 +2407,53 @@
                 showToast('Error saving schedules', 'error');
             }
         }
+
+        // ==================== DOOR SETTINGS ====================
+let currentDoorSettings = null;
+
+async function openDoorSettingsModal(doorId, doorName, unlockDuration) {
+    currentDoorSettings = { doorId, doorName };
+    
+    document.getElementById('doorSettingsModalTitle').textContent = `Settings: ${doorName}`;
+    document.getElementById('settingsDoorId').value = doorId;
+    document.getElementById('settingsDoorName').value = doorName;
+    document.getElementById('settingsUnlockDuration').value = unlockDuration || 3000;
+    
+    document.getElementById('doorSettingsModal').classList.add('active');
+}
+
+function closeDoorSettingsModal() {
+    document.getElementById('doorSettingsModal').classList.remove('active');
+    currentDoorSettings = null;
+}
+
+async function saveDoorSettings(event) {
+    event.preventDefault();
+    
+    const doorId = document.getElementById('settingsDoorId').value;
+    const unlockDuration = parseInt(document.getElementById('settingsUnlockDuration').value);
+    
+    try {
+        const response = await fetch(`/api/doors/${doorId}/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ unlock_duration: unlockDuration })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('Door settings saved', 'success');
+            closeDoorSettingsModal();
+            loadDoors();
+        } else {
+            showToast(data.message || 'Error saving settings', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving door settings:', error);
+        showToast('Error saving settings', 'error');
+    }
+}
 
         // ==================== USERS ====================
         async function loadUsers() {
@@ -3086,7 +3173,10 @@
                             <td>${log.board_name || 'N/A'}</td>
                             <td>${log.door_name || 'N/A'}</td>
                             <td>${log.user_name || 'Unknown'}</td>
-                            <td>${log.credential_type || 'N/A'}</td>
+                            <td>
+                                <strong>${log.credential || 'N/A'}</strong><br>
+                                <small style="color: #64748b;">(${log.credential_type || 'unknown'})</small>
+                            </td>
                             <td>
                                 <span class="badge ${log.access_granted ? 'badge-success' : 'badge-danger'}">
                                     ${log.access_granted ? '✅ Granted' : '❌ Denied'}
