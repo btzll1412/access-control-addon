@@ -443,21 +443,41 @@ def sync_board(board_id):
 
 @app.route('/api/boards/sync-all', methods=['POST'])
 def sync_all_boards():
-    """Sync all boards"""
+    """Sync all boards - actually send user data"""
     try:
         print("🔄 Syncing all boards")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP')
+        # Get all boards
+        cursor.execute('SELECT id FROM boards')
+        boards = cursor.fetchall()
         
-        conn.commit()
-        count = cursor.rowcount
         conn.close()
         
-        print(f"✅ {count} boards synced")
-        return jsonify({'success': True, 'message': f'{count} boards synced successfully'})
+        success_count = 0
+        fail_count = 0
+        
+        # Sync each board
+        for board in boards:
+            try:
+                result = sync_board_full(board['id'])
+                if result[1] == 200:  # HTTP 200 = success
+                    success_count += 1
+                else:
+                    fail_count += 1
+            except:
+                fail_count += 1
+        
+        total = success_count + fail_count
+        
+        print(f"✅ Synced {success_count}/{total} boards successfully")
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Synced {success_count}/{total} boards successfully'
+        })
     except Exception as e:
         print(f"❌ Error syncing all boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
