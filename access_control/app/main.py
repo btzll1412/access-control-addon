@@ -1065,408 +1065,435 @@ def receive_access_log():
             conn.close()
 
 
-@app.route('/api/boards/int:board_id/sync-full', methods=['POST'])
+@app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
 def sync_board_full(board_id):
-"""Send complete user database to a specific board"""
-conn = None
-try:
-print(f"🔄 Full sync requested for board {board_id}")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Get board info
-    cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
-    board = cursor.fetchone()
-    
-    if not board:
-        return jsonify({'success': False, 'message': 'Board not found'}), 404
-    
-    # Get all users with their credentials and access
-    cursor.execute('SELECT * FROM users WHERE active = 1')
-    users_data = cursor.fetchall()
-    
-    users = []
-    for user in users_data:
-        user_dict = {
-            'name': user['name'],
-            'active': user['active'],
-            'cards': [],
-            'pins': [],
-            'doors': []
-        }
-        
-        # Get cards
-        cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ? AND active = 1', (user['id'],))
-        user_dict['cards'] = [row['card_number'] for row in cursor.fetchall()]
-        
-        # Get PINs
-        cursor.execute('SELECT pin FROM user_pins WHERE user_id = ? AND active = 1', (user['id'],))
-        user_dict['pins'] = [row['pin'] for row in cursor.fetchall()]
-        
-        # Get doors user has access to (via groups)
-        cursor.execute('''
-            SELECT DISTINCT d.door_number
-            FROM doors d
-            JOIN group_doors gd ON d.id = gd.door_id
-            JOIN user_groups ug ON gd.group_id = ug.group_id
-            WHERE ug.user_id = ? AND d.board_id = ?
-        ''', (user['id'], board_id))
-        
-        user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
-        
-        if user_dict['doors']:  # Only include users who have access to this board
-            users.append(user_dict)
-    
-    # Get door schedules for this board
-    cursor.execute('''
-        SELECT d.door_number, ds.schedule_type, ds.day_of_week, ds.start_time, ds.end_time
-        FROM door_schedules ds
-        JOIN doors d ON ds.door_id = d.id
-        WHERE d.board_id = ? AND ds.active = 1
-        ORDER BY d.door_number, ds.priority DESC, ds.day_of_week, ds.start_time
-    ''', (board_id,))
-    
-    door_schedules = {}
-    for row in cursor.fetchall():
-        door_num = str(row['door_number'])
-        if door_num not in door_schedules:
-            door_schedules[door_num] = []
-        
-        door_schedules[door_num].append({
-            'type': row['schedule_type'],
-            'day': row['day_of_week'],
-            'start': row['start_time'],
-            'end': row['end_time']
-        })
-    
-    # Build sync payload
-    sync_data = {
-        'users': users,
-        'door_schedules': door_schedules
-    }
-    
-    # Send to board
-    board_url = f"http://{board['ip_address']}/api/sync"
-    
-    response = requests.post(board_url, json=sync_data, timeout=10)
-    
-    if response.status_code == 200:
-        # Update last_sync
-        cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
-        conn.commit()
-        
-        print(f"✅ Board {board_id} synced - {len(users)} users sent")
-        return jsonify({'success': True, 'message': f'Synced {len(users)} users to board'})
-    else:
-        print(f"❌ Board sync failed: HTTP {response.status_code}")
-        return jsonify({'success': False, 'message': 'Board did not accept sync'}), 500
-        
-except Exception as e:
-    print(f"❌ Error syncing board: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-finally:
-    if conn:
-        conn.close()
-==================== PENDING BOARDS API ====================
-@app.route('/api/pending-boards', methods=['GET'])
-def get_pending_boards():
-"""Get all boards waiting to be adopted"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM pending_boards 
-        ORDER BY first_seen DESC
-    ''')
-    
-    pending_data = cursor.fetchall()
-    pending = []
-    
-    for board in pending_data:
-        board_dict = dict(board)
-        
-        try:
-            board_dict['first_seen'] = datetime.fromisoformat(board_dict['first_seen']).strftime('%Y-%m-%d %H:%M:%S')
-            board_dict['last_seen'] = datetime.fromisoformat(board_dict['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            pass
-        
-        pending.append(board_dict)
-    
-    conn.close()
-    return jsonify({'success': True, 'pending_boards': pending})
-except Exception as e:
-    print(f"❌ Error getting pending boards: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/pending-boards/int:pending_id/adopt', methods=['POST'])
-def adopt_pending_board(pending_id):
-"""Adopt a pending board - move it to main boards table AND configure it"""
-conn = None
-try:
-conn = get_db()
-cursor = conn.cursor()
-    # Get pending board info
-    cursor.execute('SELECT * FROM pending_boards WHERE id = ?', (pending_id,))
-    pending = cursor.fetchone()
-    
-    if not pending:
-        conn.close()
-        return jsonify({'success': False, 'message': 'Pending board not found'}), 404
-    
-    # Check if IP already exists in main boards
-    cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
-    if cursor.fetchone():
-        conn.close()
-        return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
-    
-    # Create board in main table
-    cursor.execute('''
-        INSERT INTO boards (name, ip_address, door1_name, door2_name)
-        VALUES (?, ?, ?, ?)
-    ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
-    
-    board_id = cursor.lastrowid
-    
-    # Auto-create doors
-    cursor.execute('''
-        INSERT INTO doors (board_id, door_number, name, relay_endpoint)
-        VALUES (?, 1, ?, ?)
-    ''', (board_id, pending['door1_name'], '/unlock_door1'))
-    
-    cursor.execute('''
-        INSERT INTO doors (board_id, door_number, name, relay_endpoint)
-        VALUES (?, 2, ?, ?)
-    ''', (board_id, pending['door2_name'], '/unlock_door2'))
-    
-    # Remove from pending
-    cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
-    
-    # Configure and sync board
+    """Send complete user database to a specific board"""
+    conn = None
     try:
-        # Get controller's IP address from request
-        controller_ip = request.host.split(':')[0]
-        controller_port = 8100
+        print(f"🔄 Full sync requested for board {board_id}")
         
-        # Call ESP32's /api/set-controller endpoint
-        board_url = f"http://{pending['ip_address']}/api/set-controller"
+        conn = get_db()
+        cursor = conn.cursor()
         
-        config_data = {
-            'controller_ip': controller_ip,
-            'controller_port': controller_port
+        # Get board info
+        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        # Get all users with their credentials and access
+        cursor.execute('SELECT * FROM users WHERE active = 1')
+        users_data = cursor.fetchall()
+        
+        users = []
+        for user in users_data:
+            user_dict = {
+                'name': user['name'],
+                'active': user['active'],
+                'cards': [],
+                'pins': [],
+                'doors': []
+            }
+            
+            # Get cards
+            cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ? AND active = 1', (user['id'],))
+            user_dict['cards'] = [row['card_number'] for row in cursor.fetchall()]
+            
+            # Get PINs
+            cursor.execute('SELECT pin FROM user_pins WHERE user_id = ? AND active = 1', (user['id'],))
+            user_dict['pins'] = [row['pin'] for row in cursor.fetchall()]
+            
+            # Get doors user has access to (via groups)
+            cursor.execute('''
+                SELECT DISTINCT d.door_number
+                FROM doors d
+                JOIN group_doors gd ON d.id = gd.door_id
+                JOIN user_groups ug ON gd.group_id = ug.group_id
+                WHERE ug.user_id = ? AND d.board_id = ?
+            ''', (user['id'], board_id))
+            
+            user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
+            
+            if user_dict['doors']:  # Only include users who have access to this board
+                users.append(user_dict)
+        
+        # Get door schedules for this board
+        cursor.execute('''
+            SELECT d.door_number, ds.schedule_type, ds.day_of_week, ds.start_time, ds.end_time
+            FROM door_schedules ds
+            JOIN doors d ON ds.door_id = d.id
+            WHERE d.board_id = ? AND ds.active = 1
+            ORDER BY d.door_number, ds.priority DESC, ds.day_of_week, ds.start_time
+        ''', (board_id,))
+        
+        door_schedules = {}
+        for row in cursor.fetchall():
+            door_num = str(row['door_number'])
+            if door_num not in door_schedules:
+                door_schedules[door_num] = []
+            
+            door_schedules[door_num].append({
+                'type': row['schedule_type'],
+                'day': row['day_of_week'],
+                'start': row['start_time'],
+                'end': row['end_time']
+            })
+        
+        # Build sync payload
+        sync_data = {
+            'users': users,
+            'door_schedules': door_schedules
         }
         
-        print(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
+        # Send to board
+        board_url = f"http://{board['ip_address']}/api/sync"
         
-        response = requests.post(board_url, json=config_data, timeout=5)
+        response = requests.post(board_url, json=sync_data, timeout=10)
         
         if response.status_code == 200:
-            print(f"✅ Board configured successfully!")
+            # Update last_sync
+            cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
+            conn.commit()
             
-            # Wait for board to save config
-            time.sleep(2)
-            
-            # Sync user database
-            print(f"🔄 Syncing user database to board...")
-            sync_result = sync_board_full(board_id)
-            
-            if hasattr(sync_result, 'json'):
-                sync_data = sync_result.json
-                if sync_data and sync_data.get('success'):
-                    print(f"✅ Board synced with user database!")
-            
-            return jsonify({
-                'success': True, 
-                'message': 'Board adopted, configured, and synced successfully',
-                'board_id': board_id
-            })
+            print(f"✅ Board {board_id} synced - {len(users)} users sent")
+            return jsonify({'success': True, 'message': f'Synced {len(users)} users to board'})
         else:
-            print(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
+            print(f"❌ Board sync failed: HTTP {response.status_code}")
+            return jsonify({'success': False, 'message': 'Board did not accept sync'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error syncing board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+# ==================== PENDING BOARDS API ====================
+@app.route('/api/pending-boards', methods=['GET'])
+def get_pending_boards():
+    """Get all boards waiting to be adopted"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM pending_boards 
+            ORDER BY first_seen DESC
+        ''')
+        
+        pending_data = cursor.fetchall()
+        pending = []
+        
+        for board in pending_data:
+            board_dict = dict(board)
+            
+            try:
+                board_dict['first_seen'] = datetime.fromisoformat(board_dict['first_seen']).strftime('%Y-%m-%d %H:%M:%S')
+                board_dict['last_seen'] = datetime.fromisoformat(board_dict['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                pass
+            
+            pending.append(board_dict)
+        
+        conn.close()
+        return jsonify({'success': True, 'pending_boards': pending})
+    except Exception as e:
+        print(f"❌ Error getting pending boards: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/pending-boards/<int:pending_id>/adopt', methods=['POST'])
+def adopt_pending_board(pending_id):
+    """Adopt a pending board - move it to main boards table AND configure it"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get pending board info
+        cursor.execute('SELECT * FROM pending_boards WHERE id = ?', (pending_id,))
+        pending = cursor.fetchone()
+        
+        if not pending:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Pending board not found'}), 404
+        
+        # Check if IP already exists in main boards
+        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
+        
+        # Create board in main table
+        cursor.execute('''
+            INSERT INTO boards (name, ip_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?)
+        ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
+        
+        board_id = cursor.lastrowid
+        
+        # Auto-create doors
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 1, ?, ?)
+        ''', (board_id, pending['door1_name'], '/unlock_door1'))
+        
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 2, ?, ?)
+        ''', (board_id, pending['door2_name'], '/unlock_door2'))
+        
+        # Remove from pending
+        cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
+        
+        # Configure and sync board
+        try:
+            # Get controller's IP address from request
+            controller_ip = request.host.split(':')[0]
+            controller_port = 8100
+            
+            # Call ESP32's /api/set-controller endpoint
+            board_url = f"http://{pending['ip_address']}/api/set-controller"
+            
+            config_data = {
+                'controller_ip': controller_ip,
+                'controller_port': controller_port
+            }
+            
+            print(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
+            
+            response = requests.post(board_url, json=config_data, timeout=5)
+            
+            if response.status_code == 200:
+                print(f"✅ Board configured successfully!")
+                
+                # Wait for board to save config
+                time.sleep(2)
+                
+                # Sync user database
+                print(f"🔄 Syncing user database to board...")
+                sync_result = sync_board_full(board_id)
+                
+                if hasattr(sync_result, 'json'):
+                    sync_data = sync_result.json
+                    if sync_data and sync_data.get('success'):
+                        print(f"✅ Board synced with user database!")
+                
+                return jsonify({
+                    'success': True, 
+                    'message': 'Board adopted, configured, and synced successfully',
+                    'board_id': board_id
+                })
+            else:
+                print(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
+                return jsonify({
+                    'success': True, 
+                    'message': 'Board adopted but auto-configuration failed - please sync manually',
+                    'board_id': board_id
+                })
+                
+        except Exception as config_error:
+            print(f"⚠️ Board adopted but configuration failed: {config_error}")
             return jsonify({
                 'success': True, 
                 'message': 'Board adopted but auto-configuration failed - please sync manually',
                 'board_id': board_id
             })
-            
-    except Exception as config_error:
-        print(f"⚠️ Board adopted but configuration failed: {config_error}")
-        return jsonify({
-            'success': True, 
-            'message': 'Board adopted but auto-configuration failed - please sync manually',
-            'board_id': board_id
-        })
-    
-except Exception as e:
-    print(f"❌ Error adopting board: {e}")
-    if conn:
-        conn.close()
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/pending-boards/int:pending_id', methods=['DELETE'])
+        
+    except Exception as e:
+        print(f"❌ Error adopting board: {e}")
+        if conn:
+            conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/pending-boards/<int:pending_id>', methods=['DELETE'])
 def delete_pending_board(pending_id):
-"""Reject/delete a pending board"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"🗑️ Pending board {pending_id} deleted")
-    return jsonify({'success': True, 'message': 'Pending board removed'})
-except Exception as e:
-    print(f"❌ Error deleting pending board: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-==================== DOOR API ====================
+    """Reject/delete a pending board"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"🗑️ Pending board {pending_id} deleted")
+        return jsonify({'success': True, 'message': 'Pending board removed'})
+    except Exception as e:
+        print(f"❌ Error deleting pending board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== DOOR API ====================
+
+
 @app.route('/api/doors', methods=['GET'])
 def get_doors():
-"""Get all doors with board information"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute('''
-        SELECT d.*, b.name as board_name, b.ip_address, b.online as board_online
-        FROM doors d
-        JOIN boards b ON d.board_id = b.id
-        ORDER BY b.name, d.door_number
-    ''')
-    
-    doors_data = cursor.fetchall()
-    doors = [dict(door) for door in doors_data]
-    
-    conn.close()
-    return jsonify({'success': True, 'doors': doors})
-except Exception as e:
-    print(f"❌ Error getting doors: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/doors/int:door_id/unlock', methods=['POST'])
-def unlock_door(door_id):
-"""Manually unlock a specific door"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    # Get door and board info
-    cursor.execute('''
-        SELECT d.*, b.ip_address, b.online, b.name as board_name
-        FROM doors d
-        JOIN boards b ON d.board_id = b.id
-        WHERE d.id = ?
-    ''', (door_id,))
-    
-    door = cursor.fetchone()
-    
-    if not door:
-        conn.close()
-        return jsonify({'success': False, 'message': 'Door not found'}), 404
-    
-    if not door['online']:
-        conn.close()
-        return jsonify({'success': False, 'message': 'Board is offline'}), 503
-    
-    # Log manual unlock
-    cursor.execute('''
-        INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-        VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard')
-    ''', (door_id, door['board_name'], door['name']))
-    
-    conn.commit()
-    conn.close()
-    
-    # Send HTTP request to ESP32 board
+    """Get all doors with board information"""
     try:
-        url = f"http://{door['ip_address']}{door['relay_endpoint']}"
-        requests.post(url, timeout=2)
-    except:
-        pass
-    
-    print(f"🔓 Door {door_id} ({door['name']}) unlocked manually")
-    return jsonify({'success': True, 'message': f'{door["name"]} unlocked'})
-except Exception as e:
-    print(f"❌ Error unlocking door: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-==================== DOOR SCHEDULES API ====================
-@app.route('/api/door-schedules/int:door_id', methods=['GET'])
-def get_door_schedules(door_id):
-"""Get all schedules for a specific door"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute('''
-        SELECT * FROM door_schedules
-        WHERE door_id = ? AND active = 1
-        ORDER BY priority DESC, day_of_week, start_time
-    ''', (door_id,))
-    
-    schedules_data = cursor.fetchall()
-    schedules = [dict(row) for row in schedules_data]
-    
-    conn.close()
-    return jsonify({'success': True, 'schedules': schedules})
-except Exception as e:
-    print(f"❌ Error getting door schedules: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/door-schedules/int:door_id', methods=['POST'])
-def save_door_schedules(door_id):
-"""Save door schedules (replaces existing)"""
-try:
-data = request.json
-schedules = data.get('schedules', [])
-    print(f"💾 Saving {len(schedules)} schedules for door {door_id}")
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Delete existing schedules
-    cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
-    
-    # Insert new schedules
-    for schedule in schedules:
-        # Convert day names to numbers if needed
-        days = schedule.get('days', [])
+        conn = get_db()
+        cursor = conn.cursor()
         
-        for day in days:
-            cursor.execute('''
-                INSERT INTO door_schedules 
-                (door_id, name, schedule_type, day_of_week, start_time, end_time, priority, active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-            ''', (
-                door_id,
-                schedule.get('name', 'Unnamed Schedule'),
-                schedule.get('type', 'controlled'),
-                day,
-                schedule.get('start_time', '09:00:00'),
-                schedule.get('end_time', '17:00:00'),
-                schedule.get('priority', 0)
-            ))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Door schedules saved for door {door_id}")
-    return jsonify({'success': True, 'message': 'Schedules saved successfully'})
-except Exception as e:
-    print(f"❌ Error saving door schedules: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/door-schedules/int:door_id', methods=['DELETE'])
+        cursor.execute('''
+            SELECT d.*, b.name as board_name, b.ip_address, b.online as board_online
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            ORDER BY b.name, d.door_number
+        ''')
+        
+        doors_data = cursor.fetchall()
+        doors = [dict(door) for door in doors_data]
+        
+        conn.close()
+        return jsonify({'success': True, 'doors': doors})
+    except Exception as e:
+        print(f"❌ Error getting doors: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/doors/<int:door_id>/unlock', methods=['POST'])
+def unlock_door(door_id):
+    """Manually unlock a specific door"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get door and board info
+        cursor.execute('''
+            SELECT d.*, b.ip_address, b.online, b.name as board_name
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE d.id = ?
+        ''', (door_id,))
+        
+        door = cursor.fetchone()
+        
+        if not door:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Door not found'}), 404
+        
+        if not door['online']:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board is offline'}), 503
+        
+        # Log manual unlock
+        cursor.execute('''
+            INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
+            VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard')
+        ''', (door_id, door['board_name'], door['name']))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send HTTP request to ESP32 board
+        try:
+            url = f"http://{door['ip_address']}{door['relay_endpoint']}"
+            requests.post(url, timeout=2)
+        except:
+            pass
+        
+        print(f"🔓 Door {door_id} ({door['name']}) unlocked manually")
+        return jsonify({'success': True, 'message': f'{door["name"]} unlocked'})
+    except Exception as e:
+        print(f"❌ Error unlocking door: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== DOOR SCHEDULES API ====================
+
+
+@app.route('/api/door-schedules/<int:door_id>', methods=['GET'])
+def get_door_schedules(door_id):
+    """Get all schedules for a specific door"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM door_schedules
+            WHERE door_id = ? AND active = 1
+            ORDER BY priority DESC, day_of_week, start_time
+        ''', (door_id,))
+        
+        schedules_data = cursor.fetchall()
+        schedules = [dict(row) for row in schedules_data]
+        
+        conn.close()
+        return jsonify({'success': True, 'schedules': schedules})
+    except Exception as e:
+        print(f"❌ Error getting door schedules: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/door-schedules/<int:door_id>', methods=['POST'])
+def save_door_schedules(door_id):
+    """Save door schedules (replaces existing)"""
+    try:
+        data = request.json
+        schedules = data.get('schedules', [])
+        
+        print(f"💾 Saving {len(schedules)} schedules for door {door_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Delete existing schedules
+        cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
+        
+        # Insert new schedules
+        for schedule in schedules:
+            # Convert day names to numbers if needed
+            days = schedule.get('days', [])
+            
+            for day in days:
+                cursor.execute('''
+                    INSERT INTO door_schedules 
+                    (door_id, name, schedule_type, day_of_week, start_time, end_time, priority, active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                ''', (
+                    door_id,
+                    schedule.get('name', 'Unnamed Schedule'),
+                    schedule.get('type', 'controlled'),
+                    day,
+                    schedule.get('start_time', '09:00:00'),
+                    schedule.get('end_time', '17:00:00'),
+                    schedule.get('priority', 0)
+                ))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Door schedules saved for door {door_id}")
+        return jsonify({'success': True, 'message': 'Schedules saved successfully'})
+    except Exception as e:
+        print(f"❌ Error saving door schedules: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/door-schedules/<int:door_id>', methods=['DELETE'])
 def delete_door_schedules(door_id):
-"""Delete all schedules for a door"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Door schedules deleted for door {door_id}")
-    return jsonify({'success': True, 'message': 'Schedules deleted successfully'})
-except Exception as e:
-    print(f"❌ Error deleting door schedules: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
+    """Delete all schedules for a door"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Door schedules deleted for door {door_id}")
+        return jsonify({'success': True, 'message': 'Schedules deleted successfully'})
+    except Exception as e:
+        print(f"❌ Error deleting door schedules: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== USER API ====================
 @app.route('/api/users', methods=['GET'])
