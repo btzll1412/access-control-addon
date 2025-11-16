@@ -73,6 +73,21 @@ def init_db():
         )
     ''')
     print("  ✅ Boards table created")
+
+    # ADD THIS NEW TABLE:
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pending_boards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT NOT NULL UNIQUE,
+            mac_address TEXT NOT NULL,
+            board_name TEXT NOT NULL,
+            door1_name TEXT NOT NULL,
+            door2_name TEXT NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Pending boards table created")
     
     # Doors table (auto-populated from boards)
     cursor.execute('''
@@ -603,7 +618,7 @@ def heartbeat():
 
 @app.route('/api/board-announce', methods=['POST'])
 def board_announce():
-    """Board announces itself - shows in dashboard as 'ready to adopt'"""
+    """Board announces itself - stores in pending_boards table"""
     conn = None
     try:
         data = request.json
@@ -618,28 +633,50 @@ def board_announce():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Check if board already exists
+        # Check if board already exists in main boards table
         cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
         existing = cursor.fetchone()
         
         if existing:
-            print(f"  ℹ️  Board already exists: {board_ip}")
+            print(f"  ℹ️  Board already adopted: {board_ip}")
             return jsonify({'success': True, 'message': 'Board already registered'})
         
-        # Log for notification
-        print(f"  ✅ New board ready for adoption: {board_ip}")
+        # Check if board exists in pending table
+        cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
+        pending = cursor.fetchone()
+        
+        if pending:
+            # Update last_seen
+            cursor.execute('''
+                UPDATE pending_boards 
+                SET last_seen = CURRENT_TIMESTAMP,
+                    board_name = ?,
+                    door1_name = ?,
+                    door2_name = ?
+                WHERE ip_address = ?
+            ''', (board_name, door1_name, door2_name, board_ip))
+            print(f"  🔄 Updated pending board: {board_ip}")
+        else:
+            # Add to pending table
+            cursor.execute('''
+                INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (board_ip, mac_address, board_name, door1_name, door2_name))
+            print(f"  ✅ New board added to pending: {board_ip}")
+        
+        conn.commit()
+        conn.close()
         
         return jsonify({
             'success': True,
-            'message': 'Board announced - ready for adoption'
+            'message': 'Board announcement received - pending adoption'
         })
         
     except Exception as e:
         print(f"❌ Error processing board announcement: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
         if conn:
             conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/access-log', methods=['POST'])
 def receive_access_log():
@@ -783,6 +820,119 @@ def sync_board_full(board_id):
     finally:
         if conn:
             conn.close()
+
+# ==================== PENDING BOARDS API ====================
+@app.route('/api/pending-boards', methods=['GET'])
+def get_pending_boards():
+    """Get all boards waiting to be adopted"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM pending_boards 
+            ORDER BY first_seen DESC
+        ''')
+        
+        pending_data = cursor.fetchall()
+        pending = []
+        
+        for board in pending_data:
+            board_dict = dict(board)
+            
+            # Format timestamps
+            try:
+                board_dict['first_seen'] = datetime.fromisoformat(board_dict['first_seen']).strftime('%Y-%m-%d %H:%M:%S')
+                board_dict['last_seen'] = datetime.fromisoformat(board_dict['last_seen']).strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                pass
+            
+            pending.append(board_dict)
+        
+        conn.close()
+        return jsonify({'success': True, 'pending_boards': pending})
+    except Exception as e:
+        print(f"❌ Error getting pending boards: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/pending-boards/<int:pending_id>/adopt', methods=['POST'])
+def adopt_pending_board(pending_id):
+    """Adopt a pending board - move it to main boards table"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get pending board info
+        cursor.execute('SELECT * FROM pending_boards WHERE id = ?', (pending_id,))
+        pending = cursor.fetchone()
+        
+        if not pending:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Pending board not found'}), 404
+        
+        # Check if IP already exists in main boards
+        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
+        
+        # Create board in main table
+        cursor.execute('''
+            INSERT INTO boards (name, ip_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?)
+        ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
+        
+        board_id = cursor.lastrowid
+        
+        # Auto-create doors
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 1, ?, ?)
+        ''', (board_id, pending['door1_name'], '/unlock_door1'))
+        
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 2, ?, ?)
+        ''', (board_id, pending['door2_name'], '/unlock_door2'))
+        
+        # Remove from pending
+        cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Board adopted successfully',
+            'board_id': board_id
+        })
+        
+    except Exception as e:
+        print(f"❌ Error adopting board: {e}")
+        if conn:
+            conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/pending-boards/<int:pending_id>', methods=['DELETE'])
+def delete_pending_board(pending_id):
+    """Reject/delete a pending board"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"🗑️ Pending board {pending_id} deleted")
+        return jsonify({'success': True, 'message': 'Pending board removed'})
+    except Exception as e:
+        print(f"❌ Error deleting pending board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== DOOR API ====================
 @app.route('/api/doors', methods=['GET'])
