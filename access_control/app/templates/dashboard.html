@@ -1000,11 +1000,23 @@
                 <button class="btn btn-primary" onclick="openScheduleModal()">➕ Add Schedule</button>
             </div>
 
+            <!-- Help Section -->
+            <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; color: #1e40af;">📘 Understanding Schedules</h4>
+                <p style="margin: 0 0 10px 0; color: #1e3a8a;">
+                    <strong>User Schedules (this page):</strong> Restrict WHEN specific users can access doors.<br>
+                    <em>Example: "Cleaning crew can only access Monday-Friday 6pm-10pm"</em>
+                </p>
+                <p style="margin: 0; color: #1e3a8a;">
+                    <strong>Door Schedules (Doors tab → Schedule button):</strong> Control WHAT MODE the door is in at different times.<br>
+                    <em>Example: "Main entrance is unlocked 8am-6pm, controlled 6pm-10pm, locked 10pm-8am"</em>
+                </p>
+            </div>
+
             <div class="form-help" style="margin-bottom: 20px;">
                 Access schedules define when users are allowed to access doors. 
                 Users without an assigned schedule have 24/7 access (subject to group permissions).
             </div>
-
             <div class="cards-grid" id="schedulesList"></div>
         </div>
 
@@ -1260,7 +1272,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeScheduleModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="document.getElementById('scheduleForm').requestSubmit()">
+                <button class="btn btn-primary" type="button" onclick="saveSchedule(event)">
                     💾 Save
                 </button>
             </div>
@@ -3011,25 +3023,24 @@ async function saveDoorSettings(event) {
 
                     // Load time ranges
                     const container = document.getElementById('scheduleTimeRanges');
-                    container.innerHTML = schedule.times.map((time, index) => {
-                        const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-                        return `
-                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: center;">
-                                    <select class="form-select" data-time-day="${index}">
-                                        ${dayNames.map((day, dayIndex) => `
-                                            <option value="${dayIndex}" ${time.day_of_week === dayIndex ? 'selected' : ''}>
-                                                ${day}
-                                            </option>
-                                        `).join('')}
-                                    </select>
-                                    <input type="time" class="form-input" value="${time.start_time.substring(0, 5)}" data-time-start="${index}">
-                                    <input type="time" class="form-input" value="${time.end_time.substring(0, 5)}" data-time-end="${index}">
-                                    <button type="button" class="btn btn-danger btn-small" onclick="this.parentElement.parentElement.remove()">×</button>
-                                </div>
+                    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+                    container.innerHTML = schedule.times.map((time) => `
+                        <div class="schedule-time-range-item" style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: center;">
+                                <select class="form-select schedule-day">
+                                    ${dayNames.map((day, dayIndex) => `
+                                        <option value="${dayIndex}" ${time.day_of_week === dayIndex ? 'selected' : ''}>
+                                            ${day}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                                <input type="time" class="form-input schedule-start" value="${time.start_time.substring(0, 5)}">
+                                <input type="time" class="form-input schedule-end" value="${time.end_time.substring(0, 5)}">
+                                <button type="button" class="btn btn-danger btn-small" onclick="this.parentElement.parentElement.remove()">×</button>
                             </div>
-                        `;
-                    }).join('');
+                        </div>
+                    `).join('');
                 }
             } else {
                 document.getElementById('scheduleModalTitle').textContent = 'Add Schedule';
@@ -3048,17 +3059,17 @@ async function saveDoorSettings(event) {
         function addScheduleTimeRange() {
             const container = document.getElementById('scheduleTimeRanges');
             const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-            const index = container.children.length;
 
             const div = document.createElement('div');
+            div.className = 'schedule-time-range-item';
             div.style.cssText = 'border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 10px;';
             div.innerHTML = `
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: center;">
-                    <select class="form-select" data-time-day="${index}">
+                    <select class="form-select schedule-day">
                         ${dayNames.map((day, dayIndex) => `<option value="${dayIndex}">${day}</option>`).join('')}
                     </select>
-                    <input type="time" class="form-input" value="09:00" data-time-start="${index}">
-                    <input type="time" class="form-input" value="17:00" data-time-end="${index}">
+                    <input type="time" class="form-input schedule-start" value="09:00">
+                    <input type="time" class="form-input schedule-end" value="17:00">
                     <button type="button" class="btn btn-danger btn-small" onclick="this.parentElement.parentElement.remove()">×</button>
                 </div>
             `;
@@ -3066,18 +3077,18 @@ async function saveDoorSettings(event) {
         }
 
         async function saveSchedule(event) {
-            event.preventDefault();
+            if (event) event.preventDefault();
 
             const scheduleId = document.getElementById('scheduleId').value;
 
-            // Collect time ranges
+            // Collect time ranges using the new class-based selectors
             const times = [];
-            const timeRanges = document.querySelectorAll('#scheduleTimeRanges > div');
+            const timeRanges = document.querySelectorAll('.schedule-time-range-item');
 
-            timeRanges.forEach((range, index) => {
-                const day = range.querySelector(`[data-time-day="${index}"]`)?.value;
-                const start = range.querySelector(`[data-time-start="${index}"]`)?.value;
-                const end = range.querySelector(`[data-time-end="${index}"]`)?.value;
+            timeRanges.forEach((range) => {
+                const day = range.querySelector('.schedule-day')?.value;
+                const start = range.querySelector('.schedule-start')?.value;
+                const end = range.querySelector('.schedule-end')?.value;
 
                 if (day !== undefined && start && end) {
                     times.push({
@@ -3087,6 +3098,8 @@ async function saveDoorSettings(event) {
                     });
                 }
             });
+
+            console.log('Collected times:', times); // Debug log
 
             if (times.length === 0) {
                 showToast('Please add at least one time range', 'warning');
