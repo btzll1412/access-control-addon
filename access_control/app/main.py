@@ -3,6 +3,7 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 import json
+import requests
 
 app = Flask(__name__)
 
@@ -277,6 +278,8 @@ def get_stats():
         print(f"❌ Error getting stats: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+
 # ==================== BOARD API ====================
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
@@ -434,30 +437,8 @@ def delete_board(board_id):
 
 @app.route('/api/boards/<int:board_id>/sync', methods=['POST'])
 def sync_board(board_id):
-    """Sync board configuration"""
-    try:
-        print(f"🔄 Syncing board ID {board_id}")
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # Update last_sync timestamp
-        cursor.execute('''
-            UPDATE boards 
-            SET last_sync = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (board_id,))
-        
-        conn.commit()
-        conn.close()
-        
-        # TODO: Actually send configuration to ESP32 board via HTTP
-        
-        print(f"✅ Board {board_id} synced")
-        return jsonify({'success': True, 'message': 'Board synced successfully'})
-    except Exception as e:
-        print(f"❌ Error syncing board: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+    """Sync board configuration - calls sync_board_full()"""
+    return sync_board_full(board_id)
 
 @app.route('/api/boards/sync-all', methods=['POST'])
 def sync_all_boards():
@@ -511,6 +492,189 @@ def heartbeat():
     except Exception as e:
         print(f"❌ Error processing heartbeat: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/board-announce', methods=['POST'])
+def board_announce():
+    """Board announces itself - shows in dashboard as 'ready to adopt'"""
+    conn = None
+    try:
+        data = request.json
+        board_ip = data.get('board_ip')
+        mac_address = data.get('mac_address')
+        board_name = data.get('board_name', 'Unknown Board')
+        door1_name = data.get('door1_name', 'Door 1')
+        door2_name = data.get('door2_name', 'Door 2')
+        
+        print(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check if board already exists
+        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            print(f"  ℹ️  Board already exists: {board_ip}")
+            return jsonify({'success': True, 'message': 'Board already registered'})
+        
+        # Log for notification
+        print(f"  ✅ New board ready for adoption: {board_ip}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Board announced - ready for adoption'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error processing board announcement: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/access-log', methods=['POST'])
+def receive_access_log():
+    """Receive access log from ESP32 board"""
+    conn = None
+    try:
+        data = request.json
+        
+        board_ip = data.get('board_ip')
+        board_name = data.get('board_name')
+        door_number = data.get('door_number')
+        door_name = data.get('door_name')
+        user_name = data.get('user_name')
+        credential = data.get('credential')
+        credential_type = data.get('credential_type')
+        access_granted = data.get('access_granted')
+        reason = data.get('reason')
+        timestamp = data.get('timestamp')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get door_id if exists
+        cursor.execute('''
+            SELECT d.id 
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE b.ip_address = ? AND d.door_number = ?
+        ''', (board_ip, door_number))
+        
+        door_info = cursor.fetchone()
+        door_id = door_info['id'] if door_info else None
+        
+        # Get user_id if exists
+        user_id = None
+        if user_name != "Unknown":
+            cursor.execute('SELECT id FROM users WHERE name = ?', (user_name,))
+            user_info = cursor.fetchone()
+            if user_info:
+                user_id = user_info['id']
+        
+        # Insert log
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp))
+        
+        conn.commit()
+        
+        status = "✅ GRANTED" if access_granted else "❌ DENIED"
+        print(f"📝 Log: {board_name}/{door_name} | {user_name} | {status} | {reason}")
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Error saving access log: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
+def sync_board_full(board_id):
+    """Send complete user database to a specific board"""
+    conn = None
+    try:
+        print(f"🔄 Full sync requested for board {board_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get board info
+        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        # Get all users with their credentials and access
+        cursor.execute('SELECT * FROM users WHERE active = 1')
+        users_data = cursor.fetchall()
+        
+        users = []
+        for user in users_data:
+            user_dict = {
+                'name': user['name'],
+                'active': user['active'],
+                'cards': [],
+                'pins': [],
+                'doors': []
+            }
+            
+            # Get cards
+            cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ? AND active = 1', (user['id'],))
+            user_dict['cards'] = [row['card_number'] for row in cursor.fetchall()]
+            
+            # Get PINs
+            cursor.execute('SELECT pin FROM user_pins WHERE user_id = ? AND active = 1', (user['id'],))
+            user_dict['pins'] = [row['pin'] for row in cursor.fetchall()]
+            
+            # Get doors user has access to (via groups)
+            cursor.execute('''
+                SELECT DISTINCT d.door_number
+                FROM doors d
+                JOIN group_doors gd ON d.id = gd.door_id
+                JOIN user_groups ug ON gd.group_id = ug.group_id
+                WHERE ug.user_id = ? AND d.board_id = ?
+            ''', (user['id'], board_id))
+            
+            user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
+            
+            if user_dict['doors']:  # Only include users who have access to this board
+                users.append(user_dict)
+        
+        # Build sync payload
+        sync_data = {
+            'users': users,
+            'schedules': []
+        }
+        
+        # Send to board
+        board_url = f"http://{board['ip_address']}/api/sync"
+        
+        response = requests.post(board_url, json=sync_data, timeout=10)
+        
+        if response.status_code == 200:
+            # Update last_sync
+            cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
+            conn.commit()
+            
+            print(f"✅ Board {board_id} synced - {len(users)} users sent")
+            return jsonify({'success': True, 'message': f'Synced {len(users)} users to board'})
+        else:
+            print(f"❌ Board sync failed: HTTP {response.status_code}")
+            return jsonify({'success': False, 'message': 'Board did not accept sync'}), 500
+            
+    except Exception as e:
+        print(f"❌ Error syncing board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== DOOR API ====================
 @app.route('/api/doors', methods=['GET'])
