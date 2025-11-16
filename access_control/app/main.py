@@ -7,6 +7,8 @@ import requests
 import time
 import pytz
 
+from datetime import datetime, timedelta
+
 app = Flask(__name__)
 
 # Database path
@@ -803,10 +805,11 @@ def get_boards():
                         days = diff.days
                         board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
                     
-                    # Check if online (< 5 minutes)
-                    board_dict['online'] = diff.total_seconds() < 300
+                    # ✅ CHANGED: Check if online (< 2 minutes instead of 5)
+                    board_dict['online'] = diff.total_seconds() < 120
                 except:
                     board_dict['last_seen_text'] = 'Unknown'
+                    board_dict['online'] = False  # ✅ ADDED: Set offline on error
             else:
                 board_dict['last_seen_text'] = 'Never'
                 board_dict['online'] = False
@@ -824,6 +827,8 @@ def get_boards():
     except Exception as e:
         print(f"❌ Error getting boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/boards', methods=['POST'])
 def create_board():
     """Create a new board and auto-create doors"""
