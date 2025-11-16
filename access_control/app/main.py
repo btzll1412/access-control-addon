@@ -648,9 +648,20 @@ def sync_board_full(board_id):
                 users.append(user_dict)
         
         # Build sync payload
+        # In sync_board_full(), add door configuration
         sync_data = {
             'users': users,
-            'schedules': []
+            'schedules': [],
+            'door_config': {
+                '1': {
+                    'unlock_duration': door1_unlock_duration,
+                    'name': door1_name
+                },
+                '2': {
+                    'unlock_duration': door2_unlock_duration,
+                    'name': door2_name
+                }
+            }
         }
         
         # Send to board
