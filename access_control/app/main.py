@@ -688,58 +688,60 @@ def get_emergency_status():
 
 
 # ==================== BOARD API ====================
+# ==================== BOARD API ====================
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
-"""Get all boards"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-cursor.execute('SELECT * FROM boards ORDER BY name')
-boards_data = cursor.fetchall()
-    boards = []
-    for board in boards_data:
-        board_dict = dict(board)
+    """Get all boards"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM boards ORDER BY name')
+        boards_data = cursor.fetchall()
         
-        # Format timestamps
-        if board_dict['last_seen']:
-            try:
-                last_seen = datetime.fromisoformat(board_dict['last_seen'])
-                now = datetime.now()
-                diff = now - last_seen
-                
-                if diff.total_seconds() < 60:
-                    board_dict['last_seen_text'] = 'Just now'
-                elif diff.total_seconds() < 3600:
-                    mins = int(diff.total_seconds() / 60)
-                    board_dict['last_seen_text'] = f'{mins} minute{"s" if mins != 1 else ""} ago'
-                elif diff.total_seconds() < 86400:
-                    hours = int(diff.total_seconds() / 3600)
-                    board_dict['last_seen_text'] = f'{hours} hour{"s" if hours != 1 else ""} ago'
-                else:
-                    days = diff.days
-                    board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
-                
-                # Check if online (< 5 minutes)
-                board_dict['online'] = diff.total_seconds() < 300
-            except:
-                board_dict['last_seen_text'] = 'Unknown'
-        else:
-            board_dict['last_seen_text'] = 'Never'
-            board_dict['online'] = False
+        boards = []
+        for board in boards_data:
+            board_dict = dict(board)
+            
+            # Format timestamps
+            if board_dict['last_seen']:
+                try:
+                    last_seen = datetime.fromisoformat(board_dict['last_seen'])
+                    now = datetime.now()
+                    diff = now - last_seen
+                    
+                    if diff.total_seconds() < 60:
+                        board_dict['last_seen_text'] = 'Just now'
+                    elif diff.total_seconds() < 3600:
+                        mins = int(diff.total_seconds() / 60)
+                        board_dict['last_seen_text'] = f'{mins} minute{"s" if mins != 1 else ""} ago'
+                    elif diff.total_seconds() < 86400:
+                        hours = int(diff.total_seconds() / 3600)
+                        board_dict['last_seen_text'] = f'{hours} hour{"s" if hours != 1 else ""} ago'
+                    else:
+                        days = diff.days
+                        board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
+                    
+                    # Check if online (< 5 minutes)
+                    board_dict['online'] = diff.total_seconds() < 300
+                except:
+                    board_dict['last_seen_text'] = 'Unknown'
+            else:
+                board_dict['last_seen_text'] = 'Never'
+                board_dict['online'] = False
+            
+            if board_dict['last_sync']:
+                try:
+                    board_dict['last_sync'] = datetime.fromisoformat(board_dict['last_sync']).strftime('%Y-%m-%d %H:%M')
+                except:
+                    board_dict['last_sync'] = 'Unknown'
+            
+            boards.append(board_dict)
         
-        if board_dict['last_sync']:
-            try:
-                board_dict['last_sync'] = datetime.fromisoformat(board_dict['last_sync']).strftime('%Y-%m-%d %H:%M')
-            except:
-                board_dict['last_sync'] = 'Unknown'
-        
-        boards.append(board_dict)
-    
-    conn.close()
-    return jsonify({'success': True, 'boards': boards})
-except Exception as e:
-    print(f"❌ Error getting boards: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
+        conn.close()
+        return jsonify({'success': True, 'boards': boards})
+    except Exception as e:
+        print(f"❌ Error getting boards: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 @app.route('/api/boards', methods=['POST'])
 def create_board():
 """Create a new board and auto-create doors"""
