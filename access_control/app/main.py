@@ -1,4 +1,3 @@
-python
 from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
@@ -6,303 +5,689 @@ from datetime import datetime, timedelta
 import json
 import requests
 import time
-app = Flask(name)
-Database path
+
+app = Flask(__name__)
+
+# Database path
 DB_PATH = '/data/access_control.db'
+
 def get_db():
-"""Get database connection with proper settings to prevent locks"""
-conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
-conn.row_factory = sqlite3.Row
-# Enable WAL mode to prevent database locks
-conn.execute('PRAGMA journal_mode=WAL')
-conn.execute('PRAGMA foreign_keys = ON')
-return conn
+    """Get database connection with proper settings to prevent locks"""
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    # Enable WAL mode to prevent database locks
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
+
 def migrate_database():
-"""Migrate old database schema to new schema"""
-print("🔄 Checking for database migrations...")
-conn = None
-try:
-conn = get_db()
-cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    if cursor.fetchone():
-        cursor.execute("PRAGMA table_info(users)")
-        columns = [col[1] for col in cursor.fetchall()]
+    """Migrate old database schema to new schema"""
+    print("🔄 Checking for database migrations...")
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
         
-        if 'valid_from' not in columns:
-            print("  ➕ Adding valid_from column...")
-            cursor.execute("ALTER TABLE users ADD COLUMN valid_from DATE")
+        # Check users table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [col[1] for col in cursor.fetchall()]
             
-        if 'valid_until' not in columns:
-            print("  ➕ Adding valid_until column...")
-            cursor.execute("ALTER TABLE users ADD COLUMN valid_until DATE")
+            if 'valid_from' not in columns:
+                print("  ➕ Adding valid_from column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN valid_from DATE")
+                
+            if 'valid_until' not in columns:
+                print("  ➕ Adding valid_until column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN valid_until DATE")
+                
+            if 'notes' not in columns:
+                print("  ➕ Adding notes column...")
+                cursor.execute("ALTER TABLE users ADD COLUMN notes TEXT")
+        
+        # Check boards table for emergency fields
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='boards'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(boards)")
+            columns = [col[1] for col in cursor.fetchall()]
             
-        if 'notes' not in columns:
-            print("  ➕ Adding notes column...")
-            cursor.execute("ALTER TABLE users ADD COLUMN notes TEXT")
+            if 'emergency_mode' not in columns:
+                print("  ➕ Adding emergency_mode column...")
+                cursor.execute("ALTER TABLE boards ADD COLUMN emergency_mode TEXT DEFAULT NULL")
+                
+            if 'emergency_activated_at' not in columns:
+                print("  ➕ Adding emergency_activated_at column...")
+                cursor.execute("ALTER TABLE boards ADD COLUMN emergency_activated_at TIMESTAMP")
+                
+            if 'emergency_activated_by' not in columns:
+                print("  ➕ Adding emergency_activated_by column...")
+                cursor.execute("ALTER TABLE boards ADD COLUMN emergency_activated_by TEXT")
+                
+            if 'emergency_auto_reset_at' not in columns:
+                print("  ➕ Adding emergency_auto_reset_at column...")
+                cursor.execute("ALTER TABLE boards ADD COLUMN emergency_auto_reset_at TIMESTAMP")
+        
+        # Check doors table for emergency fields
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='doors'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(doors)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'emergency_override' not in columns:
+                print("  ➕ Adding emergency_override column...")
+                cursor.execute("ALTER TABLE doors ADD COLUMN emergency_override TEXT DEFAULT NULL")
+                
+            if 'emergency_override_at' not in columns:
+                print("  ➕ Adding emergency_override_at column...")
+                cursor.execute("ALTER TABLE doors ADD COLUMN emergency_override_at TIMESTAMP")
         
         conn.commit()
         print("  ✅ Migration completed")
-except Exception as e:
-    print(f"  ⚠️  Migration: {e}")
-finally:
-    if conn:
-        conn.close()
+    except Exception as e:
+        print(f"  ⚠️  Migration: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 def init_db():
-"""Initialize database with complete schema"""
-print("🔧 Initializing database...")
-conn = get_db()
-cursor = conn.cursor()
-# Boards table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS boards (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        ip_address TEXT NOT NULL UNIQUE,
-        door1_name TEXT NOT NULL,
-        door2_name TEXT NOT NULL,
-        online BOOLEAN DEFAULT 0,
-        last_seen TIMESTAMP,
-        last_sync TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-print("  ✅ Boards table created")
+    """Initialize database with complete schema"""
+    print("🔧 Initializing database...")
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Boards table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS boards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            ip_address TEXT NOT NULL UNIQUE,
+            door1_name TEXT NOT NULL,
+            door2_name TEXT NOT NULL,
+            online BOOLEAN DEFAULT 0,
+            last_seen TIMESTAMP,
+            last_sync TIMESTAMP,
+            emergency_mode TEXT DEFAULT NULL,
+            emergency_activated_at TIMESTAMP,
+            emergency_activated_by TEXT,
+            emergency_auto_reset_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Boards table created")
 
-# Pending boards table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS pending_boards (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ip_address TEXT NOT NULL UNIQUE,
-        mac_address TEXT NOT NULL,
-        board_name TEXT NOT NULL,
-        door1_name TEXT NOT NULL,
-        door2_name TEXT NOT NULL,
-        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-print("  ✅ Pending boards table created")
+    # Pending boards table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pending_boards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT NOT NULL UNIQUE,
+            mac_address TEXT NOT NULL,
+            board_name TEXT NOT NULL,
+            door1_name TEXT NOT NULL,
+            door2_name TEXT NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Pending boards table created")
+    
+    # Doors table (auto-populated from boards)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS doors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            board_id INTEGER NOT NULL,
+            door_number INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            relay_endpoint TEXT NOT NULL,
+            emergency_override TEXT DEFAULT NULL,
+            emergency_override_at TIMESTAMP,
+            FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            UNIQUE(board_id, door_number)
+        )
+    ''')
+    print("  ✅ Doors table created")
+    
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            active BOOLEAN DEFAULT 1,
+            valid_from DATE,
+            valid_until DATE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Users table created")
+    
+    # User cards table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            card_number TEXT NOT NULL,
+            card_format TEXT DEFAULT 'wiegand26',
+            active BOOLEAN DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    print("  ✅ User cards table created")
+    
+    # User PINs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_pins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            pin TEXT NOT NULL,
+            active BOOLEAN DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    print("  ✅ User PINs table created")
+    
+    # Access groups table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS access_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            color TEXT DEFAULT '#6366f1',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Access groups table created")
+    
+    # Group doors table (many-to-many)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS group_doors (
+            group_id INTEGER NOT NULL,
+            door_id INTEGER NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES access_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE,
+            PRIMARY KEY (group_id, door_id)
+        )
+    ''')
+    print("  ✅ Group doors table created")
+    
+    # User groups table (many-to-many)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_groups (
+            user_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES access_groups(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, group_id)
+        )
+    ''')
+    print("  ✅ User groups table created")
+    
+    # Access schedules table (time-based access for users)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS access_schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Access schedules table created")
+    
+    # Schedule time ranges table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS schedule_times (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schedule_id INTEGER NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            FOREIGN KEY (schedule_id) REFERENCES access_schedules(id) ON DELETE CASCADE
+        )
+    ''')
+    print("  ✅ Schedule times table created")
+    
+    # User schedules table (many-to-many)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_schedules (
+            user_id INTEGER NOT NULL,
+            schedule_id INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (schedule_id) REFERENCES access_schedules(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, schedule_id)
+        )
+    ''')
+    print("  ✅ User schedules table created")
+    
+    # Door schedules table (what mode is door in at different times)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS door_schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            door_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            schedule_type TEXT NOT NULL CHECK(schedule_type IN ('unlock', 'controlled', 'locked')),
+            day_of_week INTEGER NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            priority INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE
+        )
+    ''')
+    print("  ✅ Door schedules table created")
+    
+    # Access logs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS access_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            door_id INTEGER,
+            board_name TEXT,
+            door_name TEXT,
+            credential TEXT,
+            credential_type TEXT,
+            access_granted BOOLEAN,
+            reason TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (door_id) REFERENCES doors(id)
+        )
+    ''')
+    print("  ✅ Access logs table created")
+    
+    conn.commit()
+    conn.close()
+    print("✅ Database initialized successfully")
 
-# Doors table (auto-populated from boards)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS doors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        board_id INTEGER NOT NULL,
-        door_number INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        relay_endpoint TEXT NOT NULL,
-        FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
-        UNIQUE(board_id, door_number)
-    )
-''')
-print("  ✅ Doors table created")
-
-# Users table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        active BOOLEAN DEFAULT 1,
-        valid_from DATE,
-        valid_until DATE,
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-print("  ✅ Users table created")
-
-# User cards table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_cards (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        card_number TEXT NOT NULL,
-        card_format TEXT DEFAULT 'wiegand26',
-        active BOOLEAN DEFAULT 1,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-''')
-print("  ✅ User cards table created")
-
-# User PINs table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_pins (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        pin TEXT NOT NULL,
-        active BOOLEAN DEFAULT 1,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-''')
-print("  ✅ User PINs table created")
-
-# Access groups table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS access_groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        color TEXT DEFAULT '#6366f1',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-print("  ✅ Access groups table created")
-
-# Group doors table (many-to-many)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS group_doors (
-        group_id INTEGER NOT NULL,
-        door_id INTEGER NOT NULL,
-        FOREIGN KEY (group_id) REFERENCES access_groups(id) ON DELETE CASCADE,
-        FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE,
-        PRIMARY KEY (group_id, door_id)
-    )
-''')
-print("  ✅ Group doors table created")
-
-# User groups table (many-to-many)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_groups (
-        user_id INTEGER NOT NULL,
-        group_id INTEGER NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (group_id) REFERENCES access_groups(id) ON DELETE CASCADE,
-        PRIMARY KEY (user_id, group_id)
-    )
-''')
-print("  ✅ User groups table created")
-
-# Access schedules table (time-based access for users)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS access_schedules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        active BOOLEAN DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-''')
-print("  ✅ Access schedules table created")
-
-# Schedule time ranges table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS schedule_times (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        schedule_id INTEGER NOT NULL,
-        day_of_week INTEGER NOT NULL,
-        start_time TIME NOT NULL,
-        end_time TIME NOT NULL,
-        FOREIGN KEY (schedule_id) REFERENCES access_schedules(id) ON DELETE CASCADE
-    )
-''')
-print("  ✅ Schedule times table created")
-
-# User schedules table (many-to-many)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_schedules (
-        user_id INTEGER NOT NULL,
-        schedule_id INTEGER NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (schedule_id) REFERENCES access_schedules(id) ON DELETE CASCADE,
-        PRIMARY KEY (user_id, schedule_id)
-    )
-''')
-print("  ✅ User schedules table created")
-
-# Door schedules table (what mode is door in at different times)
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS door_schedules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        door_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        schedule_type TEXT NOT NULL CHECK(schedule_type IN ('unlock', 'controlled', 'locked')),
-        day_of_week INTEGER NOT NULL,
-        start_time TIME NOT NULL,
-        end_time TIME NOT NULL,
-        priority INTEGER DEFAULT 0,
-        active BOOLEAN DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE
-    )
-''')
-print("  ✅ Door schedules table created")
-
-# Access logs table
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS access_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        door_id INTEGER,
-        board_name TEXT,
-        door_name TEXT,
-        credential TEXT,
-        credential_type TEXT,
-        access_granted BOOLEAN,
-        reason TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (door_id) REFERENCES doors(id)
-    )
-''')
-print("  ✅ Access logs table created")
-
-conn.commit()
-conn.close()
-print("✅ Database initialized successfully")
-Initialize database on startup
+# Initialize database on startup
 init_db()
 migrate_database()
+
 @app.route('/')
 def index():
-"""Main dashboard page"""
-return render_template('dashboard.html')
-==================== STATS API ====================
+    """Main dashboard page"""
+    return render_template('dashboard.html')
+
+# ==================== STATS API ====================
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-"""Get dashboard statistics"""
-try:
-conn = get_db()
-cursor = conn.cursor()
-    # Count boards
-    cursor.execute('SELECT COUNT(*) as count FROM boards')
-    total_boards = cursor.fetchone()['count']
-    
-    cursor.execute('SELECT COUNT(*) as count FROM boards WHERE online = 1')
-    online_boards = cursor.fetchone()['count']
-    
-    # Count users
-    cursor.execute('SELECT COUNT(*) as count FROM users WHERE active = 1')
-    active_users = cursor.fetchone()['count']
-    
-    # Count doors
-    cursor.execute('SELECT COUNT(*) as count FROM doors')
-    total_doors = cursor.fetchone()['count']
-    
-    # Count today's access events
-    cursor.execute('''
-        SELECT COUNT(*) as count 
-        FROM access_logs 
-        WHERE DATE(timestamp) = DATE('now')
-    ''')
-    today_events = cursor.fetchone()['count']
-    
-    conn.close()
-    
-    return jsonify({
-        'success': True,
-        'stats': {
-            'total_boards': total_boards,
-            'online_boards': online_boards,
-            'active_users': active_users,
-            'total_doors': total_doors,
-            'today_events': today_events
-        }
-    })
-except Exception as e:
-    print(f"❌ Error getting stats: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-==================== BOARD API ====================
+    """Get dashboard statistics"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Count boards
+        cursor.execute('SELECT COUNT(*) as count FROM boards')
+        total_boards = cursor.fetchone()['count']
+        
+        cursor.execute('SELECT COUNT(*) as count FROM boards WHERE online = 1')
+        online_boards = cursor.fetchone()['count']
+        
+        # Count users
+        cursor.execute('SELECT COUNT(*) as count FROM users WHERE active = 1')
+        active_users = cursor.fetchone()['count']
+        
+        # Count doors
+        cursor.execute('SELECT COUNT(*) as count FROM doors')
+        total_doors = cursor.fetchone()['count']
+        
+        # Count today's access events
+        cursor.execute('''
+            SELECT COUNT(*) as count 
+            FROM access_logs 
+            WHERE DATE(timestamp) = DATE('now')
+        ''')
+        today_events = cursor.fetchone()['count']
+        
+        # Count emergency active
+        cursor.execute('''
+            SELECT COUNT(*) as count 
+            FROM boards 
+            WHERE emergency_mode IS NOT NULL
+        ''')
+        emergency_active = cursor.fetchone()['count']
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_boards': total_boards,
+                'online_boards': online_boards,
+                'active_users': active_users,
+                'total_doors': total_doors,
+                'today_events': today_events,
+                'emergency_active': emergency_active
+            }
+        })
+    except Exception as e:
+        print(f"❌ Error getting stats: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ==================== EMERGENCY API ====================
+@app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
+def emergency_lock_board(board_id):
+    """Emergency lock all doors on a board"""
+    try:
+        data = request.json
+        activated_by = data.get('activated_by', 'Dashboard User')
+        
+        print(f"🚨 EMERGENCY LOCK activated on board {board_id} by {activated_by}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get board info
+        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        # Set emergency lock mode
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = 'lock',
+                emergency_activated_at = CURRENT_TIMESTAMP,
+                emergency_activated_by = ?,
+                emergency_auto_reset_at = NULL
+            WHERE id = ?
+        ''', (activated_by, board_id))
+        
+        # Log emergency action
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, door_name, credential, credential_type, access_granted, reason)
+            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?)
+        ''', (board['name'], f'Emergency lock activated by {activated_by}'))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send emergency lock to ESP32
+        try:
+            url = f"http://{board['ip_address']}/api/emergency-lock"
+            requests.post(url, json={'mode': 'lock'}, timeout=3)
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'message': f'Emergency lock activated on {board["name"]}'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error activating emergency lock: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/boards/<int:board_id>/emergency-unlock', methods=['POST'])
+def emergency_unlock_board(board_id):
+    """Emergency unlock all doors on a board"""
+    try:
+        data = request.json
+        activated_by = data.get('activated_by', 'Dashboard User')
+        auto_reset_minutes = data.get('auto_reset_minutes', 30)
+        
+        print(f"🚨 EMERGENCY UNLOCK activated on board {board_id} by {activated_by}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get board info
+        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        # Calculate auto-reset time
+        auto_reset_at = datetime.now() + timedelta(minutes=auto_reset_minutes)
+        
+        # Set emergency unlock mode
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = 'unlock',
+                emergency_activated_at = CURRENT_TIMESTAMP,
+                emergency_activated_by = ?,
+                emergency_auto_reset_at = ?
+            WHERE id = ?
+        ''', (activated_by, auto_reset_at.isoformat(), board_id))
+        
+        # Log emergency action
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, door_name, credential, credential_type, access_granted, reason)
+            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 1, ?)
+        ''', (board['name'], f'Emergency unlock activated by {activated_by} (auto-reset in {auto_reset_minutes} min)'))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send emergency unlock to ESP32
+        try:
+            url = f"http://{board['ip_address']}/api/emergency-unlock"
+            requests.post(url, json={'mode': 'unlock', 'duration': auto_reset_minutes * 60}, timeout=3)
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'message': f'Emergency unlock activated on {board["name"]} (auto-reset in {auto_reset_minutes} min)'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error activating emergency unlock: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/boards/<int:board_id>/emergency-reset', methods=['POST'])
+def emergency_reset_board(board_id):
+    """Reset emergency mode on a board"""
+    try:
+        data = request.json
+        reset_by = data.get('reset_by', 'Dashboard User')
+        
+        print(f"✅ EMERGENCY RESET on board {board_id} by {reset_by}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get board info
+        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        previous_mode = board['emergency_mode']
+        
+        # Reset emergency mode
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = NULL,
+                emergency_activated_at = NULL,
+                emergency_activated_by = NULL,
+                emergency_auto_reset_at = NULL
+            WHERE id = ?
+        ''', (board_id,))
+        
+        # Log reset action
+        if previous_mode:
+            cursor.execute('''
+                INSERT INTO access_logs 
+                (board_name, door_name, credential, credential_type, access_granted, reason)
+                VALUES (?, 'ALL DOORS', 'RESET', 'emergency', 1, ?)
+            ''', (board['name'], f'Emergency mode reset by {reset_by} (was: {previous_mode})'))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send reset to ESP32
+        try:
+            url = f"http://{board['ip_address']}/api/emergency-reset"
+            requests.post(url, json={'mode': 'normal'}, timeout=3)
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'message': f'Emergency mode reset on {board["name"]}'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error resetting emergency mode: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/doors/<int:door_id>/emergency-override', methods=['POST'])
+def emergency_override_door(door_id):
+    """Set emergency override on a specific door"""
+    try:
+        data = request.json
+        override_mode = data.get('mode')  # 'lock', 'unlock', or None
+        
+        if override_mode not in ['lock', 'unlock', None]:
+            return jsonify({'success': False, 'message': 'Invalid override mode'}), 400
+        
+        print(f"🚨 Door {door_id} emergency override: {override_mode}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get door info
+        cursor.execute('''
+            SELECT d.*, b.ip_address, b.name as board_name
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE d.id = ?
+        ''', (door_id,))
+        
+        door = cursor.fetchone()
+        
+        if not door:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Door not found'}), 404
+        
+        # Set override
+        if override_mode:
+            cursor.execute('''
+                UPDATE doors 
+                SET emergency_override = ?,
+                    emergency_override_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (override_mode, door_id))
+            
+            # Log action
+            cursor.execute('''
+                INSERT INTO access_logs 
+                (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
+                VALUES (?, ?, ?, 'EMERGENCY', 'emergency', ?, ?)
+            ''', (door_id, door['board_name'], door['name'], 
+                  1 if override_mode == 'unlock' else 0,
+                  f'Emergency {override_mode} override activated'))
+        else:
+            # Reset override
+            cursor.execute('''
+                UPDATE doors 
+                SET emergency_override = NULL,
+                    emergency_override_at = NULL
+                WHERE id = ?
+            ''', (door_id,))
+            
+            # Log reset
+            cursor.execute('''
+                INSERT INTO access_logs 
+                (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
+                VALUES (?, ?, ?, 'RESET', 'emergency', 1, ?)
+            ''', (door_id, door['board_name'], door['name'], 'Emergency override reset'))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send to ESP32
+        try:
+            url = f"http://{door['ip_address']}/api/door-override"
+            requests.post(url, json={
+                'door_number': door['door_number'],
+                'override': override_mode
+            }, timeout=3)
+        except:
+            pass
+        
+        action = override_mode if override_mode else 'reset'
+        return jsonify({
+            'success': True,
+            'message': f'Door {door["name"]} emergency override: {action}'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error setting door emergency override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/emergency-status', methods=['GET'])
+def get_emergency_status():
+    """Get current emergency status for all boards"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get boards with emergency mode
+        cursor.execute('''
+            SELECT id, name, ip_address, emergency_mode, emergency_activated_at, 
+                   emergency_activated_by, emergency_auto_reset_at
+            FROM boards
+            WHERE emergency_mode IS NOT NULL
+        ''')
+        
+        emergency_boards = []
+        for board in cursor.fetchall():
+            board_dict = dict(board)
+            
+            # Check if auto-reset time has passed
+            if board_dict['emergency_auto_reset_at']:
+                reset_time = datetime.fromisoformat(board_dict['emergency_auto_reset_at'])
+                if datetime.now() > reset_time:
+                    # Auto-reset has triggered
+                    cursor.execute('''
+                        UPDATE boards 
+                        SET emergency_mode = NULL,
+                            emergency_activated_at = NULL,
+                            emergency_activated_by = NULL,
+                            emergency_auto_reset_at = NULL
+                        WHERE id = ?
+                    ''', (board_dict['id'],))
+                    conn.commit()
+                    continue  # Skip this board (no longer in emergency)
+            
+            emergency_boards.append(board_dict)
+        
+        # Get doors with emergency override
+        cursor.execute('''
+            SELECT d.id, d.name, d.emergency_override, d.emergency_override_at,
+                   b.name as board_name, b.ip_address
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE d.emergency_override IS NOT NULL
+        ''')
+        
+        emergency_doors = [dict(door) for door in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'emergency_boards': emergency_boards,
+            'emergency_doors': emergency_doors
+        })
+        
+    except Exception as e:
+        print(f"❌ Error getting emergency status: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== BOARD API ====================
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
 """Get all boards"""
