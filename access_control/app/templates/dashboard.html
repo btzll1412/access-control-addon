@@ -43,6 +43,7 @@
             font-size: 14px;
         }
 
+
         /* Emergency Controls */
         .emergency-controls {
             display: flex;
@@ -700,6 +701,12 @@
             <p>Professional ESP32-based access control management</p>
         </div>
 
+        <!-- Pending Boards Notification -->
+        <div id="pending-boards-notification" style="display:none; background:#fff3cd; border:2px solid #ffc107; padding:15px; margin:20px 0; border-radius:8px;">
+            <h3 style="margin:0 0 10px 0; color:#856404;">🔔 New Boards Waiting for Adoption</h3>
+            <div id="pending-boards-list"></div>
+        </div>
+
         <!-- Emergency Controls -->
         <div class="emergency-controls">
             <button class="emergency-btn emergency-unlock" id="emergencyUnlockBtn">
@@ -1134,6 +1141,7 @@
             loadStats();
             loadBoards();
             setupEmergencyButtons();
+            checkPendingBoards();
             
             // Setup filter listeners
             document.getElementById('filterDateFrom')?.addEventListener('change', loadLogs);
@@ -2374,6 +2382,87 @@
                 showToast('Error loading logs', 'error');
             }
         }
+
+        // ==================== PENDING BOARDS ====================
+        
+        async function checkPendingBoards() {
+            try {
+                const response = await fetch('/api/pending-boards');
+                const data = await response.json();
+                
+                if (data.success && data.pending_boards.length > 0) {
+                    const notification = document.getElementById('pending-boards-notification');
+                    const list = document.getElementById('pending-boards-list');
+                    
+                    let html = '';
+                    data.pending_boards.forEach(board => {
+                        html += `
+                            <div style="background:white; padding:15px; margin:10px 0; border-radius:5px; border:1px solid #ddd;">
+                                <strong>${board.board_name}</strong> at ${board.ip_address}
+                                <br><small>MAC: ${board.mac_address} | First seen: ${board.first_seen}</small>
+                                <br>
+                                <button onclick="adoptBoard(${board.id})" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:5px; cursor:pointer; margin:5px;">
+                                    ✅ Adopt Board
+                                </button>
+                                <button onclick="rejectBoard(${board.id})" style="background:#dc3545; color:white; padding:8px 15px; border:none; border-radius:5px; cursor:pointer; margin:5px;">
+                                    ❌ Reject
+                                </button>
+                            </div>
+                        `;
+                    });
+                    
+                    list.innerHTML = html;
+                    notification.style.display = 'block';
+                } else {
+                    document.getElementById('pending-boards-notification').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error checking pending boards:', error);
+            }
+        }
+        
+        async function adoptBoard(id) {
+            if (confirm('Adopt this board?')) {
+                try {
+                    const response = await fetch(`/api/pending-boards/${id}/adopt`, { method: 'POST' });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showToast('Board adopted successfully!');
+                        checkPendingBoards();
+                        loadBoards();
+                        loadStats();
+                    } else {
+                        showToast('Failed to adopt board: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    console.error('Error adopting board:', error);
+                    showToast('Error adopting board', 'error');
+                }
+            }
+        }
+        
+        async function rejectBoard(id) {
+            if (confirm('Reject this board? It can re-announce itself later.')) {
+                try {
+                    const response = await fetch(`/api/pending-boards/${id}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showToast('Board rejected');
+                        checkPendingBoards();
+                    } else {
+                        showToast('Failed to reject board: ' + data.message, 'error');
+                    }
+                } catch (error) {
+                    console.error('Error rejecting board:', error);
+                    showToast('Error rejecting board', 'error');
+                }
+            }
+        }
+
+        // Check for pending boards every 10 seconds
+        setInterval(checkPendingBoards, 10000);
 
         async function loadLogFilters() {
             try {
