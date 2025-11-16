@@ -14,10 +14,12 @@
     "8100/tcp": "Web UI"
   },
   "options": {
-    "log_level": "info"
+    "log_level": "info",
+    "timezone": "America/New_York"
   },
   "schema": {
-    "log_level": "list(debug|info|warning|error)?"
+    "log_level": "list(debug|info|warning|error)?",
+    "timezone": "list(America/New_York|America/Chicago|America/Denver|America/Los_Angeles|America/Phoenix|America/Anchorage|Pacific/Honolulu|America/Puerto_Rico|America/Toronto|America/Vancouver|America/Edmonton|America/Halifax|America/St_Johns|Europe/London|Europe/Paris|Europe/Berlin|Europe/Rome|Europe/Madrid|Europe/Amsterdam|Europe/Brussels|Europe/Vienna|Europe/Stockholm|Europe/Oslo|Europe/Copenhagen|Europe/Helsinki|Europe/Athens|Europe/Moscow|Europe/Kiev|Europe/Warsaw|Europe/Prague|Europe/Bucharest|Europe/Budapest|Europe/Istanbul|Asia/Jerusalem|Asia/Dubai|Asia/Riyadh|Asia/Tehran|Asia/Karachi|Asia/Kolkata|Asia/Dhaka|Asia/Bangkok|Asia/Singapore|Asia/Hong_Kong|Asia/Shanghai|Asia/Tokyo|Asia/Seoul|Australia/Sydney|Australia/Melbourne|Australia/Brisbane|Australia/Perth|Australia/Adelaide|Pacific/Auckland|Pacific/Fiji|Africa/Cairo|Africa/Johannesburg|Africa/Nairobi|Africa/Lagos|America/Sao_Paulo|America/Buenos_Aires|America/Santiago|America/Mexico_City|America/Bogota|America/Lima|UTC)?"
   },
   "ingress": true,
   "panel_icon": "mdi:door",
