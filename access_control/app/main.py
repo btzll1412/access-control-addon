@@ -234,6 +234,21 @@ def init_db():
     ''')
     print("  ✅ Access logs table created")
     
+    # ADD THIS NEW TABLE:
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS door_unlock_schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            door_id INTEGER NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE
+        )
+    ''')
+    print("  ✅ Door unlock schedules table created")
+    
     conn.commit()
     conn.close()
     print("✅ Database initialized successfully")
@@ -792,10 +807,32 @@ def sync_board_full(board_id):
             if user_dict['doors']:  # Only include users who have access to this board
                 users.append(user_dict)
         
+        # Get door unlock schedules for this board
+        cursor.execute('''
+            SELECT d.door_number, dus.day_of_week, dus.start_time, dus.end_time, dus.active
+            FROM door_unlock_schedules dus
+            JOIN doors d ON dus.door_id = d.id
+            WHERE d.board_id = ? AND dus.active = 1
+            ORDER BY d.door_number, dus.day_of_week, dus.start_time
+        ''', (board_id,))
+        
+        unlock_schedules = {}
+        for row in cursor.fetchall():
+            door_num = str(row['door_number'])
+            if door_num not in unlock_schedules:
+                unlock_schedules[door_num] = []
+            
+            unlock_schedules[door_num].append({
+                'day': row['day_of_week'],
+                'start': row['start_time'],
+                'end': row['end_time']
+            })
+        
         # Build sync payload
         sync_data = {
             'users': users,
-            'schedules': []
+            'schedules': [],
+            'door_unlock_schedules': unlock_schedules
         }
         
         # Send to board
@@ -1477,6 +1514,79 @@ def delete_schedule(schedule_id):
         return jsonify({'success': True, 'message': 'Schedule deleted successfully'})
     except Exception as e:
         print(f"❌ Error deleting schedule: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ==================== DOOR UNLOCK SCHEDULES API ====================
+
+@app.route('/api/door-unlock-schedules/<int:door_id>', methods=['GET'])
+def get_door_unlock_schedules(door_id):
+    """Get unlock schedules for a specific door"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM door_unlock_schedules
+            WHERE door_id = ? AND active = 1
+            ORDER BY day_of_week, start_time
+        ''', (door_id,))
+        
+        schedules_data = cursor.fetchall()
+        schedules = [dict(row) for row in schedules_data]
+        
+        conn.close()
+        return jsonify({'success': True, 'schedules': schedules})
+    except Exception as e:
+        print(f"❌ Error getting door unlock schedules: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/door-unlock-schedules/<int:door_id>', methods=['POST'])
+def save_door_unlock_schedules(door_id):
+    """Save unlock schedules for a door (replaces existing)"""
+    try:
+        data = request.json
+        schedules = data.get('schedules', [])
+        
+        print(f"💾 Saving {len(schedules)} unlock schedules for door {door_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Delete existing schedules for this door
+        cursor.execute('DELETE FROM door_unlock_schedules WHERE door_id = ?', (door_id,))
+        
+        # Insert new schedules
+        for schedule in schedules:
+            cursor.execute('''
+                INSERT INTO door_unlock_schedules (door_id, day_of_week, start_time, end_time, active)
+                VALUES (?, ?, ?, ?, 1)
+            ''', (door_id, schedule['day_of_week'], schedule['start_time'], schedule['end_time']))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Door unlock schedules saved for door {door_id}")
+        return jsonify({'success': True, 'message': 'Schedules saved successfully'})
+    except Exception as e:
+        print(f"❌ Error saving door unlock schedules: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/door-unlock-schedules/<int:door_id>', methods=['DELETE'])
+def delete_door_unlock_schedules(door_id):
+    """Delete all unlock schedules for a door"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM door_unlock_schedules WHERE door_id = ?', (door_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Door unlock schedules deleted for door {door_id}")
+        return jsonify({'success': True, 'message': 'Schedules deleted successfully'})
+    except Exception as e:
+        print(f"❌ Error deleting door unlock schedules: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== ACCESS LOGS API ====================
