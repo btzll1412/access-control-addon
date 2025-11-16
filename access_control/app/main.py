@@ -744,303 +744,327 @@ def get_boards():
         return jsonify({'success': False, 'message': str(e)}), 500
 @app.route('/api/boards', methods=['POST'])
 def create_board():
-"""Create a new board and auto-create doors"""
-try:
-data = request.json
-print(f"💾 Creating board: {data.get('name')}")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Insert board
-    cursor.execute('''
-        INSERT INTO boards (name, ip_address, door1_name, door2_name)
-        VALUES (?, ?, ?, ?)
-    ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name']))
-    
-    board_id = cursor.lastrowid
-    
-    # Auto-create doors
-    cursor.execute('''
-        INSERT INTO doors (board_id, door_number, name, relay_endpoint)
-        VALUES (?, 1, ?, ?)
-    ''', (board_id, data['door1_name'], '/unlock_door1'))
-    
-    cursor.execute('''
-        INSERT INTO doors (board_id, door_number, name, relay_endpoint)
-        VALUES (?, 2, ?, ?)
-    ''', (board_id, data['door2_name'], '/unlock_door2'))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Board created: {data['name']} (ID: {board_id})")
-    return jsonify({'success': True, 'message': 'Board created successfully', 'board_id': board_id})
-except sqlite3.IntegrityError as e:
-    print(f"⚠️ Integrity error: {e}")
-    return jsonify({'success': False, 'message': 'Board with this IP address already exists'}), 400
-except Exception as e:
-    print(f"❌ Error creating board: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/boards/int:board_id', methods=['PUT'])
+    """Create a new board and auto-create doors"""
+    try:
+        data = request.json
+        print(f"💾 Creating board: {data.get('name')}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Insert board
+        cursor.execute('''
+            INSERT INTO boards (name, ip_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?)
+        ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name']))
+        
+        board_id = cursor.lastrowid
+        
+        # Auto-create doors
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 1, ?, ?)
+        ''', (board_id, data['door1_name'], '/unlock_door1'))
+        
+        cursor.execute('''
+            INSERT INTO doors (board_id, door_number, name, relay_endpoint)
+            VALUES (?, 2, ?, ?)
+        ''', (board_id, data['door2_name'], '/unlock_door2'))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Board created: {data['name']} (ID: {board_id})")
+        return jsonify({'success': True, 'message': 'Board created successfully', 'board_id': board_id})
+    except sqlite3.IntegrityError as e:
+        print(f"⚠️ Integrity error: {e}")
+        return jsonify({'success': False, 'message': 'Board with this IP address already exists'}), 400
+    except Exception as e:
+        print(f"❌ Error creating board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/boards/<int:board_id>', methods=['PUT'])
 def update_board(board_id):
-"""Update a board"""
-try:
-data = request.json
-print(f"✏️ Updating board ID {board_id}")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Update board
-    cursor.execute('''
-        UPDATE boards 
-        SET name = ?, ip_address = ?, door1_name = ?, door2_name = ?
-        WHERE id = ?
-    ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name'], board_id))
-    
-    # Update doors
-    cursor.execute('''
-        UPDATE doors 
-        SET name = ?
-        WHERE board_id = ? AND door_number = 1
-    ''', (data['door1_name'], board_id))
-    
-    cursor.execute('''
-        UPDATE doors 
-        SET name = ?
-        WHERE board_id = ? AND door_number = 2
-    ''', (data['door2_name'], board_id))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Board {board_id} updated")
-    return jsonify({'success': True, 'message': 'Board updated successfully'})
-except Exception as e:
-    print(f"❌ Error updating board: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/boards/int:board_id', methods=['DELETE'])
+    """Update a board"""
+    try:
+        data = request.json
+        print(f"✏️ Updating board ID {board_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Update board
+        cursor.execute('''
+            UPDATE boards 
+            SET name = ?, ip_address = ?, door1_name = ?, door2_name = ?
+            WHERE id = ?
+        ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name'], board_id))
+        
+        # Update doors
+        cursor.execute('''
+            UPDATE doors 
+            SET name = ?
+            WHERE board_id = ? AND door_number = 1
+        ''', (data['door1_name'], board_id))
+        
+        cursor.execute('''
+            UPDATE doors 
+            SET name = ?
+            WHERE board_id = ? AND door_number = 2
+        ''', (data['door2_name'], board_id))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Board {board_id} updated")
+        return jsonify({'success': True, 'message': 'Board updated successfully'})
+    except Exception as e:
+        print(f"❌ Error updating board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+
+@app.route('/api/boards/<int:board_id>', methods=['DELETE'])
 def delete_board(board_id):
-"""Delete a board (cascades to doors)"""
-try:
-print(f"🗑️ Deleting board ID {board_id}")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute('DELETE FROM boards WHERE id = ?', (board_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Board {board_id} deleted")
-    return jsonify({'success': True, 'message': 'Board deleted successfully'})
-except Exception as e:
-    print(f"❌ Error deleting board: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-@app.route('/api/boards/int:board_id/sync', methods=['POST'])
+    """Delete a board (cascades to doors)"""
+    try:
+        print(f"🗑️ Deleting board ID {board_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM boards WHERE id = ?', (board_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Board {board_id} deleted")
+        return jsonify({'success': True, 'message': 'Board deleted successfully'})
+    except Exception as e:
+        print(f"❌ Error deleting board: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/boards/<int:board_id>/sync', methods=['POST'])
 def sync_board(board_id):
-"""Sync board configuration - calls sync_board_full()"""
-return sync_board_full(board_id)
+    """Sync board configuration - calls sync_board_full()"""
+    return sync_board_full(board_id)
+
+
 @app.route('/api/boards/sync-all', methods=['POST'])
 def sync_all_boards():
-"""Sync all boards"""
-try:
-print("🔄 Syncing all boards")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT id, name, online FROM boards')
-    boards = cursor.fetchall()
-    
-    conn.close()
-    
-    if not boards:
-        return jsonify({'success': True, 'message': 'No boards to sync'})
-    
-    success_count = 0
-    fail_count = 0
-    
-    for board in boards:
-        board_id = board['id']
-        board_name = board['name']
+    """Sync all boards"""
+    try:
+        print("🔄 Syncing all boards")
         
-        print(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
+        conn = get_db()
+        cursor = conn.cursor()
         
-        if not board['online']:
-            print(f"    ⚠️  Board {board_name} is offline - skipping")
-            fail_count += 1
-            continue
+        cursor.execute('SELECT id, name, online FROM boards')
+        boards = cursor.fetchall()
         
-        try:
-            result = sync_board_full(board_id)
-            if hasattr(result, 'json'):
-                data = result.json
-                if data and data.get('success'):
-                    success_count += 1
+        conn.close()
+        
+        if not boards:
+            return jsonify({'success': True, 'message': 'No boards to sync'})
+        
+        success_count = 0
+        fail_count = 0
+        
+        for board in boards:
+            board_id = board['id']
+            board_name = board['name']
+            
+            print(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
+            
+            if not board['online']:
+                print(f"    ⚠️  Board {board_name} is offline - skipping")
+                fail_count += 1
+                continue
+            
+            try:
+                result = sync_board_full(board_id)
+                if hasattr(result, 'json'):
+                    data = result.json
+                    if data and data.get('success'):
+                        success_count += 1
+                    else:
+                        fail_count += 1
                 else:
                     fail_count += 1
-            else:
+            except Exception as e:
+                print(f"    ❌ Error syncing board {board_name}: {e}")
                 fail_count += 1
-        except Exception as e:
-            print(f"    ❌ Error syncing board {board_name}: {e}")
-            fail_count += 1
-    
-    total = success_count + fail_count
-    print(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
-    
-    return jsonify({
-        'success': True, 
-        'message': f'Synced {success_count}/{total} boards successfully'
-    })
-    
-except Exception as e:
-    print(f"❌ Error syncing all boards: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
+        
+        total = success_count + fail_count
+        print(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Synced {success_count}/{total} boards successfully'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error syncing all boards: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/heartbeat', methods=['POST'])
 def heartbeat():
-"""Receive heartbeat from ESP32 board"""
-try:
-data = request.json
-ip_address = data.get('ip_address')
-    if not ip_address:
-        return jsonify({'success': False, 'message': 'IP address required'}), 400
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE boards 
-        SET last_seen = CURRENT_TIMESTAMP, online = 1
-        WHERE ip_address = ?
-    ''', (ip_address,))
-    
-    if cursor.rowcount == 0:
+    """Receive heartbeat from ESP32 board"""
+    try:
+        data = request.json
+        ip_address = data.get('ip_address')
+        
+        if not ip_address:
+            return jsonify({'success': False, 'message': 'IP address required'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE boards 
+            SET last_seen = CURRENT_TIMESTAMP, online = 1
+            WHERE ip_address = ?
+        ''', (ip_address,))
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        conn.commit()
         conn.close()
-        return jsonify({'success': False, 'message': 'Board not found'}), 404
-    
-    conn.commit()
-    conn.close()
-    
-    return jsonify({'success': True})
-except Exception as e:
-    print(f"❌ Error processing heartbeat: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"❌ Error processing heartbeat: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/board-announce', methods=['POST'])
 def board_announce():
-"""Board announces itself - stores in pending_boards table"""
-conn = None
-try:
-data = request.json
-board_ip = data.get('board_ip')
-mac_address = data.get('mac_address')
-board_name = data.get('board_name', 'Unknown Board')
-door1_name = data.get('door1_name', 'Door 1')
-door2_name = data.get('door2_name', 'Door 2')
-    print(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Check if board already exists in main boards table
-    cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
-    existing = cursor.fetchone()
-    
-    if existing:
-        print(f"  ℹ️  Board already adopted: {board_ip}")
-        return jsonify({'success': True, 'message': 'Board already registered'})
-    
-    # Check if board exists in pending table
-    cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
-    pending = cursor.fetchone()
-    
-    if pending:
-        cursor.execute('''
-            UPDATE pending_boards 
-            SET last_seen = CURRENT_TIMESTAMP,
-                board_name = ?,
-                door1_name = ?,
-                door2_name = ?
-            WHERE ip_address = ?
-        ''', (board_name, door1_name, door2_name, board_ip))
-        print(f"  🔄 Updated pending board: {board_ip}")
-    else:
-        cursor.execute('''
-            INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (board_ip, mac_address, board_name, door1_name, door2_name))
-        print(f"  ✅ New board added to pending: {board_ip}")
-    
-    conn.commit()
-    conn.close()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Board announcement received - pending adoption'
-    })
-    
-except Exception as e:
-    print(f"❌ Error processing board announcement: {e}")
-    if conn:
+    """Board announces itself - stores in pending_boards table"""
+    conn = None
+    try:
+        data = request.json
+        board_ip = data.get('board_ip')
+        mac_address = data.get('mac_address')
+        board_name = data.get('board_name', 'Unknown Board')
+        door1_name = data.get('door1_name', 'Door 1')
+        door2_name = data.get('door2_name', 'Door 2')
+        
+        print(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check if board already exists in main boards table
+        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            print(f"  ℹ️  Board already adopted: {board_ip}")
+            return jsonify({'success': True, 'message': 'Board already registered'})
+        
+        # Check if board exists in pending table
+        cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
+        pending = cursor.fetchone()
+        
+        if pending:
+            cursor.execute('''
+                UPDATE pending_boards 
+                SET last_seen = CURRENT_TIMESTAMP,
+                    board_name = ?,
+                    door1_name = ?,
+                    door2_name = ?
+                WHERE ip_address = ?
+            ''', (board_name, door1_name, door2_name, board_ip))
+            print(f"  🔄 Updated pending board: {board_ip}")
+        else:
+            cursor.execute('''
+                INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (board_ip, mac_address, board_name, door1_name, door2_name))
+            print(f"  ✅ New board added to pending: {board_ip}")
+        
+        conn.commit()
         conn.close()
-    return jsonify({'success': False, 'message': str(e)}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': 'Board announcement received - pending adoption'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error processing board announcement: {e}")
+        if conn:
+            conn.close()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/access-log', methods=['POST'])
 def receive_access_log():
-"""Receive access log from ESP32 board"""
-conn = None
-try:
-data = request.json
-    board_ip = data.get('board_ip')
-    board_name = data.get('board_name')
-    door_number = data.get('door_number')
-    door_name = data.get('door_name')
-    user_name = data.get('user_name')
-    credential = data.get('credential')
-    credential_type = data.get('credential_type')
-    access_granted = data.get('access_granted')
-    reason = data.get('reason')
-    timestamp = data.get('timestamp')
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Get door_id if exists
-    cursor.execute('''
-        SELECT d.id 
-        FROM doors d
-        JOIN boards b ON d.board_id = b.id
-        WHERE b.ip_address = ? AND d.door_number = ?
-    ''', (board_ip, door_number))
-    
-    door_info = cursor.fetchone()
-    door_id = door_info['id'] if door_info else None
-    
-    # Get user_id if exists
-    user_id = None
-    if user_name != "Unknown":
-        cursor.execute('SELECT id FROM users WHERE name = ?', (user_name,))
-        user_info = cursor.fetchone()
-        if user_info:
-            user_id = user_info['id']
-    
-    # Insert log
-    cursor.execute('''
-        INSERT INTO access_logs 
-        (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp))
-    
-    conn.commit()
-    
-    status = "✅ GRANTED" if access_granted else "❌ DENIED"
-    print(f"📝 Log: {board_name}/{door_name} | {user_name} | {status} | {reason}")
-    
-    return jsonify({'success': True})
-    
-except Exception as e:
-    print(f"❌ Error saving access log: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-finally:
-    if conn:
-        conn.close()
+    """Receive access log from ESP32 board"""
+    conn = None
+    try:
+        data = request.json
+        
+        board_ip = data.get('board_ip')
+        board_name = data.get('board_name')
+        door_number = data.get('door_number')
+        door_name = data.get('door_name')
+        user_name = data.get('user_name')
+        credential = data.get('credential')
+        credential_type = data.get('credential_type')
+        access_granted = data.get('access_granted')
+        reason = data.get('reason')
+        timestamp = data.get('timestamp')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get door_id if exists
+        cursor.execute('''
+            SELECT d.id 
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            WHERE b.ip_address = ? AND d.door_number = ?
+        ''', (board_ip, door_number))
+        
+        door_info = cursor.fetchone()
+        door_id = door_info['id'] if door_info else None
+        
+        # Get user_id if exists
+        user_id = None
+        if user_name != "Unknown":
+            cursor.execute('SELECT id FROM users WHERE name = ?', (user_name,))
+            user_info = cursor.fetchone()
+            if user_info:
+                user_id = user_info['id']
+        
+        # Insert log
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp))
+        
+        conn.commit()
+        
+        status = "✅ GRANTED" if access_granted else "❌ DENIED"
+        print(f"📝 Log: {board_name}/{door_name} | {user_name} | {status} | {reason}")
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Error saving access log: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 @app.route('/api/boards/int:board_id/sync-full', methods=['POST'])
 def sync_board_full(board_id):
 """Send complete user database to a specific board"""
