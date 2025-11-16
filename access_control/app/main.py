@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 import json
 import requests
+import time
 
 app = Flask(__name__)
 
@@ -894,7 +895,7 @@ def get_pending_boards():
 
 @app.route('/api/pending-boards/<int:pending_id>/adopt', methods=['POST'])
 def adopt_pending_board(pending_id):
-    """Adopt a pending board - move it to main boards table"""
+    """Adopt a pending board - move it to main boards table AND configure it"""
     conn = None
     try:
         conn = get_db()
@@ -941,11 +942,54 @@ def adopt_pending_board(pending_id):
         
         print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
         
-        return jsonify({
-            'success': True, 
-            'message': 'Board adopted successfully',
-            'board_id': board_id
-        })
+        # ═══════════════════════════════════════════════════════════
+        # NEW CODE: Configure the board to point to this controller
+        # ═══════════════════════════════════════════════════════════
+        
+        try:
+            # Get controller's IP address from request
+            controller_ip = request.host.split(':')[0]  # Get IP without port
+            controller_port = 8100
+            
+            # Call ESP32's /api/set-controller endpoint
+            board_url = f"http://{pending['ip_address']}/api/set-controller"
+            
+            config_data = {
+                'controller_ip': controller_ip,
+                'controller_port': controller_port
+            }
+            
+            print(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
+            
+            response = requests.post(board_url, json=config_data, timeout=5)
+            
+            if response.status_code == 200:
+                print(f"✅ Board configured successfully!")
+                
+                # Now sync the board
+                time.sleep(1)  # Give board time to save config
+                sync_board_full(board_id)
+                
+                return jsonify({
+                    'success': True, 
+                    'message': 'Board adopted and configured successfully',
+                    'board_id': board_id
+                })
+            else:
+                print(f"⚠️  Board adopted but configuration failed: HTTP {response.status_code}")
+                return jsonify({
+                    'success': True, 
+                    'message': 'Board adopted but auto-configuration failed - please configure manually',
+                    'board_id': board_id
+                })
+                
+        except Exception as config_error:
+            print(f"⚠️  Board adopted but configuration failed: {config_error}")
+            return jsonify({
+                'success': True, 
+                'message': 'Board adopted but auto-configuration failed - please configure manually',
+                'board_id': board_id
+            })
         
     except Exception as e:
         print(f"❌ Error adopting board: {e}")
