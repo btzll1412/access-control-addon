@@ -16,6 +16,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     # Enable WAL mode to prevent database locks
     conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA foreign_keys = ON')
     return conn
 
 def migrate_database():
@@ -648,20 +649,9 @@ def sync_board_full(board_id):
                 users.append(user_dict)
         
         # Build sync payload
-        # In sync_board_full(), add door configuration
         sync_data = {
             'users': users,
-            'schedules': [],
-            'door_config': {
-                '1': {
-                    'unlock_duration': door1_unlock_duration,
-                    'name': door1_name
-                },
-                '2': {
-                    'unlock_duration': door2_unlock_duration,
-                    'name': door2_name
-                }
-            }
+            'schedules': []
         }
         
         # Send to board
