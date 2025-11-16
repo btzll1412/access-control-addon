@@ -943,12 +943,14 @@ def adopt_pending_board(pending_id):
         print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
         
         # ═══════════════════════════════════════════════════════════
-        # NEW CODE: Configure the board to point to this controller
+        # CONFIGURE AND SYNC BOARD
         # ═══════════════════════════════════════════════════════════
         
         try:
+            import time
+            
             # Get controller's IP address from request
-            controller_ip = request.host.split(':')[0]  # Get IP without port
+            controller_ip = request.host.split(':')[0]
             controller_port = 8100
             
             # Call ESP32's /api/set-controller endpoint
@@ -966,28 +968,39 @@ def adopt_pending_board(pending_id):
             if response.status_code == 200:
                 print(f"✅ Board configured successfully!")
                 
-                # Now sync the board
-                time.sleep(1)  # Give board time to save config
-                sync_board_full(board_id)
+                # Wait for board to save config and announce back
+                time.sleep(2)
+                
+                # NOW SYNC THE BOARD WITH USERS DATABASE
+                print(f"🔄 Syncing user database to board...")
+                sync_result = sync_board_full(board_id)
+                
+                # sync_board_full returns a Flask response, check if successful
+                if hasattr(sync_result, 'json'):
+                    sync_data = sync_result.json
+                    if sync_data and sync_data.get('success'):
+                        print(f"✅ Board synced with user database!")
+                    else:
+                        print(f"⚠️ Board sync may have failed")
                 
                 return jsonify({
                     'success': True, 
-                    'message': 'Board adopted and configured successfully',
+                    'message': 'Board adopted, configured, and synced successfully',
                     'board_id': board_id
                 })
             else:
-                print(f"⚠️  Board adopted but configuration failed: HTTP {response.status_code}")
+                print(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
                 return jsonify({
                     'success': True, 
-                    'message': 'Board adopted but auto-configuration failed - please configure manually',
+                    'message': 'Board adopted but auto-configuration failed - please sync manually',
                     'board_id': board_id
                 })
                 
         except Exception as config_error:
-            print(f"⚠️  Board adopted but configuration failed: {config_error}")
+            print(f"⚠️ Board adopted but configuration failed: {config_error}")
             return jsonify({
                 'success': True, 
-                'message': 'Board adopted but auto-configuration failed - please configure manually',
+                'message': 'Board adopted but auto-configuration failed - please sync manually',
                 'board_id': board_id
             })
         
@@ -996,7 +1009,6 @@ def adopt_pending_board(pending_id):
         if conn:
             conn.close()
         return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/pending-boards/<int:pending_id>', methods=['DELETE'])
 def delete_pending_board(pending_id):
     """Reject/delete a pending board"""
