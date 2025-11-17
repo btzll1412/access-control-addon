@@ -2566,21 +2566,32 @@ def get_logs():
         user_id = request.args.get('user_id', type=int)
         door_id = request.args.get('door_id', type=int)
         board_name = request.args.get('board_name')
-        credential_type = request.args.get('credential_type')  # card, pin, manual, emergency
-        credential = request.args.get('credential')  # specific card/pin number
-        access_granted = request.args.get('access_granted')  # true/false
+        credential_type = request.args.get('credential_type')
+        credential = request.args.get('credential')
+        access_granted = request.args.get('access_granted')
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
-        search = request.args.get('search')  # General search
+        search = request.args.get('search')
+        
+        logger.info(f"📊 Loading logs with limit={limit}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Build dynamic query with COALESCE to handle NULL user names
+        # Build dynamic query with COALESCE for NULL handling
         query = '''
             SELECT 
-                al.*,
-                COALESCE(u.name, 'Unknown') as user_name
+                al.id,
+                al.timestamp,
+                al.board_name,
+                al.door_name,
+                COALESCE(u.name, 'Unknown') as user_name,
+                al.credential,
+                al.credential_type,
+                al.access_granted,
+                al.reason,
+                al.door_id,
+                al.user_id
             FROM access_logs al
             LEFT JOIN users u ON al.user_id = u.id
             WHERE 1=1
@@ -2633,10 +2644,13 @@ def get_logs():
             search_param = f'%{search}%'
             params.extend([search_param] * 5)
         
+        # Order by timestamp descending (newest first)
         query += ' ORDER BY al.timestamp DESC LIMIT ?'
         params.append(limit)
         
-        logger.info(f"📊 Fetching logs with limit={limit}, filters={len(params)-1}")
+        logger.info(f"🔍 Executing query with {len(params)} parameters")
+        logger.info(f"   Query: {query}")
+        logger.info(f"   Params: {params}")
         
         cursor.execute(query, params)
         logs_data = cursor.fetchall()
@@ -2647,7 +2661,7 @@ def get_logs():
         for log in logs_data:
             log_dict = dict(log)
             
-            # Format timestamp in local timezone
+            # Format timestamp
             try:
                 log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
             except Exception as e:
@@ -2659,6 +2673,9 @@ def get_logs():
         conn.close()
         
         logger.info(f"📤 Returning {len(logs)} logs to frontend")
+        if len(logs) > 0:
+            logger.info(f"   First log: {logs[0]}")
+            logger.info(f"   Last log: {logs[-1]}")
         
         return jsonify({'success': True, 'logs': logs})
         
@@ -2667,7 +2684,6 @@ def get_logs():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/logs/filter-options', methods=['GET'])
 def get_log_filter_options():
     """Get available filter options for logs"""
