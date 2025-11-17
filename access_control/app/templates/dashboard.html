@@ -1051,37 +1051,122 @@
         </div>
 
         <!-- Tab: Access Logs -->
-        <div id="tab-logs" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>Access Logs</h2>
-                <div style="display: flex; gap: 10px;">
-                    <select class="form-select" id="logFilter" onchange="loadLogs()" style="width: auto;">
-                        <option value="100">Last 100</option>
-                        <option value="500">Last 500</option>
-                        <option value="1000">Last 1000</option>
-                    </select>
-                    <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Refresh</button>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Board</th>
-                            <th>Door</th>
-                            <th>User</th>
-                            <th>Credential</th>
-                            <th>Result</th>
-                            <th>Reason</th>
-                        </tr>
-                    </thead>
-                    <tbody id="logsList"></tbody>
-                </table>
-            </div>
+<div id="tab-logs" class="tab-content">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Access Logs</h2>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary btn-small" onclick="clearLogFilters()">🔄 Clear Filters</button>
+            <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Refresh</button>
         </div>
     </div>
+
+    <!-- Advanced Filters -->
+    <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+        <h3 style="margin-bottom: 15px; font-size: 16px; color: #1e293b;">🔍 Filters</h3>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <!-- User Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">User</label>
+                <select class="form-select" id="filterUser" onchange="loadLogs()" style="width: 100%;">
+                    <option value="">All Users</option>
+                </select>
+            </div>
+
+            <!-- Board Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Board</label>
+                <select class="form-select" id="filterBoard" onchange="loadLogs()" style="width: 100%;">
+                    <option value="">All Boards</option>
+                </select>
+            </div>
+
+            <!-- Door Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Door</label>
+                <select class="form-select" id="filterDoor" onchange="loadLogs()" style="width: 100%;">
+                    <option value="">All Doors</option>
+                </select>
+            </div>
+
+            <!-- Credential Type Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Credential Type</label>
+                <select class="form-select" id="filterCredentialType" onchange="loadLogs()" style="width: 100%;">
+                    <option value="">All Types</option>
+                    <option value="card">Card</option>
+                    <option value="pin">PIN</option>
+                    <option value="manual">Manual</option>
+                    <option value="emergency">Emergency</option>
+                </select>
+            </div>
+
+            <!-- Access Result Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Access Result</label>
+                <select class="form-select" id="filterAccessGranted" onchange="loadLogs()" style="width: 100%;">
+                    <option value="">All Results</option>
+                    <option value="true">✅ Granted</option>
+                    <option value="false">❌ Denied</option>
+                </select>
+            </div>
+
+            <!-- Date From Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Date From</label>
+                <input type="date" class="form-input" id="filterDateFrom" onchange="loadLogs()" style="width: 100%;">
+            </div>
+
+            <!-- Date To Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Date To</label>
+                <input type="date" class="form-input" id="filterDateTo" onchange="loadLogs()" style="width: 100%;">
+            </div>
+
+            <!-- Limit Filter -->
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 13px;">Show Entries</label>
+                <select class="form-select" id="filterLimit" onchange="loadLogs()" style="width: 100%;">
+                    <option value="50">Last 50</option>
+                    <option value="100" selected>Last 100</option>
+                    <option value="500">Last 500</option>
+                    <option value="1000">Last 1000</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Search Box -->
+        <div class="form-group" style="margin-top: 15px; margin-bottom: 0;">
+            <label class="form-label" style="font-size: 13px;">🔎 Search (Name, Board, Door, Credential, Reason)</label>
+            <input type="text" class="form-input" id="filterSearch" 
+                   placeholder="Type to search..." 
+                   onkeyup="searchLogsDebounced()"
+                   style="width: 100%;">
+        </div>
+    </div>
+
+    <!-- Results Count -->
+    <div style="margin-bottom: 15px; color: #64748b; font-size: 14px;">
+        Showing <strong id="logsCount">0</strong> logs
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th style="min-width: 150px;">Timestamp</th>
+                    <th>Board</th>
+                    <th>Door</th>
+                    <th>User</th>
+                    <th>Credential</th>
+                    <th style="text-align: center;">Result</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody id="logsList"></tbody>
+        </table>
+    </div>
+</div>
 
     <!-- ==================== MODALS ==================== -->
 
@@ -1465,8 +1550,10 @@
                     if (tabName === 'users') loadUsers();
                     if (tabName === 'groups') loadGroups();
                     if (tabName === 'schedules') loadSchedules();
-                    if (tabName === 'logs') loadLogs();
-                }
+                    if (tabName === 'logs') {
+                        loadLogFilterOptions();
+                        loadLogs();
+                    }
             }, 30000);
         });
 
@@ -1491,7 +1578,10 @@
             if (tabName === 'groups') loadGroups();
             if (tabName === 'schedules') loadSchedules();
             if (tabName === 'emergency') loadEmergencyControls();
-            if (tabName === 'logs') loadLogs();
+            if (tabName === 'logs') {
+                loadLogFilterOptions();
+                loadLogs();
+            }
         }
 
         // ==================== STATS ====================
@@ -3183,32 +3273,107 @@ async function saveDoorSettings(event) {
             }
         }
 
-        // ==================== LOGS ====================
+        // ==================== LOGS WITH ADVANCED FILTERING ====================
+        let logFilterOptions = {};
+        let searchTimeout;
+
+        async function loadLogFilterOptions() {
+            try {
+                const response = await fetch('/api/logs/filter-options');
+                const data = await response.json();
+
+                if (data.success) {
+                    logFilterOptions = data;
+
+                    // Populate User dropdown
+                    const userSelect = document.getElementById('filterUser');
+                    const currentUserValue = userSelect.value;
+                    userSelect.innerHTML = '<option value="">All Users</option>' +
+                        data.users.map(user => 
+                            `<option value="${user.id}">${user.name}</option>`
+                        ).join('');
+                    userSelect.value = currentUserValue;
+
+                    // Populate Board dropdown
+                    const boardSelect = document.getElementById('filterBoard');
+                    const currentBoardValue = boardSelect.value;
+                    boardSelect.innerHTML = '<option value="">All Boards</option>' +
+                        data.boards.map(board => 
+                            `<option value="${board}">${board}</option>`
+                        ).join('');
+                    boardSelect.value = currentBoardValue;
+
+                    // Populate Door dropdown
+                    const doorSelect = document.getElementById('filterDoor');
+                    const currentDoorValue = doorSelect.value;
+                    doorSelect.innerHTML = '<option value="">All Doors</option>' +
+                        data.doors.map(door => 
+                            `<option value="${door.id}">${door.name}</option>`
+                        ).join('');
+                    doorSelect.value = currentDoorValue;
+                }
+            } catch (error) {
+                console.error('Error loading filter options:', error);
+            }
+        }
+
         async function loadLogs() {
             try {
-                const limit = document.getElementById('logFilter').value;
-                const response = await fetch(`/api/logs?limit=${limit}`);
+                // Build query parameters
+                const params = new URLSearchParams();
+                
+                const limit = document.getElementById('filterLimit')?.value || '100';
+                params.append('limit', limit);
+
+                const userId = document.getElementById('filterUser')?.value;
+                if (userId) params.append('user_id', userId);
+
+                const boardName = document.getElementById('filterBoard')?.value;
+                if (boardName) params.append('board_name', boardName);
+
+                const doorId = document.getElementById('filterDoor')?.value;
+                if (doorId) params.append('door_id', doorId);
+
+                const credentialType = document.getElementById('filterCredentialType')?.value;
+                if (credentialType) params.append('credential_type', credentialType);
+
+                const accessGranted = document.getElementById('filterAccessGranted')?.value;
+                if (accessGranted) params.append('access_granted', accessGranted);
+
+                const dateFrom = document.getElementById('filterDateFrom')?.value;
+                if (dateFrom) params.append('date_from', dateFrom);
+
+                const dateTo = document.getElementById('filterDateTo')?.value;
+                if (dateTo) params.append('date_to', dateTo);
+
+                const search = document.getElementById('filterSearch')?.value;
+                if (search) params.append('search', search);
+
+                const response = await fetch(`/api/logs?${params.toString()}`);
                 const data = await response.json();
 
                 if (data.success) {
                     const container = document.getElementById('logsList');
+                    const countElement = document.getElementById('logsCount');
+                    
+                    countElement.textContent = data.logs.length;
 
                     if (data.logs.length === 0) {
-                        container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No logs yet</td></tr>';
+                        container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 40px;">No logs match the current filters</td></tr>';
                         return;
                     }
 
                     container.innerHTML = data.logs.map(log => `
                         <tr>
-                            <td>${log.timestamp}</td>
+                            <td style="white-space: nowrap;">${log.timestamp}</td>
                             <td>${log.board_name || 'N/A'}</td>
                             <td>${log.door_name || 'N/A'}</td>
-                            <td>${log.user_name || 'Unknown'}</td>
+                            <td><strong>${log.user_name || 'Unknown'}</strong></td>
                             <td>
                                 <strong>${log.credential || 'N/A'}</strong><br>
                                 <small style="color: #64748b;">(${log.credential_type || 'unknown'})</small>
                             </td>
-                            <td>
+                            <td style="text-align: center;">
                                 <span class="badge ${log.access_granted ? 'badge-success' : 'badge-danger'}">
                                     ${log.access_granted ? '✅ Granted' : '❌ Denied'}
                                 </span>
@@ -3221,6 +3386,26 @@ async function saveDoorSettings(event) {
                 console.error('Error loading logs:', error);
                 showToast('Error loading logs', 'error');
             }
+        }
+
+        function searchLogsDebounced() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                loadLogs();
+            }, 500); // Wait 500ms after user stops typing
+        }
+
+        function clearLogFilters() {
+            document.getElementById('filterUser').value = '';
+            document.getElementById('filterBoard').value = '';
+            document.getElementById('filterDoor').value = '';
+            document.getElementById('filterCredentialType').value = '';
+            document.getElementById('filterAccessGranted').value = '';
+            document.getElementById('filterDateFrom').value = '';
+            document.getElementById('filterDateTo').value = '';
+            document.getElementById('filterSearch').value = '';
+            document.getElementById('filterLimit').value = '100';
+            loadLogs();
         }
 
         // ==================== TOAST ====================
