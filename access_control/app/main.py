@@ -1172,13 +1172,19 @@ def receive_access_log():
             conn.close()
             return jsonify({'success': False, 'message': 'Door not found'}), 404
         
-        # Find or create user
+        # Find or create user - IMPROVED MATCHING
         user_id = None
-        if data.get('user_name') and data['user_name'] != 'Unknown' and 'N/A' not in data['user_name']:
-            cursor.execute('SELECT id FROM users WHERE name = ?', (data['user_name'],))
+        user_name_received = data.get('user_name', 'Unknown')
+        
+        # Skip matching for system-generated names
+        if user_name_received and user_name_received != 'Unknown' and 'N/A' not in user_name_received:
+            cursor.execute('SELECT id, name FROM users WHERE name = ?', (user_name_received,))
             user = cursor.fetchone()
             if user:
                 user_id = user['id']
+                logger.info(f"  ✅ Matched user: {user['name']} (ID: {user_id})")
+            else:
+                logger.warning(f"  ⚠️ User '{user_name_received}' not found in database")
         
         # Insert log
         cursor.execute('''
@@ -2560,9 +2566,11 @@ def get_logs():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Build dynamic query
+        # Build dynamic query with COALESCE to handle NULL user names
         query = '''
-            SELECT al.*, u.name as user_name
+            SELECT 
+                al.*,
+                COALESCE(u.name, 'Unknown') as user_name
             FROM access_logs al
             LEFT JOIN users u ON al.user_id = u.id
             WHERE 1=1
@@ -2606,7 +2614,7 @@ def get_logs():
         
         if search:
             query += ''' AND (
-                u.name LIKE ? OR 
+                COALESCE(u.name, 'Unknown') LIKE ? OR 
                 al.board_name LIKE ? OR 
                 al.door_name LIKE ? OR 
                 al.credential LIKE ? OR 
@@ -2618,20 +2626,36 @@ def get_logs():
         query += ' ORDER BY al.timestamp DESC LIMIT ?'
         params.append(limit)
         
+        logger.info(f"📊 Fetching logs with limit={limit}, filters={len(params)-1}")
+        
         cursor.execute(query, params)
         logs_data = cursor.fetchall()
+        
+        logger.info(f"✅ Retrieved {len(logs_data)} logs from database")
         
         logs = []
         for log in logs_data:
             log_dict = dict(log)
+            
             # Format timestamp in local timezone
-            log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
+            try:
+                log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
+            except Exception as e:
+                logger.warning(f"⚠️ Could not format timestamp: {e}")
+                log_dict['timestamp'] = log_dict.get('timestamp', 'Unknown')
+            
             logs.append(log_dict)
         
         conn.close()
+        
+        logger.info(f"📤 Returning {len(logs)} logs to frontend")
+        
         return jsonify({'success': True, 'logs': logs})
+        
     except Exception as e:
         logger.error(f"❌ Error getting logs: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/logs/filter-options', methods=['GET'])
