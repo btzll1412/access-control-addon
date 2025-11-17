@@ -1541,7 +1541,7 @@
                 loadBoards();
                 loadPendingBoards();
                 loadEmergencyStatus();
-                
+    
                 // Reload current tab content
                 const activeTab = document.querySelector('.tab.active');
                 if (activeTab) {
@@ -1554,8 +1554,8 @@
                         loadLogFilterOptions();
                         loadLogs();
                     }
+                }
             }, 30000);
-        });
 
         // ==================== TAB MANAGEMENT ====================
         function showTab(tabName) {
