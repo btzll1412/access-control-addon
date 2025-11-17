@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Access Control - Web Flasher</title>
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+
+        .header .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .description {
+            color: #64748b;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        esp-web-install-button {
+            display: block;
+            margin: 30px 0;
+        }
+
+        .install-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 18px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 12px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .install-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .requirements {
+            background: #f8fafc;
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 30px;
+        }
+
+        .requirements h3 {
+            color: #1e293b;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .requirements ul {
+            color: #64748b;
+            line-height: 2;
+            padding-left: 20px;
+        }
+
+        .requirements li {
+            margin-bottom: 8px;
+        }
+
+        .info-box {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .info-box h4 {
+            color: #1e40af;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .info-box p {
+            color: #1e3a8a;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .info-box code {
+            background: #bfdbfe;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #f1f5f9;
+            color: #64748b;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="icon">🔐</div>
+            <h1>ESP32 Access Control</h1>
+            <p style="color: #64748b; font-size: 16px;">Web-Based Firmware Installer</p>
+        </div>
+
+        <p class="description">
+            Flash your ESP32 board with the Access Control firmware directly from your browser. 
+            <strong>No Arduino IDE, drivers, or software installation needed!</strong>
+        </p>
+
+        <esp-web-install-button manifest="manifest.json">
+            <button slot="activate" class="install-button">
+                ⚡ INSTALL FIRMWARE
+            </button>
+        </esp-web-install-button>
+
+        <div class="requirements">
+            <h3>📋 Before You Start:</h3>
+            <ul>
+                <li>✅ Use <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> browser</li>
+                <li>✅ Have your ESP32 Dev board ready</li>
+                <li>✅ USB cable connected to computer</li>
+                <li>✅ CH340 or CP2102 driver (usually auto-installs)</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h4>📡 After Installation - First Time Setup:</h4>
+            <p>
+                1. ESP32 will create a WiFi network: <code>AccessControl-Setup</code><br>
+                2. Password: <code>12345678</code><br>
+                3. Connect to this WiFi and visit: <code>http://192.168.4.1</code><br>
+                4. Configure your WiFi network and controller server IP<br>
+                5. Reboot and adopt the board in your controller dashboard
+            </p>
+        </div>
+
+        <div class="requirements" style="background: #fef3c7; border: 2px solid #fbbf24; margin-top: 20px;">
+            <h3>🔌 Hardware Requirements:</h3>
+            <ul style="color: #78350f;">
+                <li>ESP32 Dev Board (ESP32-WROOM-32 or similar)</li>
+                <li>2x Wiegand RFID Readers</li>
+                <li>2x Door Strike/Relay Modules</li>
+                <li>2x 4x4 Matrix Keypads (optional)</li>
+                <li>12V Power Supply</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>🛠️ Built with ❤️ for Home Assistant Community</p>
+            <p style="margin-top: 10px;">Version 1.0.0 | MIT License</p>
+        </div>
+    </div>
+</body>
+</html>
