@@ -802,34 +802,60 @@ def get_boards():
             # Format timestamps
             if board_dict['last_seen']:
                 try:
-                    last_seen = datetime.fromisoformat(board_dict['last_seen'])
-                    now = datetime.now()
+                    # Parse the timestamp - handle both with and without timezone
+                    last_seen_str = board_dict['last_seen']
+                    
+                    # Try parsing with timezone awareness
+                    if 'T' in last_seen_str:
+                        last_seen = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
+                    else:
+                        # Assume UTC if no timezone info
+                        last_seen = datetime.fromisoformat(last_seen_str)
+                        if last_seen.tzinfo is None:
+                            last_seen = pytz.utc.localize(last_seen)
+                    
+                    # Get current time in UTC
+                    now = datetime.now(pytz.utc)
+                    
+                    # Convert last_seen to UTC if it has timezone info
+                    if last_seen.tzinfo is not None:
+                        last_seen = last_seen.astimezone(pytz.utc)
+                    else:
+                        last_seen = pytz.utc.localize(last_seen)
+                    
                     diff = now - last_seen
+                    diff_seconds = diff.total_seconds()
                     
-                    logger.info(f"   Last seen: {last_seen}")
-                    logger.info(f"   Now: {now}")
-                    logger.info(f"   Diff: {diff.total_seconds()} seconds")
+                    logger.info(f"   Last seen (UTC): {last_seen}")
+                    logger.info(f"   Now (UTC): {now}")
+                    logger.info(f"   Diff: {diff_seconds} seconds")
                     
-                    if diff.total_seconds() < 60:
+                    # Handle negative differences (clock skew)
+                    if diff_seconds < 0:
+                        logger.warning(f"   ⚠️  Clock skew detected! Board time is {abs(diff_seconds)} seconds ahead")
+                        # Treat as just seen if clock is slightly ahead
+                        board_dict['last_seen_text'] = 'Just now (clock skew)'
+                        board_dict['online'] = abs(diff_seconds) < 300  # 5 minute tolerance
+                    elif diff_seconds < 60:
                         board_dict['last_seen_text'] = 'Just now'
-                    elif diff.total_seconds() < 3600:
-                        mins = int(diff.total_seconds() / 60)
+                        board_dict['online'] = True
+                    elif diff_seconds < 3600:
+                        mins = int(diff_seconds / 60)
                         board_dict['last_seen_text'] = f'{mins} minute{"s" if mins != 1 else ""} ago'
-                    elif diff.total_seconds() < 86400:
-                        hours = int(diff.total_seconds() / 3600)
+                        board_dict['online'] = diff_seconds < 120  # 2 minutes
+                    elif diff_seconds < 86400:
+                        hours = int(diff_seconds / 3600)
                         board_dict['last_seen_text'] = f'{hours} hour{"s" if hours != 1 else ""} ago'
+                        board_dict['online'] = False
                     else:
                         days = diff.days
                         board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
+                        board_dict['online'] = False
                     
-                    # Check if online (< 2 minutes = 120 seconds)
-                    is_online = diff.total_seconds() < 120
-                    board_dict['online'] = is_online
-                    
-                    logger.info(f"   Online status: {is_online} (threshold: 120s)")
+                    logger.info(f"   Online status: {board_dict['online']} (diff: {diff_seconds}s, threshold: 120s)")
                     
                 except Exception as e:
-                    logger.error(f"   ❌ Error: {e}")
+                    logger.error(f"   ❌ Error parsing timestamp: {e}")
                     board_dict['last_seen_text'] = 'Unknown'
                     board_dict['online'] = False
             else:
