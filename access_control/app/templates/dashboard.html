@@ -1985,7 +1985,7 @@
                     container.innerHTML = data.doors.map(door => {
                         const isEmergency = door.emergency_override !== null;
                         const emergencyClass = isEmergency ? 'emergency-active' : '';
-                        
+    
                         return `
                             <div class="card ${emergencyClass}">
                                 <div class="card-header">
@@ -1994,6 +1994,19 @@
                                         ${door.board_online ? '🟢 Online' : '🔴 Offline'}
                                     </span>
                                 </div>
+            
+                                <!-- Door Status Banner -->
+                                <div style="background: ${door.status_color}20; border-left: 4px solid ${door.status_color}; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                                    <div style="font-size: 16px; font-weight: 700; color: ${door.status_color};">
+                                        ${door.status}
+                                    </div>
+                                    ${door.status_reason ? `
+                                        <div style="font-size: 13px; color: #64748b; margin-top: 4px;">
+                                            ${door.status_reason}
+                                        </div>
+                                    ` : ''}
+                                </div>
+            
                                 ${isEmergency ? `
                                     <div style="background: #fef2f2; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
                                         <span class="badge badge-emergency">
