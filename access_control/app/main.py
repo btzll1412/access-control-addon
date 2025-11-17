@@ -1148,6 +1148,14 @@ def receive_access_log():
     """Receive access log from ESP32 board"""
     try:
         data = request.get_json()
+
+        # ADD THIS COMPLETE DEBUG BLOCK
+        logger.info("=" * 60)
+        logger.info("📥 RAW ACCESS LOG DATA RECEIVED:")
+        logger.info(f"   Full JSON: {json.dumps(data, indent=2)}")
+        logger.info("=" * 60)
+        
+        logger.info("📥 Access log received from " + data.get('board_ip', 'unknown'))
         
         logger.info("📥 Access log received from " + data.get('board_ip', 'unknown'))
         logger.info(f"  Door: {data.get('door_name')}")
