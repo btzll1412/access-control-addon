@@ -1558,19 +1558,6 @@ def unlock_door(door_id):
     except Exception as e:
         logger.error(f"❌ Error unlocking door: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-```
-
----
-
-## **✅ TEST IT:**
-
-1. **Save main.py**
-2. **Restart server**
-3. **Click "Unlock" button**
-4. **Check logs** - you should now see:
-```
-   🔓 Sending manual unlock to http://192.168.3.15/unlock?door=1
-   ✅ ESP32 Response: 200
 
 
 @app.route('/api/doors/<int:door_id>/settings', methods=['POST'])
