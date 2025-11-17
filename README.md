@@ -1,5 +1,4 @@
-📝 COMPLETE README WITH CORRECTED WIRING
-markdown# 🔐 Access Control System for Home Assistant
+🔐 Access Control System for Home Assistant
 
 A professional, self-hosted door access control system that runs on Home Assistant. Control multiple doors with RFID cards, PIN codes, schedules, and emergency lockdown features - all managed through a beautiful web dashboard.
 
