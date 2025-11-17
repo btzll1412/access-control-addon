@@ -961,10 +961,27 @@
 
         <!-- Tab: Users -->
         <div id="tab-users" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>Users</h2>
-                <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
-            </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Users</h2>
+        <div style="display: flex; gap: 10px;">
+            <!-- CSV Import/Export Buttons -->
+            <button class="btn btn-secondary btn-small" onclick="window.location.href='/api/users/template'">
+                📥 Download Template
+            </button>
+            
+            <input type="file" accept=".csv" id="csvUpload" style="display: none;" 
+                   onchange="handleCSVUpload(this)">
+            <button class="btn btn-success btn-small" onclick="document.getElementById('csvUpload').click()">
+                📤 Import CSV
+            </button>
+            
+            <button class="btn btn-warning btn-small" onclick="window.location.href='/api/users/export'">
+                💾 Export All
+            </button>
+            
+            <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
+        </div>
+    </div>
 
             <div class="table-container">
                 <table id="usersTable">
@@ -3228,6 +3245,55 @@ async function saveDoorSettings(event) {
             setTimeout(() => {
                 toast.classList.remove('show');
             }, 4000);
+        }
+        // ==================== CSV IMPORT ====================
+        async function handleCSVUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                showToast('Importing users from CSV...', 'info');
+                
+                const response = await fetch('/api/users/import', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    let message = `✅ Import complete!\n`;
+                    message += `• ${result.imported} new users created\n`;
+                    message += `• ${result.updated} existing users updated`;
+                    
+                    if (result.errors.length > 0) {
+                        message += `\n\n⚠️ ${result.errors.length} errors:\n`;
+                        message += result.errors.slice(0, 5).join('\n');
+                        if (result.errors.length > 5) {
+                            message += `\n... and ${result.errors.length - 5} more`;
+                        }
+                    }
+                    
+                    alert(message);
+                    showToast('Users imported successfully!', 'success');
+                    loadUsers();
+                    
+                    // Sync all boards
+                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    showToast('All boards synced with new users', 'success');
+                } else {
+                    showToast('Import failed: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error importing CSV:', error);
+                showToast('Error importing CSV', 'error');
+            }
+            
+            // Reset file input
+            input.value = '';
         }
     </script>
 </body>
