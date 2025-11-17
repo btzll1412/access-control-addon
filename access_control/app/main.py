@@ -1146,71 +1146,67 @@ def board_announce():
 @app.route('/api/access-log', methods=['POST'])
 def receive_access_log():
     """Receive access log from ESP32 board"""
-    conn = None
     try:
-        data = request.json
+        data = request.get_json()
         
-        board_ip = data.get('board_ip')
-        board_name = data.get('board_name')
-        door_number = data.get('door_number')
-        door_name = data.get('door_name')
-        user_name = data.get('user_name')
-        credential = data.get('credential')
-        credential_type = data.get('credential_type')
-        access_granted = data.get('access_granted')
-        reason = data.get('reason')
-        # Get timestamp from ESP32 or use current local time
-        esp32_timestamp = data.get('timestamp')
-        if esp32_timestamp:
-            try:
-                # Parse ESP32 timestamp and convert to local
-                dt = datetime.fromisoformat(esp32_timestamp.replace('Z', '+00:00'))
-                if dt.tzinfo is None:
-                    dt = pytz.utc.localize(dt)
-                timestamp = dt.astimezone(LOCAL_TZ).isoformat()
-            except:
-                timestamp = format_timestamp_for_db()
-        else:
-            timestamp = format_timestamp_for_db()
+        logger.info("📥 Access log received from " + data.get('board_ip', 'unknown'))
+        logger.info(f"  Door: {data.get('door_name')}")
+        logger.info(f"  User: {data.get('user_name')}")
+        logger.info(f"  Result: {'GRANTED' if data.get('access_granted') else 'DENIED'}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get door_id if exists
+        # Find door ID
         cursor.execute('''
-            SELECT d.id 
+            SELECT d.id, b.name as board_name
             FROM doors d
             JOIN boards b ON d.board_id = b.id
             WHERE b.ip_address = ? AND d.door_number = ?
-        ''', (board_ip, door_number))
+        ''', (data['board_ip'], data['door_number']))
         
-        door_info = cursor.fetchone()
-        door_id = door_info['id'] if door_info else None
+        door = cursor.fetchone()
         
-        # Get user_id if exists
+        if not door:
+            logger.warning(f"⚠️  Door not found for IP {data['board_ip']}, door {data['door_number']}")
+            conn.close()
+            return jsonify({'success': False, 'message': 'Door not found'}), 404
+        
+        # Find or create user
         user_id = None
-        if user_name != "Unknown":
-            cursor.execute('SELECT id FROM users WHERE name = ?', (user_name,))
-            user_info = cursor.fetchone()
-            if user_info:
-                user_id = user_info['id']
+        if data.get('user_name') and data['user_name'] != 'Unknown' and 'N/A' not in data['user_name']:
+            cursor.execute('SELECT id FROM users WHERE name = ?', (data['user_name'],))
+            user = cursor.fetchone()
+            if user:
+                user_id = user['id']
         
         # Insert log
         cursor.execute('''
-            INSERT INTO access_logs 
-            (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp))
+            INSERT INTO access_logs (
+                door_id, board_name, door_name, user_id, credential, 
+                credential_type, access_granted, reason, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            door['id'],
+            data.get('board_name', door['board_name']),
+            data.get('door_name'),
+            user_id,
+            data.get('credential'),
+            data.get('credential_type'),
+            data.get('access_granted'),
+            data.get('reason'),
+            data.get('timestamp', format_timestamp_for_db())
+        ))
         
         conn.commit()
+        conn.close()
         
-        status = "✅ GRANTED" if access_granted else "❌ DENIED"
-        print(f"📝 Log: {board_name}/{door_name} | {user_name} | {status} | {reason}")
+        logger.info("✅ Access log saved to database")
         
         return jsonify({'success': True})
         
     except Exception as e:
-        print(f"❌ Error saving access log: {e}")
+        logger.error(f"❌ Error receiving access log: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         if conn:
