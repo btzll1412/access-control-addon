@@ -2432,17 +2432,24 @@ def delete_schedule(schedule_id):
 # ==================== ACCESS LOGS API ====================
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
-    """Get access logs with filtering"""
+    """Get access logs with advanced filtering"""
     try:
+        # Get filter parameters
         limit = request.args.get('limit', 100, type=int)
         user_id = request.args.get('user_id', type=int)
         door_id = request.args.get('door_id', type=int)
+        board_name = request.args.get('board_name')
+        credential_type = request.args.get('credential_type')  # card, pin, manual, emergency
+        credential = request.args.get('credential')  # specific card/pin number
+        access_granted = request.args.get('access_granted')  # true/false
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
+        search = request.args.get('search')  # General search
         
         conn = get_db()
         cursor = conn.cursor()
         
+        # Build dynamic query
         query = '''
             SELECT al.*, u.name as user_name
             FROM access_logs al
@@ -2451,6 +2458,7 @@ def get_logs():
         '''
         params = []
         
+        # Apply filters
         if user_id:
             query += ' AND al.user_id = ?'
             params.append(user_id)
@@ -2459,6 +2467,24 @@ def get_logs():
             query += ' AND al.door_id = ?'
             params.append(door_id)
         
+        if board_name:
+            query += ' AND al.board_name = ?'
+            params.append(board_name)
+        
+        if credential_type:
+            query += ' AND al.credential_type = ?'
+            params.append(credential_type)
+        
+        if credential:
+            query += ' AND al.credential LIKE ?'
+            params.append(f'%{credential}%')
+        
+        if access_granted is not None:
+            if access_granted.lower() == 'true':
+                query += ' AND al.access_granted = 1'
+            elif access_granted.lower() == 'false':
+                query += ' AND al.access_granted = 0'
+        
         if date_from:
             query += ' AND DATE(al.timestamp) >= ?'
             params.append(date_from)
@@ -2466,6 +2492,17 @@ def get_logs():
         if date_to:
             query += ' AND DATE(al.timestamp) <= ?'
             params.append(date_to)
+        
+        if search:
+            query += ''' AND (
+                u.name LIKE ? OR 
+                al.board_name LIKE ? OR 
+                al.door_name LIKE ? OR 
+                al.credential LIKE ? OR 
+                al.reason LIKE ?
+            )'''
+            search_param = f'%{search}%'
+            params.extend([search_param] * 5)
         
         query += ' ORDER BY al.timestamp DESC LIMIT ?'
         params.append(limit)
@@ -2476,16 +2513,71 @@ def get_logs():
         logs = []
         for log in logs_data:
             log_dict = dict(log)
-    
             # Format timestamp in local timezone
             log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
-    
             logs.append(log_dict)
         
         conn.close()
         return jsonify({'success': True, 'logs': logs})
     except Exception as e:
-        print(f"❌ Error getting logs: {e}")
+        logger.error(f"❌ Error getting logs: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/logs/filter-options', methods=['GET'])
+def get_log_filter_options():
+    """Get available filter options for logs"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get unique users
+        cursor.execute('''
+            SELECT DISTINCT u.id, u.name 
+            FROM users u
+            JOIN access_logs al ON u.id = al.user_id
+            ORDER BY u.name
+        ''')
+        users = [{'id': row['id'], 'name': row['name']} for row in cursor.fetchall()]
+        
+        # Get unique boards
+        cursor.execute('''
+            SELECT DISTINCT board_name 
+            FROM access_logs 
+            WHERE board_name IS NOT NULL
+            ORDER BY board_name
+        ''')
+        boards = [row['board_name'] for row in cursor.fetchall()]
+        
+        # Get unique doors
+        cursor.execute('''
+            SELECT DISTINCT d.id, d.name, b.name as board_name
+            FROM doors d
+            JOIN boards b ON d.board_id = b.id
+            JOIN access_logs al ON d.id = al.door_id
+            ORDER BY b.name, d.name
+        ''')
+        doors = [{'id': row['id'], 'name': f"{row['board_name']} - {row['name']}"} for row in cursor.fetchall()]
+        
+        # Get unique credential types
+        cursor.execute('''
+            SELECT DISTINCT credential_type 
+            FROM access_logs 
+            WHERE credential_type IS NOT NULL
+            ORDER BY credential_type
+        ''')
+        credential_types = [row['credential_type'] for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'users': users,
+            'boards': boards,
+            'doors': doors,
+            'credential_types': credential_types
+        })
+    except Exception as e:
+        logger.error(f"❌ Error getting filter options: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== ACCESS VALIDATION API ====================
