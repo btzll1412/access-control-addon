@@ -1536,24 +1536,28 @@ def unlock_door(door_id):
         
         # Log manual unlock
         cursor.execute('''
-    INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-    VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard', ?)
-''', (door_id, door['board_name'], door['name'], format_timestamp_for_db()))
+            INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard', ?)
+        ''', (door_id, door['board_name'], door['name'], format_timestamp_for_db()))
         
         conn.commit()
         conn.close()
         
-        # Send HTTP request to ESP32 board
+        # Send HTTP request to ESP32 board to unlock the door
         try:
-            url = f"http://{door['ip_address']}{door['relay_endpoint']}"
-            requests.post(url, timeout=2)
-        except:
-            pass
+            # Determine which relay based on door number
+            relay_endpoint = f"/unlock{door['door_number']}"
+            url = f"http://{door['ip_address']}{relay_endpoint}"
+            
+            logger.info(f"🔓 Sending manual unlock to {url}")
+            response = requests.post(url, timeout=2)
+            logger.info(f"✅ ESP32 Response: {response.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send unlock command to ESP32: {e}")
         
-        print(f"🔓 Door {door_id} ({door['name']}) unlocked manually")
         return jsonify({'success': True, 'message': f'{door["name"]} unlocked'})
     except Exception as e:
-        print(f"❌ Error unlocking door: {e}")
+        logger.error(f"❌ Error unlocking door: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
