@@ -793,6 +793,9 @@ def get_boards():
                     now = datetime.now()
                     diff = now - last_seen
                     
+                    # 🔍 DEBUG: Print the time difference
+                    print(f"🔍 Board {board_dict['name']}: last_seen={last_seen}, diff={diff.total_seconds()}s")
+                    
                     if diff.total_seconds() < 60:
                         board_dict['last_seen_text'] = 'Just now'
                     elif diff.total_seconds() < 3600:
@@ -805,11 +808,17 @@ def get_boards():
                         days = diff.days
                         board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
                     
-                    # ✅ CHANGED: Check if online (< 2 minutes instead of 5)
-                    board_dict['online'] = diff.total_seconds() < 120
-                except:
+                    # Check if online (< 2 minutes = 120 seconds)
+                    is_online = diff.total_seconds() < 120
+                    board_dict['online'] = is_online
+                    
+                    # 🔍 DEBUG: Print online status
+                    print(f"   → Online: {is_online} (threshold: 120s)")
+                    
+                except Exception as e:
+                    print(f"❌ Error parsing timestamp: {e}")
                     board_dict['last_seen_text'] = 'Unknown'
-                    board_dict['online'] = False  # ✅ ADDED: Set offline on error
+                    board_dict['online'] = False
             else:
                 board_dict['last_seen_text'] = 'Never'
                 board_dict['online'] = False
