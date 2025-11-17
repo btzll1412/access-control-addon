@@ -13,6 +13,7 @@ import time
 import pytz
 import csv
 from io import StringIO
+from requests.auth import HTTPBasicAuth
 
 from datetime import datetime, timedelta
 
@@ -1549,7 +1550,11 @@ def unlock_door(door_id):
             url = f"http://{door['ip_address']}/unlock?door={door['door_number']}"
             
             logger.info(f"🔓 Sending manual unlock to {url}")
-            response = requests.get(url, timeout=5)
+            response = requests.get(
+                url, 
+                auth=HTTPBasicAuth('admin', 'admin'),  # Add ESP32 authentication
+                timeout=5
+            )
             logger.info(f"✅ ESP32 Response: {response.status_code}")
         except Exception as e:
             logger.error(f"❌ Failed to send unlock command to ESP32: {e}")
