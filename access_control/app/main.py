@@ -1,4 +1,9 @@
 from flask import Flask, render_template, request, jsonify
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 import sqlite3
 import os
 from datetime import datetime, timedelta
@@ -776,9 +781,9 @@ def get_emergency_status():
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
     """Get all boards"""
-    print("=" * 50)
-    print("🚀 GET_BOARDS FUNCTION CALLED!")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("🚀 GET_BOARDS FUNCTION CALLED!")
+    logger.info("=" * 50)
     
     try:
         conn = get_db()
@@ -786,13 +791,13 @@ def get_boards():
         cursor.execute('SELECT * FROM boards ORDER BY name')
         boards_data = cursor.fetchall()
         
-        print(f"📊 Found {len(boards_data)} boards in database")
+        logger.info(f"📊 Found {len(boards_data)} boards in database")
         
         boards = []
         for board in boards_data:
             board_dict = dict(board)
             
-            print(f"🔍 Processing board: {board_dict.get('name', 'Unknown')}")
+            logger.info(f"🔍 Processing board: {board_dict.get('name', 'Unknown')}")
             
             # Format timestamps
             if board_dict['last_seen']:
@@ -801,9 +806,9 @@ def get_boards():
                     now = datetime.now()
                     diff = now - last_seen
                     
-                    print(f"   Last seen: {last_seen}")
-                    print(f"   Now: {now}")
-                    print(f"   Diff: {diff.total_seconds()} seconds")
+                    logger.info(f"   Last seen: {last_seen}")
+                    logger.info(f"   Now: {now}")
+                    logger.info(f"   Diff: {diff.total_seconds()} seconds")
                     
                     if diff.total_seconds() < 60:
                         board_dict['last_seen_text'] = 'Just now'
@@ -821,14 +826,14 @@ def get_boards():
                     is_online = diff.total_seconds() < 120
                     board_dict['online'] = is_online
                     
-                    print(f"   Online status: {is_online} (threshold: 120s)")
+                    logger.info(f"   Online status: {is_online} (threshold: 120s)")
                     
                 except Exception as e:
-                    print(f"   ❌ Error: {e}")
+                    logger.error(f"   ❌ Error: {e}")
                     board_dict['last_seen_text'] = 'Unknown'
                     board_dict['online'] = False
             else:
-                print(f"   No last_seen timestamp")
+                logger.info(f"   No last_seen timestamp")
                 board_dict['last_seen_text'] = 'Never'
                 board_dict['online'] = False
             
@@ -841,11 +846,11 @@ def get_boards():
             boards.append(board_dict)
         
         conn.close()
-        print(f"✅ Returning {len(boards)} boards")
-        print("=" * 50)
+        logger.info(f"✅ Returning {len(boards)} boards")
+        logger.info("=" * 50)
         return jsonify({'success': True, 'boards': boards})
     except Exception as e:
-        print(f"❌ Error getting boards: {e}")
+        logger.error(f"❌ Error getting boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/boards', methods=['POST'])
