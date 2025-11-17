@@ -1488,27 +1488,134 @@ def delete_pending_board(pending_id):
 
 @app.route('/api/doors', methods=['GET'])
 def get_doors():
-    """Get all doors with board information"""
+    """Get all doors with status information"""
     try:
         conn = get_db()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT d.*, b.name as board_name, b.ip_address, b.online as board_online
+            SELECT d.*, b.name as board_name, b.ip_address, b.online as board_online,
+                   b.emergency_mode
             FROM doors d
             JOIN boards b ON d.board_id = b.id
             ORDER BY b.name, d.door_number
         ''')
         
         doors_data = cursor.fetchall()
-        doors = [dict(door) for door in doors_data]
-        
         conn.close()
+        
+        doors = []
+        for door in doors_data:
+            door_dict = dict(door)
+            
+            # Determine door status
+            status = "🔒 Locked"
+            status_reason = ""
+            status_color = "#64748b"  # gray
+            
+            # Check emergency override first
+            if door['emergency_override']:
+                if door['emergency_override'] == 'lock':
+                    status = "🚨 Emergency Locked"
+                    status_color = "#ef4444"  # red
+                elif door['emergency_override'] == 'unlock':
+                    status = "🚨 Emergency Unlocked"
+                    status_color = "#f59e0b"  # orange
+            
+            # Check board emergency mode
+            elif door_dict.get('emergency_mode'):
+                if door_dict['emergency_mode'] == 'lock':
+                    status = "🚨 Emergency Lockdown"
+                    status_color = "#ef4444"
+                elif door_dict['emergency_mode'] == 'unlock':
+                    status = "🚨 Emergency Evacuation"
+                    status_color = "#f59e0b"
+            
+            # Check door schedules
+            else:
+                current_mode = get_current_door_mode(door['id'])
+                
+                if current_mode['mode'] == 'unlock':
+                    status = "🔓 Unlocked"
+                    status_reason = f"by schedule: {current_mode['schedule_name']}"
+                    status_color = "#10b981"  # green
+                elif current_mode['mode'] == 'locked':
+                    status = "🔒 Locked"
+                    status_reason = f"by schedule: {current_mode['schedule_name']}"
+                    status_color = "#ef4444"  # red
+                else:  # controlled
+                    if current_mode['schedule_name']:
+                        status = "🔐 Controlled"
+                        status_reason = f"by schedule: {current_mode['schedule_name']}"
+                        status_color = "#3b82f6"  # blue
+                    else:
+                        status = "🔐 Controlled"
+                        status_reason = "requires credentials"
+                        status_color = "#3b82f6"
+            
+            door_dict['status'] = status
+            door_dict['status_reason'] = status_reason
+            door_dict['status_color'] = status_color
+            
+            doors.append(door_dict)
+        
         return jsonify({'success': True, 'doors': doors})
     except Exception as e:
-        print(f"❌ Error getting doors: {e}")
+        logger.error(f"❌ Error getting doors: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+def get_current_door_mode(door_id):
+    """
+    Get the current mode of a door based on schedules
+    Returns: {'mode': 'unlock/controlled/locked', 'schedule_name': 'Schedule Name'}
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get current time in local timezone
+        now = datetime.now(pytz.timezone('America/New_York'))
+        current_day = now.weekday()  # 0 = Monday
+        current_time = now.strftime('%H:%M:%S')
+        
+        # Get matching schedules for this door and current time
+        cursor.execute('''
+            SELECT ds.*, s.name as schedule_name
+            FROM door_schedules ds
+            JOIN (
+                SELECT DISTINCT name
+                FROM door_schedules
+                WHERE door_id = ? AND day_of_week = ? 
+                  AND start_time <= ? AND end_time > ?
+            ) s ON ds.name = s.name
+            WHERE ds.door_id = ? AND ds.day_of_week = ?
+              AND ds.start_time <= ? AND ds.end_time > ?
+            ORDER BY ds.priority DESC
+            LIMIT 1
+        ''', (door_id, current_day, current_time, current_time,
+              door_id, current_day, current_time, current_time))
+        
+        schedule = cursor.fetchone()
+        conn.close()
+        
+        if schedule:
+            return {
+                'mode': schedule['schedule_type'],
+                'schedule_name': schedule['name']
+            }
+        else:
+            return {
+                'mode': 'controlled',
+                'schedule_name': None
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting door mode: {e}")
+        return {
+            'mode': 'controlled',
+            'schedule_name': None
+        }
 
 @app.route('/api/doors/<int:door_id>/unlock', methods=['POST'])
 def unlock_door(door_id):
