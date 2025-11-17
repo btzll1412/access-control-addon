@@ -11,6 +11,8 @@ import json
 import requests
 import time
 import pytz
+import csv
+from io import StringIO
 
 from datetime import datetime, timedelta
 
@@ -1906,6 +1908,257 @@ def delete_user(user_id):
         return jsonify({'success': True, 'message': 'User deleted successfully'})
     except Exception as e:
         print(f"❌ Error deleting user: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== CSV IMPORT/EXPORT FOR USERS ====================
+
+@app.route('/api/users/template', methods=['GET'])
+def download_user_template():
+    """Download CSV template for bulk user import"""
+    logger.info("📥 Generating user import template")
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Header row
+    writer.writerow(['Name', 'Card Numbers', 'PIN Codes', 'Groups', 'Active', 'Valid From', 'Valid Until', 'Notes'])
+    
+    # Example rows to show format
+    writer.writerow([
+        'John Doe',
+        '123 45678',
+        '1234,5678',
+        'Employees,Security',
+        'Yes',
+        '2025-01-01',
+        '2025-12-31',
+        'Full-time employee'
+    ])
+    writer.writerow([
+        'Jane Smith',
+        '200 12345,201 99999',
+        '9999',
+        'Employees',
+        'Yes',
+        '',
+        '',
+        'Manager'
+    ])
+    writer.writerow([
+        'Bob Johnson',
+        '',
+        '4321',
+        'Visitors',
+        'No',
+        '',
+        '2025-06-30',
+        'Temporary contractor'
+    ])
+    
+    output.seek(0)
+    
+    # Create response
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=user_import_template.csv'}
+    )
+
+
+@app.route('/api/users/export', methods=['GET'])
+def export_users_csv():
+    """Export all users to CSV file"""
+    logger.info("📤 Exporting users to CSV")
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users ORDER BY name')
+        users_data = cursor.fetchall()
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Header
+        writer.writerow(['Name', 'Card Numbers', 'PIN Codes', 'Groups', 'Active', 'Valid From', 'Valid Until', 'Notes'])
+        
+        # Write each user
+        for user in users_data:
+            # Get cards
+            cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ?', (user['id'],))
+            cards = ','.join([row['card_number'] for row in cursor.fetchall()])
+            
+            # Get PINs
+            cursor.execute('SELECT pin FROM user_pins WHERE user_id = ?', (user['id'],))
+            pins = ','.join([row['pin'] for row in cursor.fetchall()])
+            
+            # Get groups
+            cursor.execute('''
+                SELECT ag.name 
+                FROM access_groups ag
+                JOIN user_groups ug ON ag.id = ug.group_id
+                WHERE ug.user_id = ?
+            ''', (user['id'],))
+            groups = ','.join([row['name'] for row in cursor.fetchall()])
+            
+            writer.writerow([
+                user['name'],
+                cards,
+                pins,
+                groups,
+                'Yes' if user['active'] else 'No',
+                user['valid_from'] or '',
+                user['valid_until'] or '',
+                user['notes'] or ''
+            ])
+        
+        conn.close()
+        
+        output.seek(0)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        from flask import Response
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=users_export_{timestamp}.csv'}
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error exporting users: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/users/import', methods=['POST'])
+def import_users_csv():
+    """Import users from CSV file"""
+    logger.info("📥 Importing users from CSV")
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if not file.filename.endswith('.csv'):
+        return jsonify({'error': 'File must be CSV format'}), 400
+    
+    try:
+        # Read CSV content
+        stream = StringIO(file.stream.read().decode("UTF8"), newline=None)
+        csv_reader = csv.DictReader(stream)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        imported = 0
+        updated = 0
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):  # Row 2 (after header)
+            try:
+                name = row.get('Name', '').strip()
+                if not name:
+                    errors.append(f"Row {row_num}: Name is required")
+                    continue
+                
+                # Check if user exists
+                cursor.execute('SELECT id FROM users WHERE name = ?', (name,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    user_id = existing['id']
+                    # Update existing user
+                    cursor.execute('''
+                        UPDATE users 
+                        SET active = ?, valid_from = ?, valid_until = ?, notes = ?
+                        WHERE id = ?
+                    ''', (
+                        row.get('Active', 'Yes').strip().lower() in ['yes', 'true', '1'],
+                        row.get('Valid From', '').strip() or None,
+                        row.get('Valid Until', '').strip() or None,
+                        row.get('Notes', '').strip(),
+                        user_id
+                    ))
+                    
+                    # Clear existing credentials and groups
+                    cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
+                    cursor.execute('DELETE FROM user_pins WHERE user_id = ?', (user_id,))
+                    cursor.execute('DELETE FROM user_groups WHERE user_id = ?', (user_id,))
+                    
+                    updated += 1
+                else:
+                    # Create new user
+                    cursor.execute('''
+                        INSERT INTO users (name, active, valid_from, valid_until, notes)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        name,
+                        row.get('Active', 'Yes').strip().lower() in ['yes', 'true', '1'],
+                        row.get('Valid From', '').strip() or None,
+                        row.get('Valid Until', '').strip() or None,
+                        row.get('Notes', '').strip()
+                    ))
+                    user_id = cursor.lastrowid
+                    imported += 1
+                
+                # Add card numbers (comma-separated)
+                cards_str = row.get('Card Numbers', '').strip()
+                if cards_str:
+                    for card_num in cards_str.split(','):
+                        card_num = card_num.strip()
+                        if card_num:
+                            cursor.execute('''
+                                INSERT INTO user_cards (user_id, card_number, card_format)
+                                VALUES (?, ?, 'wiegand26')
+                            ''', (user_id, card_num))
+                
+                # Add PIN codes (comma-separated)
+                pins_str = row.get('PIN Codes', '').strip()
+                if pins_str:
+                    for pin in pins_str.split(','):
+                        pin = pin.strip()
+                        if pin:
+                            cursor.execute('''
+                                INSERT INTO user_pins (user_id, pin)
+                                VALUES (?, ?)
+                            ''', (user_id, pin))
+                
+                # Add to groups (comma-separated)
+                groups_str = row.get('Groups', '').strip()
+                if groups_str:
+                    for group_name in groups_str.split(','):
+                        group_name = group_name.strip()
+                        if group_name:
+                            cursor.execute('SELECT id FROM access_groups WHERE name = ?', (group_name,))
+                            group = cursor.fetchone()
+                            if group:
+                                cursor.execute('''
+                                    INSERT INTO user_groups (user_id, group_id)
+                                    VALUES (?, ?)
+                                ''', (user_id, group['id']))
+                            else:
+                                errors.append(f"Row {row_num}: Group '{group_name}' not found")
+                
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        # Save all changes
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Import complete: {imported} new, {updated} updated")
+        
+        return jsonify({
+            'success': True,
+            'imported': imported,
+            'updated': updated,
+            'errors': errors
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error importing CSV: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== ACCESS GROUPS API ====================
