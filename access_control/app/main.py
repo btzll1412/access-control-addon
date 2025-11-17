@@ -1194,6 +1194,38 @@ def receive_access_log():
             else:
                 logger.warning(f"  ⚠️ User '{user_name_received}' not found in database")
         
+        # Handle timestamp - convert from local time to UTC if needed
+        received_timestamp = data.get('timestamp')
+        if received_timestamp:
+            try:
+                # Parse the received timestamp
+                from datetime import datetime, timezone
+                import pytz
+                
+                # Assume ESP32 sends in EST/EDT (change this to your timezone)
+                local_tz = pytz.timezone('America/New_York')  # Change to your timezone
+                
+                # Parse timestamp (format: "2025-11-16 22:20:52")
+                dt_naive = datetime.strptime(received_timestamp, '%Y-%m-%d %H:%M:%S')
+                
+                # Localize to EST/EDT
+                dt_local = local_tz.localize(dt_naive)
+                
+                # Convert to UTC
+                dt_utc = dt_local.astimezone(pytz.UTC)
+                
+                # Format for database
+                timestamp_for_db = dt_utc.strftime('%Y-%m-%d %H:%M:%S')
+                
+                logger.info(f"  🕐 Timestamp conversion:")
+                logger.info(f"     Received: {received_timestamp} (local)")
+                logger.info(f"     Saved as: {timestamp_for_db} (UTC)")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not parse timestamp, using server time: {e}")
+                timestamp_for_db = format_timestamp_for_db()
+        else:
+            timestamp_for_db = format_timestamp_for_db()
+        
         # Insert log
         cursor.execute('''
             INSERT INTO access_logs (
@@ -1209,7 +1241,7 @@ def receive_access_log():
             data.get('credential_type'),
             data.get('access_granted'),
             data.get('reason'),
-            data.get('timestamp', format_timestamp_for_db())
+            timestamp_for_db
         ))
         
         conn.commit()
