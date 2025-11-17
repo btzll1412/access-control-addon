@@ -1,14 +1,9 @@
-# 🔐 Access Control System for Home Assistant
+📝 COMPLETE README WITH CORRECTED WIRING
+markdown# 🔐 Access Control System for Home Assistant
 
 A professional, self-hosted door access control system that runs on Home Assistant. Control multiple doors with RFID cards, PIN codes, schedules, and emergency lockdown features - all managed through a beautiful web dashboard.
 
 ![Access Control Dashboard](https://img.shields.io/badge/Home%20Assistant-Addon-blue) ![ESP32](https://img.shields.io/badge/ESP32-Compatible-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
-
----
-
-## 📸 Screenshots
-
-*(Add screenshots of your dashboard here)*
 
 ---
 
@@ -60,13 +55,16 @@ This system lets you:
 | Item | Approximate Cost | Where to Buy |
 |------|-----------------|--------------|
 | ESP32 Dev Board | $6-12 | Amazon, AliExpress |
-| Wiegand RFID Reader | $15-30 | Amazon, AliExpress |
-| Door Strike/Relay | $10-25 | Amazon, Home Depot |
-| 12V Power Supply | $8-15 | Amazon, Home Depot |
-| (Optional) Keypad | $5-10 | Amazon, AliExpress |
+| 12V Wiegand RFID Reader | $15-30 | Amazon, AliExpress |
+| 12V Door Strike/Electric Lock | $10-25 | Amazon, Home Depot |
+| 5V Relay Module | $3-8 | Amazon, AliExpress |
+| 12V to 5V Buck Converter (3A) | $3-6 | Amazon, AliExpress |
+| 12V Power Supply (2A+) | $8-15 | Amazon, Home Depot |
+| (Optional) 4x4 Keypad | $5-10 | Amazon, AliExpress |
 | RFID Cards/Fobs | $0.30-1 each | Amazon, AliExpress |
+| Jumper wires, terminal blocks | $5-10 | Amazon, AliExpress |
 
-**Total per door:** ~$50-100 (compared to $2,000+ for commercial systems!)
+**Total per door:** ~$60-120 (compared to $2,000+ for commercial systems!)
 
 ---
 
@@ -133,11 +131,12 @@ After flashing:
 See the **[Wiring Guide](#-wiring-guide)** section below for detailed diagrams.
 
 Basic steps:
-1. Connect RFID reader to ESP32 (6 wires)
-2. Connect door strike to ESP32 (2 wires)
-3. Connect power supply
-4. Mount everything securely
-5. Test!
+1. Connect 12V power supply to buck converter, readers, and relay
+2. Connect buck converter 5V output to ESP32 VIN and relay VCC
+3. Connect RFID reader to ESP32 (6 wires)
+4. Connect relay to ESP32 and door strike
+5. Test everything before final installation
+6. Mount everything securely in enclosure
 
 ### Step 6: Add Your First User (2 minutes)
 
@@ -155,83 +154,248 @@ Basic steps:
 
 ## 🔌 Wiring Guide
 
-### Simple Wiring Diagram (One Door)
+### Power Supply Architecture
 ```
-ESP32 Board                    RFID Reader
-┌─────────────┐               ┌──────────────┐
-│             │               │              │
-│   GPIO 16 ──┼───────────────┤ D0 (White)   │
-│   GPIO 17 ──┼───────────────┤ D1 (Green)   │
-│   GPIO 32 ──┼───────────────┤ LED (Yellow) │
-│   GPIO 33 ──┼───────────────┤ BEEP (Red)   │
-│   5V      ──┼───────────────┤ VCC (Red)    │
-│   GND     ──┼───────────────┤ GND (Black)  │
-│             │               │              │
-│   GPIO 4  ──┼───┐           └──────────────┘
-│             │   │
-└─────────────┘   │           Door Strike/Relay
-                  │           ┌──────────────┐
-                  └───────────┤ IN           │
-                              │              │
-                  12V ────────┤ VCC          │
-                  GND ────────┤ GND          │
-                              │              │
-                              │ NO  ─────────┤─── Door Strike
-                              │ COM ─────────┤─── 12V Power
-                              └──────────────┘
+12V Power Supply (2A+)
+        │
+        ├──→ RFID Readers (12V direct)
+        ├──→ Relay COM (12V for door strikes)
+        │
+        └──→ Buck Converter (12V to 5V)
+                    │
+                    ├──→ ESP32 VIN pin (5V)
+                    └──→ Relay Module VCC (5V)
 ```
 
-### Detailed Wiring Table
+### Visual Wiring Diagram (One Door)
+```
+                                    12V Power Supply (2A+)
+                                           │
+                    ┌──────────────────────┼────────────────────┐
+                    │                      │                    │
+                    │                      │                    │
+                 [12V]                  [12V]              [12V to 5V]
+                    │                      │               Buck Converter
+                    │                      │                    │
+                    │                      │                 [5V Out]
+                    │                      │                    │
+                    ▼                      ▼                    ├─────┬─────┐
+            RFID Reader              Relay COM                 │     │     │
+            ┌──────────┐                  │                    │     │     │
+            │ 12V  ────┤◄─────────────────┘                   ▼     ▼     ▼
+            │ GND  ────┤◄──────────────────────────────────  GND   VIN   VCC
+            │ D0   ────┤──→ GPIO 16                          ESP32      Relay
+            │ D1   ────┤──→ GPIO 17                          Board      Module
+            │ LED  ────┤──→ GPIO 32                            │          │
+            │ BEEP ────┤──→ GPIO 33                       GPIO 4 ────→ IN
+            └──────────┘                                        │          │
+                                                            [GND] ────→ GND
+                                                                         │
+                                                                      [NO]
+                                                                         │
+                                                                    Door Strike
+                                                                    (12V when
+                                                                     activated)
+```
 
-#### Door 1 RFID Reader → ESP32
+### Detailed Component Connections
 
-| Reader Pin | Wire Color (typical) | ESP32 Pin | Purpose |
-|------------|---------------------|-----------|---------|
-| D0 | White | GPIO 16 | Data 0 |
-| D1 | Green | GPIO 17 | Data 1 |
-| LED | Yellow | GPIO 32 | LED control (green light) |
-| BEEP | Red | GPIO 33 | Beeper control (red light/buzzer) |
-| VCC | Red | 5V | Power |
-| GND | Black | GND | Ground |
+#### 1️⃣ **12V Power Supply Distribution**
 
-#### Door 2 RFID Reader → ESP32 (if using 2 doors)
+Connect your 12V power supply to:
 
-| Reader Pin | ESP32 Pin | Purpose |
-|------------|-----------|---------|
-| D0 | GPIO 25 | Data 0 |
-| D1 | GPIO 26 | Data 1 |
-| LED | GPIO 14 | LED control |
-| BEEP | GPIO 27 | Beeper control |
-| VCC | 5V | Power |
-| GND | GND | Ground |
+| 12V Power Supply | Connects To | Wire Gauge | Purpose |
+|-----------------|-------------|------------|---------|
+| **12V +** | Buck Converter Input (+) | 18-20 AWG | Power for 5V conversion |
+| **12V +** | RFID Reader VCC (Door 1) | 20-22 AWG | Reader power |
+| **12V +** | RFID Reader VCC (Door 2) | 20-22 AWG | Reader power |
+| **12V +** | Relay Module COM (Door 1) | 18 AWG | Door strike power |
+| **12V +** | Relay Module COM (Door 2) | 18 AWG | Door strike power |
+| **GND (-)** | All ground connections | 18-20 AWG | Common ground |
 
-#### Door Strikes/Relays → ESP32
+⚠️ **IMPORTANT:** Use a 12V power supply rated for at least 2A. If using two door strikes, 3A+ is recommended.
 
-| Device | ESP32 Pin | Purpose |
-|--------|-----------|---------|
-| Door 1 Strike | GPIO 4 | Controls door 1 lock |
-| Door 2 Strike | GPIO 5 | Controls door 2 lock |
+#### 2️⃣ **Buck Converter (12V → 5V)**
 
-#### Optional: 4x4 Keypad → ESP32
+**Settings:**
+- Input: 12V from power supply
+- Output: **Adjust to exactly 5V** using the potentiometer (use multimeter!)
+- Current rating: 3A minimum
 
-| Keypad | ESP32 Pin |
-|--------|-----------|
-| Row 1 | GPIO 12 |
-| Row 2 | GPIO 13 |
-| Row 3 | GPIO 15 |
-| Row 4 | GPIO 2 |
-| Col 1 | GPIO 18 |
-| Col 2 | GPIO 19 |
-| Col 3 | GPIO 21 |
-| Col 4 | GPIO 22 |
+| Buck Converter Pin | Connects To | Wire Gauge | Notes |
+|-------------------|-------------|------------|-------|
+| **IN+** | 12V Power Supply + | 18-20 AWG | Input power |
+| **IN-** | 12V Power Supply GND | 18-20 AWG | Input ground |
+| **OUT+** (5V) | ESP32 VIN pin | 20-22 AWG | **CRITICAL: Verify 5V first!** |
+| **OUT+** (5V) | Relay Module VCC | 20-22 AWG | Relay logic power |
+| **OUT-** (GND) | ESP32 GND | 20-22 AWG | Common ground |
+| **OUT-** (GND) | Relay Module GND | 20-22 AWG | Common ground |
 
-### Power Supply
+⚠️ **CRITICAL:** Before connecting to ESP32, use a multimeter to verify the buck converter output is **exactly 5V**. Too high can damage the ESP32!
 
-- **ESP32**: 5V via USB or 5V pin (500mA)
-- **Door Strikes**: Usually 12V (check your specific strike - some are 5V, 9V, or 24V)
-- **RFID Readers**: 5V from ESP32 is fine
+#### 3️⃣ **RFID Reader (12V) Connections**
 
-**⚠️ IMPORTANT:** Door strikes pull a lot of current! Use a proper 12V power supply (2A+) and a relay module - **DO NOT** connect door strikes directly to ESP32!
+**Door 1 Reader → ESP32:**
+
+| Reader Pin | Wire Color (typical) | Connects To | Purpose |
+|------------|---------------------|-------------|---------|
+| **VCC** | Red | 12V Power Supply + | 12V power |
+| **GND** | Black | Power Supply GND | Ground |
+| **D0** | White | ESP32 GPIO 16 | Wiegand data 0 |
+| **D1** | Green | ESP32 GPIO 17 | Wiegand data 1 |
+| **LED** | Yellow | ESP32 GPIO 32 | Green LED control (3.3V signal) |
+| **BEEP** | Orange/Red | ESP32 GPIO 33 | Beeper/Red LED control (3.3V signal) |
+
+**Door 2 Reader → ESP32 (if using 2 doors):**
+
+| Reader Pin | Wire Color (typical) | Connects To | Purpose |
+|------------|---------------------|-------------|---------|
+| **VCC** | Red | 12V Power Supply + | 12V power |
+| **GND** | Black | Power Supply GND | Ground |
+| **D0** | White | ESP32 GPIO 25 | Wiegand data 0 |
+| **D1** | Green | ESP32 GPIO 26 | Wiegand data 1 |
+| **LED** | Yellow | ESP32 GPIO 14 | Green LED control |
+| **BEEP** | Orange/Red | ESP32 GPIO 27 | Beeper/Red LED control |
+
+📝 **Note:** Most 12V readers accept 3.3V logic signals from ESP32 for LED/BEEP control. If your reader doesn't work, you may need level shifters.
+
+#### 4️⃣ **ESP32 Dev Board Connections**
+
+| ESP32 Pin | Connects To | Purpose | Notes |
+|-----------|-------------|---------|-------|
+| **VIN** | Buck Converter 5V OUT (+) | Main power | Powers entire ESP32 |
+| **GND** | Buck Converter GND | Ground | Multiple GND pins available |
+| **GPIO 16** | Reader 1 D0 | Wiegand data | Input (internal pullup) |
+| **GPIO 17** | Reader 1 D1 | Wiegand data | Input (internal pullup) |
+| **GPIO 32** | Reader 1 LED | LED control | Output (3.3V) |
+| **GPIO 33** | Reader 1 BEEP | Beeper control | Output (3.3V) |
+| **GPIO 4** | Relay 1 IN | Door 1 control | Output (triggers relay) |
+| **GPIO 25** | Reader 2 D0 | Wiegand data | Input (internal pullup) |
+| **GPIO 26** | Reader 2 D1 | Wiegand data | Input (internal pullup) |
+| **GPIO 14** | Reader 2 LED | LED control | Output (3.3V) |
+| **GPIO 27** | Reader 2 BEEP | Beeper control | Output (3.3V) |
+| **GPIO 5** | Relay 2 IN | Door 2 control | Output (triggers relay) |
+
+📝 **Note:** Do NOT use the 3.3V pin to power anything - use VIN with 5V from buck converter.
+
+#### 5️⃣ **Relay Module (5V) Connections**
+
+**For Each Door (use 2-channel relay module for 2 doors):**
+
+| Relay Module Pin | Connects To | Purpose | Notes |
+|-----------------|-------------|---------|-------|
+| **VCC** | Buck Converter 5V OUT | Logic power | 5V for relay coil |
+| **GND** | Buck Converter GND | Ground | Common ground |
+| **IN1** | ESP32 GPIO 4 | Door 1 trigger | Active LOW (triggers on 0V) |
+| **IN2** | ESP32 GPIO 5 | Door 2 trigger | Active LOW (triggers on 0V) |
+| **COM1** | 12V Power Supply + | Door 1 power source | Switches 12V to strike |
+| **NO1** | Door Strike 1 (+) | Door 1 output | Normally Open contact |
+| **COM2** | 12V Power Supply + | Door 2 power source | Switches 12V to strike |
+| **NO2** | Door Strike 2 (+) | Door 2 output | Normally Open contact |
+
+⚠️ **IMPORTANT:** 
+- Use the **NO (Normally Open)** contact, not NC (Normally Closed)
+- Most relay modules are "active LOW" - they trigger when GPIO sends 0V (LOW)
+- The relay is just a switch - 12V never touches the ESP32!
+
+#### 6️⃣ **Door Strike / Electric Lock**
+
+**For Each Door Strike:**
+
+| Door Strike Wire | Connects To | Purpose | Notes |
+|-----------------|-------------|---------|-------|
+| **+ (Red)** | Relay NO (Normally Open) | Power input | Gets 12V when unlocked |
+| **- (Black)** | 12V Power Supply GND | Ground | Always connected |
+
+**Strike Types:**
+- **Fail-Secure** (Locked when no power) - Most common, use with NO contact
+- **Fail-Safe** (Unlocked when no power) - Use with NC contact (for fire safety)
+
+📝 **Note:** Check your strike's voltage (12V) and current rating. Some draw 500mA+, ensure your power supply can handle it.
+
+---
+
+### Complete Wiring Checklist
+
+**Power Connections:**
+- [ ] 12V power supply connected to buck converter input
+- [ ] 12V power supply connected to all reader VCC pins
+- [ ] 12V power supply connected to all relay COM terminals
+- [ ] All grounds connected together (star ground configuration recommended)
+- [ ] Buck converter adjusted to output exactly 5.0V (verified with multimeter)
+- [ ] Buck converter 5V output connected to ESP32 VIN
+- [ ] Buck converter 5V output connected to relay module VCC
+
+**Signal Connections:**
+- [ ] Reader 1: D0 → GPIO 16, D1 → GPIO 17
+- [ ] Reader 1: LED → GPIO 32, BEEP → GPIO 33
+- [ ] Reader 2: D0 → GPIO 25, D1 → GPIO 26
+- [ ] Reader 2: LED → GPIO 14, BEEP → GPIO 27
+- [ ] Relay 1: IN → GPIO 4
+- [ ] Relay 2: IN → GPIO 5
+
+**Output Connections:**
+- [ ] Relay 1: COM → 12V+, NO → Strike 1 (+)
+- [ ] Relay 2: COM → 12V+, NO → Strike 2 (+)
+- [ ] Strike 1: (-) → GND
+- [ ] Strike 2: (-) → GND
+
+---
+
+### Optional: 4x4 Keypad Wiring
+
+If adding keypads for PIN code entry:
+
+| Keypad Pin | ESP32 GPIO | Purpose |
+|------------|------------|---------|
+| **Row 1** | GPIO 12 | Keypad row 1 |
+| **Row 2** | GPIO 13 | Keypad row 2 |
+| **Row 3** | GPIO 15 | Keypad row 3 |
+| **Row 4** | GPIO 2 | Keypad row 4 |
+| **Col 1** | GPIO 18 | Keypad column 1 |
+| **Col 2** | GPIO 19 | Keypad column 2 |
+| **Col 3** | GPIO 21 | Keypad column 3 |
+| **Col 4** | GPIO 22 | Keypad column 4 |
+
+📝 **Note:** Keypads don't need external power - ESP32 provides 3.3V through GPIO pins.
+
+---
+
+### Shopping List (One Door System)
+
+**Essential Components:**
+- [ ] ESP32 Dev Board (ESP32-WROOM-32)
+- [ ] 12V Wiegand RFID Reader (e.g., Standard 125hz Readers)
+- [ ] 12V Electric Door Strike (e.g., Adams Rite 7400)
+- [ ] 5V 2-Channel Relay Module
+- [ ] 12V to 5V Buck Converter (3A, adjustable)
+- [ ] 12V 2A Power Supply (or 3A for 2 doors)
+- [ ] RFID Cards/Key Fobs (10-20 pack)
+- [ ] Jumper wires (male-to-female, 20cm, various colors)
+- [ ] Terminal blocks (screw terminals for 12V connections)
+- [ ] Project enclosure (to house ESP32, relay, buck converter)
+
+**Optional Components:**
+- [ ] 4x4 Matrix Keypad
+- [ ] Cat5e/Cat6 cable (for running wires through walls)
+- [ ] Wire connectors, ferrules, heat shrink
+- [ ] Multimeter (for testing voltages)
+- [ ] Label maker (for labeling wires)
+
+**Estimated Total Cost:** $60-100 per door
+
+---
+
+### Installation Tips
+
+1. **Test on bench first** - Wire everything up on a table before installing in walls
+2. **Use proper wire gauge** - 18 AWG for power, 22-24 AWG for signals
+3. **Label everything** - Use tape or labels on wires before running through walls
+4. **Secure connections** - Use terminal blocks or solder + heat shrink, not just twist
+5. **Weatherproof outdoor installations** - Use IP65 enclosures for outdoor readers
+6. **Cable management** - Use cable ties, conduit, or wire channels
+7. **Leave slack** - Extra wire for future adjustments
+8. **Document your installation** - Take photos of wiring for future reference
 
 ---
 
@@ -246,7 +410,7 @@ ESP32 Board                    RFID Reader
   - 🔐 **Controlled** - Requires card/PIN (after hours)
   - 🔒 **Locked** - Nobody gets in (closed/holidays)
 - **Different schedules per day** (e.g., unlocked Mon-Fri 9am-5pm, locked weekends)
-- **Unlock duration** - How long door stays unlocked (default 3 seconds)
+- **Unlock duration** - How long door stays unlocked (default 3 seconds, adjustable)
 
 ### 👥 User Management
 
@@ -432,8 +596,10 @@ For evacuations, set auto-reset timer:
 - ❌ **Strike wiring** → Check relay connections, check 12V power
 - ❌ **Relay backwards** → Try swapping NO/NC connections
 - ❌ **Power supply** → Door strikes need lots of current - use 2A+ power supply
+- ❌ **Buck converter voltage** → Verify it's outputting 5V, not higher/lower
 - ❌ **Unlock duration too short** → Increase to 5000ms in door settings
 - ✅ **Test relay** → Manual unlock from dashboard - does relay click?
+- ✅ **Check voltage at strike** → Should see 12V when activated
 
 ### Reader beeps red/card denied
 
@@ -450,6 +616,15 @@ Check the **Access Logs** tab - it tells you exactly why:
 - ❌ **No COM port showing** → Install driver (see Step 2 above)
 - ❌ **"Failed to connect"** → Hold BOOT button on ESP32 while clicking "Connect"
 - ❌ **"Permission denied"** → Close Arduino IDE (can't have two programs using COM port)
+
+### ESP32 randomly reboots or unstable
+
+**Solutions:**
+- ❌ **Insufficient power** → Buck converter may be undersized, use 3A minimum
+- ❌ **Voltage drop** → Check wiring from buck converter to ESP32 VIN
+- ❌ **Bad power supply** → Cheap 12V adapters can be noisy, use quality supply
+- ❌ **EMI from relay** → Add 0.1µF capacitor across relay coil
+- ✅ **Check voltage under load** → Measure 5V at ESP32 VIN while relay activates
 
 ---
 
@@ -495,7 +670,8 @@ access-control-addon/
 │   ├── firmware.bin                 # ESP32 firmware
 │   ├── bootloader.bin               # Bootloader
 │   ├── partitions.bin               # Partition table
-│   └── boot_app0.bin                # Boot application
+│   ├── boot_app0.bin                # Boot application
+│   └── README.md                    # Flasher instructions
 ├── CHANGELOG.md                     # Version history
 ├── DOCS.md                          # Detailed documentation
 └── README.md                        # This file
@@ -540,7 +716,7 @@ You are free to:
 
 - **Issues**: [GitHub Issues](https://github.com/btzll1412/access-control-addon/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/btzll1412/access-control-addon/discussions)
-- **Email**: [your-email@example.com]
+- **Documentation**: [Full Docs](./DOCS.md)
 
 ---
 
@@ -579,32 +755,3 @@ If this project helped you, please:
 [⬆ Back to Top](#-access-control-system-for-home-assistant)
 
 </div>
-```
-
----
-
-## 🎨 **OPTIONAL: Add These Files Too**
-
-### **LICENSE** file:
-```
-MIT License
-
-Copyright (c) 2025 Betzalel
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
