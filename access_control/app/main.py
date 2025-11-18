@@ -391,6 +391,9 @@ def index():
 def get_stats():
     """Get dashboard statistics"""
     try:
+        # Update stale boards before counting
+        mark_stale_boards_offline()
+        
         conn = get_db()
         cursor = conn.cursor()
         
@@ -780,6 +783,34 @@ def get_emergency_status():
 
 
 # ==================== BOARD API ====================
+def mark_stale_boards_offline():
+    """Mark boards as offline if they haven't sent heartbeat in 2 minutes"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Update boards that are marked online but haven't been seen recently
+        cursor.execute('''
+            UPDATE boards 
+            SET online = 0
+            WHERE online = 1 
+              AND last_seen IS NOT NULL
+              AND (julianday('now') - julianday(last_seen)) * 86400 > 120
+        ''')
+        
+        updated = cursor.rowcount
+        if updated > 0:
+            logger.info(f"🔴 Marked {updated} board(s) as offline (no heartbeat for 2+ minutes)")
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Error marking stale boards offline: {e}")
+
+
+
+# ==================== BOARD API ====================
 # ==================== BOARD API ====================
 @app.route('/api/boards', methods=['GET'])
 def get_boards():
@@ -789,6 +820,9 @@ def get_boards():
     logger.info("=" * 50)
     
     try:
+        # Update stale boards before loading
+        mark_stale_boards_offline()
+        
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM boards ORDER BY name')
@@ -1532,8 +1566,11 @@ def delete_pending_board(pending_id):
 
 @app.route('/api/doors', methods=['GET'])
 def get_doors():
-    """Get all doors with status information"""
+    """Get all doors"""
     try:
+        # Update stale boards before loading doors
+        mark_stale_boards_offline()
+        
         conn = get_db()
         cursor = conn.cursor()
         
