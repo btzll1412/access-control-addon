@@ -2677,7 +2677,7 @@ def get_logs():
             params.extend([search_param] * 5)
         
         # Order by timestamp descending (newest first)
-        query += ' ORDER BY al.timestamp DESC LIMIT ?'
+        query += ' ORDER BY datetime(al.timestamp) DESC LIMIT ?'
         params.append(limit)
         
         logger.info(f"🔍 Executing query with {len(params)} parameters")
