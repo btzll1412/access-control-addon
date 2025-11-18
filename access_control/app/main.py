@@ -1311,8 +1311,8 @@ def sync_board_full(board_id):
             
             user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
             
-            if user_dict['doors']:  # Only include users who have access to this board
-                users.append(user_dict)
+            # ALWAYS include user, even if no door access (for proper logging)
+            users.append(user_dict)
         
         # Get door schedules for this board
         cursor.execute('''
