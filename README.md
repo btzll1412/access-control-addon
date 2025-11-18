@@ -106,7 +106,7 @@ After flashing:
 
 1. ESP32 creates a WiFi network called **"AccessControl-Setup"**
 2. **Connect to this WiFi** on your phone/computer
-3. Password: **12345678**
+3. Password: **Config123**
 4. A setup page should open automatically (if not, visit **http://192.168.4.1**)
 5. Enter:
    - Your home WiFi name (SSID)
