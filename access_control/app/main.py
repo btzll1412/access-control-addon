@@ -1453,7 +1453,7 @@ def sync_board_full(board_id):
         # Build sync payload
         sync_data = {
             'users': users,
-            'door_schedules': door_schedules
+            'door_schedules': door_schedules,
             'door_names': door_names
         }
         
