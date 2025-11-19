@@ -1001,22 +1001,102 @@ def update_board(board_id):
 
 @app.route('/api/boards/<int:board_id>', methods=['DELETE'])
 def delete_board(board_id):
-    """Delete a board (cascades to doors)"""
+    """Delete a board and preserve access logs"""
     try:
-        print(f"🗑️ Deleting board ID {board_id}")
+        logger.info(f"🗑️ Delete board request: ID={board_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
+        # Get board info
+        cursor.execute('SELECT name FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        if not board:
+            conn.close()
+            logger.warning(f"⚠️ Board not found: ID={board_id}")
+            return jsonify({'success': False, 'message': 'Board not found'}), 404
+        
+        board_name = board['name']
+        
+        # Count what will be affected
+        cursor.execute('SELECT COUNT(*) as count FROM doors WHERE board_id = ?', (board_id,))
+        door_count = cursor.fetchone()['count']
+        
+        cursor.execute('''
+            SELECT COUNT(*) as count FROM access_logs 
+            WHERE door_id IN (SELECT id FROM doors WHERE board_id = ?)
+        ''', (board_id,))
+        log_count = cursor.fetchone()['count']
+        
+        logger.info(f"🗑️ Deleting board '{board_name}':")
+        logger.info(f"   - {door_count} doors")
+        logger.info(f"   - {log_count} logs will be preserved")
+        
+        # STEP 1: Nullify door_id in access_logs (preserve logs!)
+        cursor.execute('''
+            UPDATE access_logs 
+            SET door_id = NULL
+            WHERE door_id IN (
+                SELECT id FROM doors WHERE board_id = ?
+            )
+        ''', (board_id,))
+        
+        nullified = cursor.rowcount
+        if nullified > 0:
+            logger.info(f"   ✅ Preserved {nullified} access logs")
+        
+        # STEP 2: Delete door schedules (cascade won't handle this)
+        cursor.execute('''
+            DELETE FROM door_schedules 
+            WHERE door_id IN (
+                SELECT id FROM doors WHERE board_id = ?
+            )
+        ''', (board_id,))
+        
+        schedules_deleted = cursor.rowcount
+        if schedules_deleted > 0:
+            logger.info(f"   🗑️ Deleted {schedules_deleted} door schedules")
+        
+        # STEP 3: Delete group_doors relationships
+        cursor.execute('''
+            DELETE FROM group_doors 
+            WHERE door_id IN (
+                SELECT id FROM doors WHERE board_id = ?
+            )
+        ''', (board_id,))
+        
+        groups_deleted = cursor.rowcount
+        if groups_deleted > 0:
+            logger.info(f"   🗑️ Deleted {groups_deleted} group-door assignments")
+        
+        # STEP 4: Delete doors
+        cursor.execute('DELETE FROM doors WHERE board_id = ?', (board_id,))
+        logger.info(f"   🗑️ Deleted {door_count} doors")
+        
+        # STEP 5: Delete board
         cursor.execute('DELETE FROM boards WHERE id = ?', (board_id,))
         
         conn.commit()
         conn.close()
         
-        print(f"✅ Board {board_id} deleted")
-        return jsonify({'success': True, 'message': 'Board deleted successfully'})
+        logger.info(f"✅ Board '{board_name}' deleted successfully")
+        logger.info(f"   📜 {log_count} historical access logs preserved")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Board "{board_name}" deleted successfully'
+        })
+        
     except Exception as e:
-        print(f"❌ Error deleting board: {e}")
+        logger.error(f"❌ Error deleting board {board_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        if conn:
+            conn.rollback()
+            conn.close()
+        
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
