@@ -1450,11 +1450,23 @@ def sync_board_full(board_id):
                 'end': row['end_time']
             })
         
+        # ✅ NEW: Get door names for this board
+        cursor.execute('''
+            SELECT door_number, name 
+            FROM doors 
+            WHERE board_id = ?
+            ORDER BY door_number
+        ''', (board_id,))
+        
+        door_names = {}
+        for row in cursor.fetchall():
+            door_names[str(row['door_number'])] = row['name']
+        
         # Build sync payload
         sync_data = {
             'users': users,
             'door_schedules': door_schedules,
-            'door_names': door_names
+            'door_names': door_names  # ← Now defined!
         }
         
         # Send to board
@@ -1475,6 +1487,8 @@ def sync_board_full(board_id):
             
     except Exception as e:
         print(f"❌ Error syncing board: {e}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         if conn:
