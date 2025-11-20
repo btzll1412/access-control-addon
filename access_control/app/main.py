@@ -1061,19 +1061,6 @@ def get_stats():
             conn.close()
 
 
-@app.route('/api/timezone', methods=['GET'])
-def get_timezone_info():
-    """Get current timezone configuration"""
-    try:
-        now = get_local_timestamp()
-        return jsonify({
-            'success': True,
-            'timezone': TIMEZONE,
-            'current_time': now.strftime('%Y-%m-%d %I:%M:%S %p %Z'),
-            'utc_offset': now.strftime('%z')
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/timezone', methods=['GET'])
