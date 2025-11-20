@@ -1,5 +1,8 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 import logging
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+import secrets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,12 +18,83 @@ import csv
 from io import StringIO
 from requests.auth import HTTPBasicAuth
 
-from datetime import datetime, timedelta
+# ==================== AUTH CONFIGURATION ====================
+def get_auth_config():
+    """Read authentication settings from add-on options"""
+    try:
+        if os.path.exists('/data/options.json'):
+            with open('/data/options.json', 'r') as f:
+                options = json.load(f)
+                return {
+                    'enabled': options.get('auth_enabled', True),
+                    'username': options.get('auth_username', 'admin'),
+                    'password': options.get('auth_password', 'admin')
+                }
+    except Exception as e:
+        print(f"⚠️  Could not read auth config: {e}")
+    
+    return {
+        'enabled': True,
+        'username': 'admin',
+        'password': 'admin'
+    }
+
+AUTH_CONFIG = get_auth_config()
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)
 
 # Database path
 DB_PATH = '/data/access_control.db'
+
+# ==================== AUTHENTICATION HELPERS ====================
+def login_required(f):
+    """Decorator to require login for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not AUTH_CONFIG['enabled']:
+            return f(*args, **kwargs)
+        
+        if 'logged_in' not in session:
+            return jsonify({'error': 'Authentication required', 'login_required': True}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def get_current_user():
+    """Get currently logged in username"""
+    return session.get('username', 'System')
+
+def init_admin_user():
+    """Initialize default admin user from config"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT id FROM admin_users WHERE username = ?', (AUTH_CONFIG['username'],))
+        if not cursor.fetchone():
+            password_hash = generate_password_hash(AUTH_CONFIG['password'])
+            cursor.execute('''
+                INSERT INTO admin_users (username, password_hash, role)
+                VALUES (?, ?, 'admin')
+            ''', (AUTH_CONFIG['username'], password_hash))
+            conn.commit()
+            print(f"✅ Admin user '{AUTH_CONFIG['username']}' created")
+        else:
+            # Update password if changed in config
+            password_hash = generate_password_hash(AUTH_CONFIG['password'])
+            cursor.execute('''
+                UPDATE admin_users 
+                SET password_hash = ?
+                WHERE username = ?
+            ''', (password_hash, AUTH_CONFIG['username']))
+            conn.commit()
+    except Exception as e:
+        print(f"⚠️  Error initializing admin user: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 import pytz
 
@@ -28,7 +102,6 @@ import pytz
 def get_timezone_from_config():
     """Read timezone from add-on options"""
     try:
-        # Try to read from Home Assistant add-on options
         if os.path.exists('/data/options.json'):
             with open('/data/options.json', 'r') as f:
                 options = json.load(f)
@@ -36,7 +109,6 @@ def get_timezone_from_config():
     except Exception as e:
         print(f"⚠️  Could not read timezone from config: {e}")
     
-    # Fallback to environment variable or default
     return os.environ.get('TZ', 'America/New_York')
 
 # Set timezone
@@ -73,17 +145,13 @@ def format_timestamp_for_display(timestamp_str):
         if not timestamp_str:
             return 'N/A'
         
-        # Parse the timestamp
         dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
         
-        # If no timezone info, assume UTC
         if dt.tzinfo is None:
             dt = pytz.utc.localize(dt)
         
-        # Convert to local timezone
         local_dt = dt.astimezone(LOCAL_TZ)
         
-        # Format as readable string with 12-hour time
         return local_dt.strftime('%Y-%m-%d %I:%M:%S %p')
     except Exception as e:
         return str(timestamp_str)
@@ -92,9 +160,9 @@ def get_db():
     """Get database connection with proper settings to prevent locks"""
     conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    # Enable WAL mode to prevent database locks
     conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA foreign_keys = ON')
+    conn.execute('PRAGMA busy_timeout = 30000')
     return conn
 
 def migrate_database():
@@ -159,6 +227,100 @@ def migrate_database():
                 print("  ➕ Adding emergency_override_at column...")
                 cursor.execute("ALTER TABLE doors ADD COLUMN emergency_override_at TIMESTAMP")
         
+        # Admin users table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_users'")
+        if not cursor.fetchone():
+            print("  ➕ Creating admin_users table...")
+            cursor.execute("""
+                CREATE TABLE admin_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """)
+        
+        # Temporary codes table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='temp_codes'")
+        if not cursor.fetchone():
+            print("  ➕ Creating temp_codes table...")
+            cursor.execute("""
+                CREATE TABLE temp_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    active BOOLEAN DEFAULT 1,
+                    
+                    usage_type TEXT NOT NULL CHECK(usage_type IN ('one_time', 'limited', 'unlimited')),
+                    max_uses INTEGER DEFAULT 1,
+                    current_uses INTEGER DEFAULT 0,
+                    
+                    time_type TEXT NOT NULL CHECK(time_type IN ('hours', 'date_range', 'permanent')),
+                    valid_hours INTEGER,
+                    valid_from TIMESTAMP,
+                    valid_until TIMESTAMP,
+                    last_activated_at TIMESTAMP,
+                    
+                    access_method TEXT DEFAULT 'doors' CHECK(access_method IN ('doors', 'groups')),
+                    created_by TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used_at TIMESTAMP,
+                    last_used_door TEXT,
+                    notes TEXT
+                )
+            """)
+        
+        # Temp code doors table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='temp_code_doors'")
+        if not cursor.fetchone():
+            print("  ➕ Creating temp_code_doors table...")
+            cursor.execute("""
+                CREATE TABLE temp_code_doors (
+                    temp_code_id INTEGER NOT NULL,
+                    door_id INTEGER NOT NULL,
+                    FOREIGN KEY (temp_code_id) REFERENCES temp_codes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE,
+                    PRIMARY KEY (temp_code_id, door_id)
+                )
+            """)
+        
+        # Temp code groups table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='temp_code_groups'")
+        if not cursor.fetchone():
+            print("  ➕ Creating temp_code_groups table...")
+            cursor.execute("""
+                CREATE TABLE temp_code_groups (
+                    temp_code_id INTEGER NOT NULL,
+                    group_id INTEGER NOT NULL,
+                    FOREIGN KEY (temp_code_id) REFERENCES temp_codes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (group_id) REFERENCES access_groups(id) ON DELETE CASCADE,
+                    PRIMARY KEY (temp_code_id, group_id)
+                )
+            """)
+        
+        # Add temp code fields to access_logs if missing
+        cursor.execute("PRAGMA table_info(access_logs)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'temp_code_id' not in columns:
+            print("  ➕ Adding temp_code_id to access_logs...")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN temp_code_id INTEGER")
+        
+        if 'temp_code_name' not in columns:
+            print("  ➕ Adding temp_code_name to access_logs...")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN temp_code_name TEXT")
+        
+        if 'temp_code_usage_count' not in columns:
+            print("  ➕ Adding temp_code_usage_count to access_logs...")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN temp_code_usage_count INTEGER")
+        
+        if 'temp_code_remaining' not in columns:
+            print("  ➕ Adding temp_code_remaining to access_logs...")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN temp_code_remaining TEXT")
+        
         conn.commit()
         print("  ✅ Migration completed")
     except Exception as e:
@@ -208,7 +370,7 @@ def init_db():
     ''')
     print("  ✅ Pending boards table created")
     
-    # Doors table (auto-populated from boards)
+    # Doors table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS doors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,7 +437,7 @@ def init_db():
     ''')
     print("  ✅ Access groups table created")
     
-    # Group doors table (many-to-many)
+    # Group doors table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS group_doors (
             group_id INTEGER NOT NULL,
@@ -287,7 +449,7 @@ def init_db():
     ''')
     print("  ✅ Group doors table created")
     
-    # User groups table (many-to-many)
+    # User groups table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_groups (
             user_id INTEGER NOT NULL,
@@ -299,7 +461,7 @@ def init_db():
     ''')
     print("  ✅ User groups table created")
     
-    # Access schedules table (time-based access for users)
+    # Access schedules table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS access_schedules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -324,7 +486,7 @@ def init_db():
     ''')
     print("  ✅ Schedule times table created")
     
-    # User schedules table (many-to-many)
+    # User schedules table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_schedules (
             user_id INTEGER NOT NULL,
@@ -336,7 +498,7 @@ def init_db():
     ''')
     print("  ✅ User schedules table created")
     
-    # Door schedules table (what mode is door in at different times)
+    # Door schedules table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS door_schedules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,16 +542,473 @@ def init_db():
 # Initialize database on startup
 init_db()
 migrate_database()
+init_admin_user()
+
+# ==================== AUTHENTICATION API ====================
+@app.route('/api/login', methods=['POST'])
+def login():
+    """Login endpoint"""
+    conn = None
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Username and password required'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT password_hash FROM admin_users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        
+        if user and check_password_hash(user['password_hash'], password):
+            session['logged_in'] = True
+            session['username'] = username
+            
+            cursor.execute('UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?', (username,))
+            conn.commit()
+            
+            logger.info(f"✅ User '{username}' logged in")
+            return jsonify({'success': True, 'message': 'Login successful'})
+        else:
+            logger.warning(f"❌ Failed login attempt for '{username}'")
+            return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+            
+    except Exception as e:
+        logger.error(f"❌ Login error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    """Logout endpoint"""
+    username = session.get('username', 'Unknown')
+    session.clear()
+    logger.info(f"✅ User '{username}' logged out")
+    return jsonify({'success': True, 'message': 'Logged out'})
+
+@app.route('/api/auth-status', methods=['GET'])
+def auth_status():
+    """Check if user is logged in"""
+    return jsonify({
+        'authenticated': 'logged_in' in session,
+        'auth_required': AUTH_CONFIG['enabled'],
+        'username': session.get('username')
+    })
 
 @app.route('/')
 def index():
     """Main dashboard page"""
     return render_template('dashboard.html')
 
+# ==================== TEMPORARY CODES API ====================
+
+@app.route('/api/temp-codes', methods=['GET'])
+@login_required
+def get_temp_codes():
+    """Get all temporary access codes with status"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM temp_codes ORDER BY created_at DESC')
+        
+        codes_data = cursor.fetchall()
+        codes = []
+        
+        now = get_local_timestamp()
+        
+        for code in codes_data:
+            code_dict = dict(code)
+            
+            # Determine status
+            status = "active"
+            status_color = "#10b981"
+            status_text = "Active"
+            
+            if not code_dict['active']:
+                status = "disabled"
+                status_color = "#6b7280"
+                status_text = "Disabled"
+            
+            # Check usage limits
+            elif code_dict['usage_type'] == 'one_time' and code_dict['current_uses'] >= 1:
+                status = "used_up"
+                status_color = "#ef4444"
+                status_text = "Used"
+            
+            elif code_dict['usage_type'] == 'limited' and code_dict['current_uses'] >= code_dict['max_uses']:
+                status = "used_up"
+                status_color = "#ef4444"
+                status_text = f"Used ({code_dict['current_uses']}/{code_dict['max_uses']})"
+            
+            # Check time limits
+            elif code_dict['time_type'] == 'hours':
+                if code_dict['last_activated_at']:
+                    activated = datetime.fromisoformat(code_dict['last_activated_at'])
+                else:
+                    activated = datetime.fromisoformat(code_dict['created_at'])
+                
+                if activated.tzinfo is None:
+                    activated = pytz.utc.localize(activated)
+                
+                expiry = activated + timedelta(hours=code_dict['valid_hours'])
+                
+                if now > expiry:
+                    status = "expired"
+                    status_color = "#f59e0b"
+                    status_text = "Expired"
+                else:
+                    remaining = expiry - now
+                    hours_left = int(remaining.total_seconds() / 3600)
+                    mins_left = int((remaining.total_seconds() % 3600) / 60)
+                    status_text = f"Active ({hours_left}h {mins_left}m left)"
+            
+            elif code_dict['time_type'] == 'date_range':
+                valid_from = datetime.fromisoformat(code_dict['valid_from'])
+                valid_until = datetime.fromisoformat(code_dict['valid_until'])
+                
+                if valid_from.tzinfo is None:
+                    valid_from = pytz.utc.localize(valid_from)
+                if valid_until.tzinfo is None:
+                    valid_until = pytz.utc.localize(valid_until)
+                
+                if now < valid_from:
+                    status = "not_yet_valid"
+                    status_color = "#f59e0b"
+                    status_text = "Not Yet Valid"
+                elif now > valid_until:
+                    status = "expired"
+                    status_color = "#f59e0b"
+                    status_text = "Expired"
+            
+            code_dict['status'] = status
+            code_dict['status_color'] = status_color
+            code_dict['status_text'] = status_text
+            
+            # Get doors
+            cursor.execute('''
+                SELECT d.id, d.name, b.name as board_name
+                FROM doors d
+                JOIN temp_code_doors tcd ON d.id = tcd.door_id
+                JOIN boards b ON d.board_id = b.id
+                WHERE tcd.temp_code_id = ?
+            ''', (code_dict['id'],))
+            
+            code_dict['doors'] = [dict(door) for door in cursor.fetchall()]
+            
+            # Get groups
+            cursor.execute('''
+                SELECT ag.id, ag.name
+                FROM access_groups ag
+                JOIN temp_code_groups tcg ON ag.id = tcg.group_id
+                WHERE tcg.temp_code_id = ?
+            ''', (code_dict['id'],))
+            
+            code_dict['groups'] = [dict(group) for group in cursor.fetchall()]
+            
+            # Format timestamps
+            if code_dict['created_at']:
+                code_dict['created_at'] = format_timestamp_for_display(code_dict['created_at'])
+            if code_dict['last_used_at']:
+                code_dict['last_used_at'] = format_timestamp_for_display(code_dict['last_used_at'])
+            if code_dict['last_activated_at']:
+                code_dict['last_activated_at'] = format_timestamp_for_display(code_dict['last_activated_at'])
+            if code_dict['valid_from']:
+                code_dict['valid_from'] = format_timestamp_for_display(code_dict['valid_from'])
+            if code_dict['valid_until']:
+                code_dict['valid_until'] = format_timestamp_for_display(code_dict['valid_until'])
+            
+            codes.append(code_dict)
+        
+        return jsonify({'success': True, 'temp_codes': codes})
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting temp codes: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/temp-codes', methods=['POST'])
+@login_required
+def create_temp_code():
+    """Create a new temporary access code"""
+    conn = None
+    try:
+        data = request.json
+        logger.info(f"🎫 Creating temp code: {data.get('name')}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Generate unique code
+        code = data.get('code', '').strip()
+        if not code:
+            import random
+            while True:
+                code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+                cursor.execute('SELECT id FROM temp_codes WHERE code = ?', (code,))
+                if not cursor.fetchone():
+                    break
+        
+        # Calculate time limits
+        valid_from = None
+        valid_until = None
+        valid_hours = None
+        last_activated_at = None
+        
+        time_type = data.get('time_type', 'hours')
+        
+        if time_type == 'hours':
+            valid_hours = data.get('valid_hours', 24)
+            last_activated_at = format_timestamp_for_db()
+        elif time_type == 'date_range':
+            valid_from = data.get('valid_from')
+            valid_until = data.get('valid_until')
+        
+        # Insert temp code
+        cursor.execute('''
+            INSERT INTO temp_codes (
+                code, name, description, active,
+                usage_type, max_uses, current_uses,
+                time_type, valid_hours, valid_from, valid_until, last_activated_at,
+                access_method, created_by, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            code,
+            data['name'],
+            data.get('description', ''),
+            data.get('active', True),
+            data.get('usage_type', 'one_time'),
+            data.get('max_uses', 1),
+            time_type,
+            valid_hours,
+            valid_from,
+            valid_until,
+            last_activated_at,
+            data.get('access_method', 'doors'),
+            get_current_user(),
+            data.get('notes', '')
+        ))
+        
+        temp_code_id = cursor.lastrowid
+        
+        # Add door or group access
+        if data.get('access_method') == 'groups':
+            if 'group_ids' in data:
+                for group_id in data['group_ids']:
+                    cursor.execute('''
+                        INSERT INTO temp_code_groups (temp_code_id, group_id)
+                        VALUES (?, ?)
+                    ''', (temp_code_id, group_id))
+        else:
+            if 'door_ids' in data:
+                for door_id in data['door_ids']:
+                    cursor.execute('''
+                        INSERT INTO temp_code_doors (temp_code_id, door_id)
+                        VALUES (?, ?)
+                    ''', (temp_code_id, door_id))
+        
+        conn.commit()
+        
+        logger.info(f"✅ Temp code created: {code} (ID: {temp_code_id})")
+        return jsonify({
+            'success': True,
+            'message': 'Temporary code created',
+            'temp_code_id': temp_code_id,
+            'code': code
+        })
+        
+    except sqlite3.IntegrityError:
+        return jsonify({'success': False, 'message': 'Code already exists'}), 400
+    except Exception as e:
+        logger.error(f"❌ Error creating temp code: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/temp-codes/<int:temp_code_id>', methods=['PUT'])
+@login_required
+def update_temp_code(temp_code_id):
+    """Update a temporary code"""
+    conn = None
+    try:
+        data = request.json
+        logger.info(f"✏️ Updating temp code ID {temp_code_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Update temp code
+        cursor.execute('''
+            UPDATE temp_codes 
+            SET name = ?, description = ?, active = ?,
+                usage_type = ?, max_uses = ?,
+                time_type = ?, valid_hours = ?, valid_from = ?, valid_until = ?,
+                access_method = ?, notes = ?
+            WHERE id = ?
+        ''', (
+            data['name'],
+            data.get('description', ''),
+            data.get('active', True),
+            data.get('usage_type', 'one_time'),
+            data.get('max_uses', 1),
+            data.get('time_type', 'hours'),
+            data.get('valid_hours'),
+            data.get('valid_from'),
+            data.get('valid_until'),
+            data.get('access_method', 'doors'),
+            data.get('notes', ''),
+            temp_code_id
+        ))
+        
+        # Update access
+        cursor.execute('DELETE FROM temp_code_doors WHERE temp_code_id = ?', (temp_code_id,))
+        cursor.execute('DELETE FROM temp_code_groups WHERE temp_code_id = ?', (temp_code_id,))
+        
+        if data.get('access_method') == 'groups':
+            if 'group_ids' in data:
+                for group_id in data['group_ids']:
+                    cursor.execute('''
+                        INSERT INTO temp_code_groups (temp_code_id, group_id)
+                        VALUES (?, ?)
+                    ''', (temp_code_id, group_id))
+        else:
+            if 'door_ids' in data:
+                for door_id in data['door_ids']:
+                    cursor.execute('''
+                        INSERT INTO temp_code_doors (temp_code_id, door_id)
+                        VALUES (?, ?)
+                    ''', (temp_code_id, door_id))
+        
+        conn.commit()
+        
+        logger.info(f"✅ Temp code {temp_code_id} updated")
+        return jsonify({'success': True, 'message': 'Temporary code updated'})
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating temp code: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/temp-codes/<int:temp_code_id>', methods=['DELETE'])
+@login_required
+def delete_temp_code(temp_code_id):
+    """Delete a temporary code"""
+    conn = None
+    try:
+        logger.info(f"🗑️ Deleting temp code ID {temp_code_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM temp_codes WHERE id = ?', (temp_code_id,))
+        
+        conn.commit()
+        
+        logger.info(f"✅ Temp code {temp_code_id} deleted")
+        return jsonify({'success': True, 'message': 'Temporary code deleted'})
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting temp code: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/temp-codes/<int:temp_code_id>/toggle', methods=['PATCH'])
+@login_required
+def toggle_temp_code(temp_code_id):
+    """Toggle temp code active/inactive"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM temp_codes WHERE id = ?', (temp_code_id,))
+        temp_code = cursor.fetchone()
+        
+        if not temp_code:
+            return jsonify({'success': False, 'message': 'Temp code not found'}), 404
+        
+        current_active = temp_code['active']
+        new_active = not current_active
+        
+        # If activating an expired date-based code, check validity
+        if new_active and temp_code['time_type'] == 'date_range':
+            now = get_local_timestamp()
+            valid_until = datetime.fromisoformat(temp_code['valid_until'])
+            if valid_until.tzinfo is None:
+                valid_until = pytz.utc.localize(valid_until)
+            
+            if now > valid_until:
+                return jsonify({
+                    'success': False,
+                    'expired': True,
+                    'message': 'Cannot activate expired code. Please edit expiration date.',
+                    'expired_at': format_timestamp_for_display(temp_code['valid_until'])
+                }), 400
+        
+        # If activating hours-based code, reset activation time
+        if new_active and temp_code['time_type'] == 'hours':
+            cursor.execute('''
+                UPDATE temp_codes 
+                SET active = ?, last_activated_at = ?
+                WHERE id = ?
+            ''', (new_active, format_timestamp_for_db(), temp_code_id))
+            
+            logger.info(f"✅ Temp code {temp_code_id} reactivated with new {temp_code['valid_hours']}h timer")
+        else:
+            cursor.execute('''
+                UPDATE temp_codes 
+                SET active = ?
+                WHERE id = ?
+            ''', (new_active, temp_code_id))
+            
+            logger.info(f"✅ Temp code {temp_code_id} {'activated' if new_active else 'deactivated'}")
+        
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'active': new_active,
+            'message': f"Temp code {'activated' if new_active else 'deactivated'}"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error toggling temp code: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # ==================== STATS API ====================
 @app.route('/api/stats', methods=['GET'])
+@login_required
 def get_stats():
     """Get dashboard statistics"""
+    conn = None
     try:
         # Update stale boards before counting
         mark_stale_boards_offline()
@@ -397,22 +1016,18 @@ def get_stats():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Count boards
         cursor.execute('SELECT COUNT(*) as count FROM boards')
         total_boards = cursor.fetchone()['count']
         
         cursor.execute('SELECT COUNT(*) as count FROM boards WHERE online = 1')
         online_boards = cursor.fetchone()['count']
         
-        # Count users
         cursor.execute('SELECT COUNT(*) as count FROM users WHERE active = 1')
         active_users = cursor.fetchone()['count']
         
-        # Count doors
         cursor.execute('SELECT COUNT(*) as count FROM doors')
         total_doors = cursor.fetchone()['count']
         
-        # Count today's access events
         cursor.execute('''
             SELECT COUNT(*) as count 
             FROM access_logs 
@@ -420,15 +1035,12 @@ def get_stats():
         ''')
         today_events = cursor.fetchone()['count']
         
-        # Count emergency active
         cursor.execute('''
             SELECT COUNT(*) as count 
             FROM boards 
             WHERE emergency_mode IS NOT NULL
         ''')
         emergency_active = cursor.fetchone()['count']
-        
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -442,7 +1054,25 @@ def get_stats():
             }
         })
     except Exception as e:
-        print(f"❌ Error getting stats: {e}")
+        logger.error(f"❌ Error getting stats: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/timezone', methods=['GET'])
+def get_timezone_info():
+    """Get current timezone configuration"""
+    try:
+        now = get_local_timestamp()
+        return jsonify({
+            'success': True,
+            'timezone': TIMEZONE,
+            'current_time': now.strftime('%Y-%m-%d %I:%M:%S %p %Z'),
+            'utc_offset': now.strftime('%z')
+        })
+    except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -462,26 +1092,25 @@ def get_timezone_info():
 
 # ==================== EMERGENCY API ====================
 @app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
+@login_required
 def emergency_lock_board(board_id):
     """Emergency lock all doors on a board"""
+    conn = None
     try:
         data = request.json
-        activated_by = data.get('activated_by', 'Dashboard User')
+        activated_by = data.get('activated_by', get_current_user())
         
-        print(f"🚨 EMERGENCY LOCK activated on board {board_id} by {activated_by}")
+        logger.info(f"🚨 EMERGENCY LOCK activated on board {board_id} by {activated_by}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get board info
         cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
         if not board:
-            conn.close()
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
-        # Set emergency lock mode
         cursor.execute('''
             UPDATE boards 
             SET emergency_mode = 'lock',
@@ -491,7 +1120,6 @@ def emergency_lock_board(board_id):
             WHERE id = ?
         ''', (activated_by, board_id))
         
-        # Log emergency action
         cursor.execute('''
             INSERT INTO access_logs 
             (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
@@ -499,7 +1127,6 @@ def emergency_lock_board(board_id):
         ''', (board['name'], f'Emergency lock activated by {activated_by}', format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
         # Send emergency lock to ESP32
         try:
@@ -514,34 +1141,37 @@ def emergency_lock_board(board_id):
         })
         
     except Exception as e:
-        print(f"❌ Error activating emergency lock: {e}")
+        logger.error(f"❌ Error activating emergency lock: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards/<int:board_id>/emergency-unlock', methods=['POST'])
+@login_required
 def emergency_unlock_board(board_id):
     """Emergency unlock all doors on a board"""
+    conn = None
     try:
         data = request.json
-        activated_by = data.get('activated_by', 'Dashboard User')
+        activated_by = data.get('activated_by', get_current_user())
         auto_reset_minutes = data.get('auto_reset_minutes', 30)
         
-        print(f"🚨 EMERGENCY UNLOCK activated on board {board_id} by {activated_by}")
+        logger.info(f"🚨 EMERGENCY UNLOCK activated on board {board_id} by {activated_by}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get board info
         cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
         if not board:
-            conn.close()
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
-        # Calculate auto-reset time
         auto_reset_at = datetime.now() + timedelta(minutes=auto_reset_minutes)
         
-        # Set emergency unlock mode
         cursor.execute('''
             UPDATE boards 
             SET emergency_mode = 'unlock',
@@ -551,7 +1181,6 @@ def emergency_unlock_board(board_id):
             WHERE id = ?
         ''', (activated_by, auto_reset_at.isoformat(), board_id))
         
-        # Log emergency action
         cursor.execute('''
             INSERT INTO access_logs 
             (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
@@ -559,7 +1188,6 @@ def emergency_unlock_board(board_id):
         ''', (board['name'], f'Emergency unlock activated by {activated_by}', format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
         # Send emergency unlock to ESP32
         try:
@@ -574,32 +1202,36 @@ def emergency_unlock_board(board_id):
         })
         
     except Exception as e:
-        print(f"❌ Error activating emergency unlock: {e}")
+        logger.error(f"❌ Error activating emergency unlock: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards/<int:board_id>/emergency-reset', methods=['POST'])
+@login_required
 def emergency_reset_board(board_id):
     """Reset emergency mode on a board"""
+    conn = None
     try:
         data = request.json
-        reset_by = data.get('reset_by', 'Dashboard User')
+        reset_by = data.get('reset_by', get_current_user())
         
-        print(f"✅ EMERGENCY RESET on board {board_id} by {reset_by}")
+        logger.info(f"✅ EMERGENCY RESET on board {board_id} by {reset_by}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get board info
         cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
         if not board:
-            conn.close()
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
         previous_mode = board['emergency_mode']
         
-        # Reset emergency mode
         cursor.execute('''
             UPDATE boards 
             SET emergency_mode = NULL,
@@ -609,7 +1241,6 @@ def emergency_reset_board(board_id):
             WHERE id = ?
         ''', (board_id,))
         
-        # Log reset action
         if previous_mode:
             cursor.execute('''
                 INSERT INTO access_logs 
@@ -618,7 +1249,6 @@ def emergency_reset_board(board_id):
             ''', (board['name'], f'Emergency mode reset by {reset_by} (was: {previous_mode})', format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
         # Send reset to ESP32
         try:
@@ -633,25 +1263,31 @@ def emergency_reset_board(board_id):
         })
         
     except Exception as e:
-        print(f"❌ Error resetting emergency mode: {e}")
+        logger.error(f"❌ Error resetting emergency mode: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/doors/<int:door_id>/emergency-override', methods=['POST'])
+@login_required
 def emergency_override_door(door_id):
     """Set emergency override on a specific door"""
+    conn = None
     try:
         data = request.json
-        override_mode = data.get('mode')  # 'lock', 'unlock', or None
+        override_mode = data.get('mode')
         
         if override_mode not in ['lock', 'unlock', None]:
             return jsonify({'success': False, 'message': 'Invalid override mode'}), 400
         
-        print(f"🚨 Door {door_id} emergency override: {override_mode}")
+        logger.info(f"🚨 Door {door_id} emergency override: {override_mode}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get door info
         cursor.execute('''
             SELECT d.*, b.ip_address, b.name as board_name
             FROM doors d
@@ -662,10 +1298,8 @@ def emergency_override_door(door_id):
         door = cursor.fetchone()
         
         if not door:
-            conn.close()
             return jsonify({'success': False, 'message': 'Door not found'}), 404
         
-        # Set override
         if override_mode:
             cursor.execute('''
                 UPDATE doors 
@@ -674,16 +1308,15 @@ def emergency_override_door(door_id):
                 WHERE id = ?
             ''', (override_mode, door_id))
             
-            # Log action
             cursor.execute('''
                 INSERT INTO access_logs 
-                (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, 'EMERGENCY', 'emergency', ?, ?)
+                (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, 'EMERGENCY', 'emergency', ?, ?, ?)
             ''', (door_id, door['board_name'], door['name'], 
                   1 if override_mode == 'unlock' else 0,
-                  f'Emergency {override_mode} override activated'))
+                  f'Emergency {override_mode} override activated',
+                  format_timestamp_for_db()))
         else:
-            # Reset override
             cursor.execute('''
                 UPDATE doors 
                 SET emergency_override = NULL,
@@ -691,15 +1324,13 @@ def emergency_override_door(door_id):
                 WHERE id = ?
             ''', (door_id,))
             
-            # Log reset
             cursor.execute('''
                 INSERT INTO access_logs 
-                (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, 'RESET', 'emergency', 1, ?)
-            ''', (door_id, door['board_name'], door['name'], 'Emergency override reset'))
+                (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, 'RESET', 'emergency', 1, ?, ?)
+            ''', (door_id, door['board_name'], door['name'], 'Emergency override reset', format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
         # Send to ESP32
         try:
@@ -718,17 +1349,23 @@ def emergency_override_door(door_id):
         })
         
     except Exception as e:
-        print(f"❌ Error setting door emergency override: {e}")
+        logger.error(f"❌ Error setting door emergency override: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/emergency-status', methods=['GET'])
+@login_required
 def get_emergency_status():
     """Get current emergency status for all boards"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get boards with emergency mode
         cursor.execute('''
             SELECT id, name, ip_address, emergency_mode, emergency_activated_at, 
                    emergency_activated_by, emergency_auto_reset_at
@@ -740,11 +1377,9 @@ def get_emergency_status():
         for board in cursor.fetchall():
             board_dict = dict(board)
             
-            # Check if auto-reset time has passed
             if board_dict['emergency_auto_reset_at']:
                 reset_time = datetime.fromisoformat(board_dict['emergency_auto_reset_at'])
                 if datetime.now() > reset_time:
-                    # Auto-reset has triggered
                     cursor.execute('''
                         UPDATE boards 
                         SET emergency_mode = NULL,
@@ -754,11 +1389,10 @@ def get_emergency_status():
                         WHERE id = ?
                     ''', (board_dict['id'],))
                     conn.commit()
-                    continue  # Skip this board (no longer in emergency)
+                    continue
             
             emergency_boards.append(board_dict)
         
-        # Get doors with emergency override
         cursor.execute('''
             SELECT d.id, d.name, d.emergency_override, d.emergency_override_at,
                    b.name as board_name, b.ip_address
@@ -769,8 +1403,6 @@ def get_emergency_status():
         
         emergency_doors = [dict(door) for door in cursor.fetchall()]
         
-        conn.close()
-        
         return jsonify({
             'success': True,
             'emergency_boards': emergency_boards,
@@ -778,18 +1410,20 @@ def get_emergency_status():
         })
         
     except Exception as e:
-        print(f"❌ Error getting emergency status: {e}")
+        logger.error(f"❌ Error getting emergency status: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== BOARD API ====================
 def mark_stale_boards_offline():
     """Mark boards as offline if they haven't sent heartbeat in 2 minutes"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        # Update boards that are marked online but haven't been seen recently
         cursor.execute('''
             UPDATE boards 
             SET online = 0
@@ -803,24 +1437,19 @@ def mark_stale_boards_offline():
             logger.info(f"🔴 Marked {updated} board(s) as offline (no heartbeat for 2+ minutes)")
         
         conn.commit()
-        conn.close()
         
     except Exception as e:
         logger.error(f"❌ Error marking stale boards offline: {e}")
+    finally:
+        if conn:
+            conn.close()
 
-
-
-# ==================== BOARD API ====================
-# ==================== BOARD API ====================
 @app.route('/api/boards', methods=['GET'])
+@login_required
 def get_boards():
     """Get all boards"""
-    logger.info("=" * 50)
-    logger.info("🚀 GET_BOARDS FUNCTION CALLED!")
-    logger.info("=" * 50)
-    
+    conn = None
     try:
-        # Update stale boards before loading
         mark_stale_boards_offline()
         
         conn = get_db()
@@ -828,33 +1457,23 @@ def get_boards():
         cursor.execute('SELECT * FROM boards ORDER BY name')
         boards_data = cursor.fetchall()
         
-        logger.info(f"📊 Found {len(boards_data)} boards in database")
-        
         boards = []
         for board in boards_data:
             board_dict = dict(board)
             
-            logger.info(f"🔍 Processing board: {board_dict.get('name', 'Unknown')}")
-            
-            # Format timestamps
             if board_dict['last_seen']:
                 try:
-                    # Parse the timestamp - handle both with and without timezone
                     last_seen_str = board_dict['last_seen']
                     
-                    # Try parsing with timezone awareness
                     if 'T' in last_seen_str:
                         last_seen = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
                     else:
-                        # Assume UTC if no timezone info
                         last_seen = datetime.fromisoformat(last_seen_str)
                         if last_seen.tzinfo is None:
                             last_seen = pytz.utc.localize(last_seen)
                     
-                    # Get current time in UTC
                     now = datetime.now(pytz.utc)
                     
-                    # Convert last_seen to UTC if it has timezone info
                     if last_seen.tzinfo is not None:
                         last_seen = last_seen.astimezone(pytz.utc)
                     else:
@@ -863,23 +1482,16 @@ def get_boards():
                     diff = now - last_seen
                     diff_seconds = diff.total_seconds()
                     
-                    logger.info(f"   Last seen (UTC): {last_seen}")
-                    logger.info(f"   Now (UTC): {now}")
-                    logger.info(f"   Diff: {diff_seconds} seconds")
-                    
-                    # Handle negative differences (clock skew)
                     if diff_seconds < 0:
-                        logger.warning(f"   ⚠️  Clock skew detected! Board time is {abs(diff_seconds)} seconds ahead")
-                        # Treat as just seen if clock is slightly ahead
                         board_dict['last_seen_text'] = 'Just now (clock skew)'
-                        board_dict['online'] = abs(diff_seconds) < 300  # 5 minute tolerance
+                        board_dict['online'] = abs(diff_seconds) < 300
                     elif diff_seconds < 60:
                         board_dict['last_seen_text'] = 'Just now'
                         board_dict['online'] = True
                     elif diff_seconds < 3600:
                         mins = int(diff_seconds / 60)
                         board_dict['last_seen_text'] = f'{mins} minute{"s" if mins != 1 else ""} ago'
-                        board_dict['online'] = diff_seconds < 120  # 2 minutes
+                        board_dict['online'] = diff_seconds < 120
                     elif diff_seconds < 86400:
                         hours = int(diff_seconds / 3600)
                         board_dict['last_seen_text'] = f'{hours} hour{"s" if hours != 1 else ""} ago'
@@ -889,14 +1501,11 @@ def get_boards():
                         board_dict['last_seen_text'] = f'{days} day{"s" if days != 1 else ""} ago'
                         board_dict['online'] = False
                     
-                    logger.info(f"   Online status: {board_dict['online']} (diff: {diff_seconds}s, threshold: 120s)")
-                    
                 except Exception as e:
-                    logger.error(f"   ❌ Error parsing timestamp: {e}")
+                    logger.error(f"❌ Error parsing timestamp: {e}")
                     board_dict['last_seen_text'] = 'Unknown'
                     board_dict['online'] = False
             else:
-                logger.info(f"   No last_seen timestamp")
                 board_dict['last_seen_text'] = 'Never'
                 board_dict['online'] = False
             
@@ -908,25 +1517,26 @@ def get_boards():
             
             boards.append(board_dict)
         
-        conn.close()
-        logger.info(f"✅ Returning {len(boards)} boards")
-        logger.info("=" * 50)
         return jsonify({'success': True, 'boards': boards})
     except Exception as e:
         logger.error(f"❌ Error getting boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards', methods=['POST'])
+@login_required
 def create_board():
     """Create a new board and auto-create doors"""
+    conn = None
     try:
         data = request.json
-        print(f"💾 Creating board: {data.get('name')}")
+        logger.info(f"💾 Creating board: {data.get('name')}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Insert board
         cursor.execute('''
             INSERT INTO boards (name, ip_address, door1_name, door2_name)
             VALUES (?, ?, ?, ?)
@@ -934,7 +1544,6 @@ def create_board():
         
         board_id = cursor.lastrowid
         
-        # Auto-create doors
         cursor.execute('''
             INSERT INTO doors (board_id, door_number, name, relay_endpoint)
             VALUES (?, 1, ?, ?)
@@ -946,36 +1555,39 @@ def create_board():
         ''', (board_id, data['door2_name'], '/unlock_door2'))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Board created: {data['name']} (ID: {board_id})")
+        logger.info(f"✅ Board created: {data['name']} (ID: {board_id})")
         return jsonify({'success': True, 'message': 'Board created successfully', 'board_id': board_id})
     except sqlite3.IntegrityError as e:
-        print(f"⚠️ Integrity error: {e}")
+        logger.error(f"⚠️ Integrity error: {e}")
         return jsonify({'success': False, 'message': 'Board with this IP address already exists'}), 400
     except Exception as e:
-        print(f"❌ Error creating board: {e}")
+        logger.error(f"❌ Error creating board: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards/<int:board_id>', methods=['PUT'])
+@login_required
 def update_board(board_id):
     """Update a board"""
+    conn = None
     try:
         data = request.json
-        print(f"✏️ Updating board ID {board_id}")
+        logger.info(f"✏️ Updating board ID {board_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Update board
         cursor.execute('''
             UPDATE boards 
             SET name = ?, ip_address = ?, door1_name = ?, door2_name = ?
             WHERE id = ?
         ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name'], board_id))
         
-        # Update doors
         cursor.execute('''
             UPDATE doors 
             SET name = ?
@@ -989,37 +1601,37 @@ def update_board(board_id):
         ''', (data['door2_name'], board_id))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Board {board_id} updated")
+        logger.info(f"✅ Board {board_id} updated")
         return jsonify({'success': True, 'message': 'Board updated successfully'})
     except Exception as e:
-        print(f"❌ Error updating board: {e}")
+        logger.error(f"❌ Error updating board: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards/<int:board_id>', methods=['DELETE'])
+@login_required
 def delete_board(board_id):
     """Delete a board and preserve access logs"""
+    conn = None
     try:
         logger.info(f"🗑️ Delete board request: ID={board_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get board info
         cursor.execute('SELECT name FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
         if not board:
-            conn.close()
-            logger.warning(f"⚠️ Board not found: ID={board_id}")
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
         board_name = board['name']
         
-        # Count what will be affected
         cursor.execute('SELECT COUNT(*) as count FROM doors WHERE board_id = ?', (board_id,))
         door_count = cursor.fetchone()['count']
         
@@ -1029,59 +1641,30 @@ def delete_board(board_id):
         ''', (board_id,))
         log_count = cursor.fetchone()['count']
         
-        logger.info(f"🗑️ Deleting board '{board_name}':")
-        logger.info(f"   - {door_count} doors")
-        logger.info(f"   - {log_count} logs will be preserved")
+        logger.info(f"🗑️ Deleting board '{board_name}': {door_count} doors, {log_count} logs will be preserved")
         
-        # STEP 1: Nullify door_id in access_logs (preserve logs!)
         cursor.execute('''
             UPDATE access_logs 
             SET door_id = NULL
-            WHERE door_id IN (
-                SELECT id FROM doors WHERE board_id = ?
-            )
+            WHERE door_id IN (SELECT id FROM doors WHERE board_id = ?)
         ''', (board_id,))
         
-        nullified = cursor.rowcount
-        if nullified > 0:
-            logger.info(f"   ✅ Preserved {nullified} access logs")
-        
-        # STEP 2: Delete door schedules (cascade won't handle this)
         cursor.execute('''
             DELETE FROM door_schedules 
-            WHERE door_id IN (
-                SELECT id FROM doors WHERE board_id = ?
-            )
+            WHERE door_id IN (SELECT id FROM doors WHERE board_id = ?)
         ''', (board_id,))
         
-        schedules_deleted = cursor.rowcount
-        if schedules_deleted > 0:
-            logger.info(f"   🗑️ Deleted {schedules_deleted} door schedules")
-        
-        # STEP 3: Delete group_doors relationships
         cursor.execute('''
             DELETE FROM group_doors 
-            WHERE door_id IN (
-                SELECT id FROM doors WHERE board_id = ?
-            )
+            WHERE door_id IN (SELECT id FROM doors WHERE board_id = ?)
         ''', (board_id,))
         
-        groups_deleted = cursor.rowcount
-        if groups_deleted > 0:
-            logger.info(f"   🗑️ Deleted {groups_deleted} group-door assignments")
-        
-        # STEP 4: Delete doors
         cursor.execute('DELETE FROM doors WHERE board_id = ?', (board_id,))
-        logger.info(f"   🗑️ Deleted {door_count} doors")
-        
-        # STEP 5: Delete board
         cursor.execute('DELETE FROM boards WHERE id = ?', (board_id,))
         
         conn.commit()
-        conn.close()
         
         logger.info(f"✅ Board '{board_name}' deleted successfully")
-        logger.info(f"   📜 {log_count} historical access logs preserved")
         
         return jsonify({
             'success': True,
@@ -1090,35 +1673,32 @@ def delete_board(board_id):
         
     except Exception as e:
         logger.error(f"❌ Error deleting board {board_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        
         if conn:
             conn.rollback()
-            conn.close()
-        
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/boards/<int:board_id>/sync', methods=['POST'])
+@login_required
 def sync_board(board_id):
     """Sync board configuration - calls sync_board_full()"""
     return sync_board_full(board_id)
 
-
 @app.route('/api/boards/sync-all', methods=['POST'])
+@login_required
 def sync_all_boards():
     """Sync all boards"""
+    conn = None
     try:
-        print("🔄 Syncing all boards")
+        logger.info("🔄 Syncing all boards")
         
         conn = get_db()
         cursor = conn.cursor()
         
         cursor.execute('SELECT id, name, online FROM boards')
         boards = cursor.fetchall()
-        
-        conn.close()
         
         if not boards:
             return jsonify({'success': True, 'message': 'No boards to sync'})
@@ -1130,10 +1710,10 @@ def sync_all_boards():
             board_id = board['id']
             board_name = board['name']
             
-            print(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
+            logger.info(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
             
             if not board['online']:
-                print(f"    ⚠️  Board {board_name} is offline - skipping")
+                logger.info(f"    ⚠️  Board {board_name} is offline - skipping")
                 fail_count += 1
                 continue
             
@@ -1148,11 +1728,11 @@ def sync_all_boards():
                 else:
                     fail_count += 1
             except Exception as e:
-                print(f"    ❌ Error syncing board {board_name}: {e}")
+                logger.error(f"    ❌ Error syncing board {board_name}: {e}")
                 fail_count += 1
         
         total = success_count + fail_count
-        print(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
+        logger.info(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
         
         return jsonify({
             'success': True, 
@@ -1160,13 +1740,16 @@ def sync_all_boards():
         })
         
     except Exception as e:
-        print(f"❌ Error syncing all boards: {e}")
+        logger.error(f"❌ Error syncing all boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/heartbeat', methods=['POST'])
 def heartbeat():
     """Receive heartbeat from ESP32 board"""
+    conn = None
     try:
         data = request.json
         ip_address = data.get('ip_address')
@@ -1184,17 +1767,17 @@ def heartbeat():
         ''', (ip_address,))
         
         if cursor.rowcount == 0:
-            conn.close()
             return jsonify({'success': False, 'message': 'Board not found'}), 404
         
         conn.commit()
-        conn.close()
         
         return jsonify({'success': True})
     except Exception as e:
-        print(f"❌ Error processing heartbeat: {e}")
+        logger.error(f"❌ Error processing heartbeat: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/board-announce', methods=['POST'])
 def board_announce():
@@ -1208,20 +1791,18 @@ def board_announce():
         door1_name = data.get('door1_name', 'Door 1')
         door2_name = data.get('door2_name', 'Door 2')
         
-        print(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
+        logger.info(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Check if board already exists in main boards table
         cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
         existing = cursor.fetchone()
         
         if existing:
-            print(f"  ℹ️  Board already adopted: {board_ip}")
+            logger.info(f"  ℹ️  Board already adopted: {board_ip}")
             return jsonify({'success': True, 'message': 'Board already registered'})
         
-        # Check if board exists in pending table
         cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
         pending = cursor.fetchone()
         
@@ -1234,16 +1815,15 @@ def board_announce():
                     door2_name = ?
                 WHERE ip_address = ?
             ''', (board_name, door1_name, door2_name, board_ip))
-            print(f"  🔄 Updated pending board: {board_ip}")
+            logger.info(f"  🔄 Updated pending board: {board_ip}")
         else:
             cursor.execute('''
                 INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
                 VALUES (?, ?, ?, ?, ?)
             ''', (board_ip, mac_address, board_name, door1_name, door2_name))
-            print(f"  ✅ New board added to pending: {board_ip}")
+            logger.info(f"  ✅ New board added to pending: {board_ip}")
         
         conn.commit()
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -1251,25 +1831,18 @@ def board_announce():
         })
         
     except Exception as e:
-        print(f"❌ Error processing board announcement: {e}")
+        logger.error(f"❌ Error processing board announcement: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
         if conn:
             conn.close()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/access-log', methods=['POST'])
 def receive_access_log():
     """Receive access log from ESP32 board"""
+    conn = None
     try:
         data = request.get_json()
-
-        # ADD THIS COMPLETE DEBUG BLOCK
-        logger.info("=" * 60)
-        logger.info("📥 RAW ACCESS LOG DATA RECEIVED:")
-        logger.info(f"   Full JSON: {json.dumps(data, indent=2)}")
-        logger.info("=" * 60)
-        
-        logger.info("📥 Access log received from " + data.get('board_ip', 'unknown'))
         
         logger.info("📥 Access log received from " + data.get('board_ip', 'unknown'))
         logger.info(f"  Door: {data.get('door_name')}")
@@ -1279,7 +1852,6 @@ def receive_access_log():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Find door ID
         cursor.execute('''
             SELECT d.id, b.name as board_name
             FROM doors d
@@ -1291,14 +1863,11 @@ def receive_access_log():
         
         if not door:
             logger.warning(f"⚠️  Door not found for IP {data['board_ip']}, door {data['door_number']}")
-            conn.close()
             return jsonify({'success': False, 'message': 'Door not found'}), 404
         
-        # Find or create user - IMPROVED MATCHING
         user_id = None
         user_name_received = data.get('user_name', 'Unknown')
         
-        # Skip matching for system-generated names
         if user_name_received and user_name_received != 'Unknown' and 'N/A' not in user_name_received:
             cursor.execute('SELECT id, name FROM users WHERE name = ?', (user_name_received,))
             user = cursor.fetchone()
@@ -1308,39 +1877,20 @@ def receive_access_log():
             else:
                 logger.warning(f"  ⚠️ User '{user_name_received}' not found in database")
         
-        # Handle timestamp - convert from local time to UTC if needed
         received_timestamp = data.get('timestamp')
         if received_timestamp:
             try:
-                # Parse the received timestamp
-                from datetime import datetime, timezone
-                import pytz
-                
-                # Assume ESP32 sends in EST/EDT (change this to your timezone)
-                local_tz = pytz.timezone('America/New_York')  # Change to your timezone
-                
-                # Parse timestamp (format: "2025-11-16 22:20:52")
+                local_tz = pytz.timezone('America/New_York')
                 dt_naive = datetime.strptime(received_timestamp, '%Y-%m-%d %H:%M:%S')
-                
-                # Localize to EST/EDT
                 dt_local = local_tz.localize(dt_naive)
-                
-                # Convert to UTC
                 dt_utc = dt_local.astimezone(pytz.UTC)
-                
-                # Format for database
                 timestamp_for_db = dt_utc.strftime('%Y-%m-%d %H:%M:%S')
-                
-                logger.info(f"  🕐 Timestamp conversion:")
-                logger.info(f"     Received: {received_timestamp} (local)")
-                logger.info(f"     Saved as: {timestamp_for_db} (UTC)")
             except Exception as e:
                 logger.warning(f"  ⚠️ Could not parse timestamp, using server time: {e}")
                 timestamp_for_db = format_timestamp_for_db()
         else:
             timestamp_for_db = format_timestamp_for_db()
         
-        # Insert log
         cursor.execute('''
             INSERT INTO access_logs (
                 door_id, board_name, door_name, user_id, credential, 
@@ -1359,7 +1909,6 @@ def receive_access_log():
         ))
         
         conn.commit()
-        conn.close()
         
         logger.info("✅ Access log saved to database")
         
@@ -1374,18 +1923,17 @@ def receive_access_log():
         if conn:
             conn.close()
 
-
 @app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
+@login_required
 def sync_board_full(board_id):
-    """Send complete user database to a specific board"""
+    """Send complete user database + temp codes to a specific board"""
     conn = None
     try:
-        print(f"🔄 Full sync requested for board {board_id}")
+        logger.info(f"🔄 Full sync requested for board {board_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get board info
         cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
@@ -1406,15 +1954,12 @@ def sync_board_full(board_id):
                 'doors': []
             }
             
-            # Get cards
             cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ? AND active = 1', (user['id'],))
             user_dict['cards'] = [row['card_number'] for row in cursor.fetchall()]
             
-            # Get PINs
             cursor.execute('SELECT pin FROM user_pins WHERE user_id = ? AND active = 1', (user['id'],))
             user_dict['pins'] = [row['pin'] for row in cursor.fetchall()]
             
-            # Get doors user has access to (via groups)
             cursor.execute('''
                 SELECT DISTINCT d.door_number
                 FROM doors d
@@ -1425,7 +1970,6 @@ def sync_board_full(board_id):
             
             user_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
             
-            # ALWAYS include user, even if no door access (for proper logging)
             users.append(user_dict)
         
         # Get door schedules for this board
@@ -1450,7 +1994,7 @@ def sync_board_full(board_id):
                 'end': row['end_time']
             })
         
-        # ✅ NEW: Get door names for this board
+        # Get door names for this board
         cursor.execute('''
             SELECT door_number, name 
             FROM doors 
@@ -1462,11 +2006,61 @@ def sync_board_full(board_id):
         for row in cursor.fetchall():
             door_names[str(row['door_number'])] = row['name']
         
+        # ✅ NEW: Get temp codes for this board
+        cursor.execute('''
+            SELECT tc.*
+            FROM temp_codes tc
+            WHERE tc.active = 1
+        ''')
+        
+        temp_codes_data = cursor.fetchall()
+        temp_codes = []
+        
+        for tc in temp_codes_data:
+            tc_dict = {
+                'code': tc['code'],
+                'name': tc['name'],
+                'usage_type': tc['usage_type'],
+                'max_uses': tc['max_uses'],
+                'current_uses': tc['current_uses'],
+                'time_type': tc['time_type'],
+                'valid_hours': tc['valid_hours'],
+                'valid_from': tc['valid_from'],
+                'valid_until': tc['valid_until'],
+                'last_activated_at': tc['last_activated_at'],
+                'access_method': tc['access_method'],
+                'doors': []
+            }
+            
+            # Get doors this temp code can access (only for THIS board)
+            if tc['access_method'] == 'groups':
+                cursor.execute('''
+                    SELECT DISTINCT d.door_number
+                    FROM doors d
+                    JOIN group_doors gd ON d.id = gd.door_id
+                    JOIN temp_code_groups tcg ON gd.group_id = tcg.group_id
+                    WHERE tcg.temp_code_id = ? AND d.board_id = ?
+                ''', (tc['id'], board_id))
+            else:
+                cursor.execute('''
+                    SELECT d.door_number
+                    FROM doors d
+                    JOIN temp_code_doors tcd ON d.id = tcd.door_id
+                    WHERE tcd.temp_code_id = ? AND d.board_id = ?
+                ''', (tc['id'], board_id))
+            
+            tc_dict['doors'] = [row['door_number'] for row in cursor.fetchall()]
+            
+            # Only include temp codes that have access to at least one door on this board
+            if tc_dict['doors']:
+                temp_codes.append(tc_dict)
+        
         # Build sync payload
         sync_data = {
             'users': users,
             'door_schedules': door_schedules,
-            'door_names': door_names  # ← Now defined!
+            'door_names': door_names,
+            'temp_codes': temp_codes  # ✅ NEW: Include temp codes
         }
         
         # Send to board
@@ -1475,36 +2069,38 @@ def sync_board_full(board_id):
         response = requests.post(board_url, json=sync_data, timeout=10)
         
         if response.status_code == 200:
-            # Update last_sync
             cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
             conn.commit()
             
-            print(f"✅ Board {board_id} synced - {len(users)} users sent")
-            return jsonify({'success': True, 'message': f'Synced {len(users)} users to board'})
+            logger.info(f"✅ Board {board_id} synced - {len(users)} users, {len(temp_codes)} temp codes sent")
+            return jsonify({
+                'success': True, 
+                'message': f'Synced {len(users)} users and {len(temp_codes)} temp codes to board'
+            })
         else:
-            print(f"❌ Board sync failed: HTTP {response.status_code}")
+            logger.error(f"❌ Board sync failed: HTTP {response.status_code}")
             return jsonify({'success': False, 'message': 'Board did not accept sync'}), 500
             
     except Exception as e:
-        print(f"❌ Error syncing board: {e}")
+        logger.error(f"❌ Error syncing board: {e}")
         import traceback
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         if conn:
             conn.close()
+
 # ==================== PENDING BOARDS API ====================
 @app.route('/api/pending-boards', methods=['GET'])
+@login_required
 def get_pending_boards():
     """Get all boards waiting to be adopted"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM pending_boards 
-            ORDER BY first_seen DESC
-        ''')
+        cursor.execute('SELECT * FROM pending_boards ORDER BY first_seen DESC')
         
         pending_data = cursor.fetchall()
         pending = []
@@ -1520,14 +2116,16 @@ def get_pending_boards():
             
             pending.append(board_dict)
         
-        conn.close()
         return jsonify({'success': True, 'pending_boards': pending})
     except Exception as e:
-        print(f"❌ Error getting pending boards: {e}")
+        logger.error(f"❌ Error getting pending boards: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/pending-boards/<int:pending_id>/adopt', methods=['POST'])
+@login_required
 def adopt_pending_board(pending_id):
     """Adopt a pending board - move it to main boards table AND configure it"""
     conn = None
@@ -1535,21 +2133,16 @@ def adopt_pending_board(pending_id):
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get pending board info
         cursor.execute('SELECT * FROM pending_boards WHERE id = ?', (pending_id,))
         pending = cursor.fetchone()
         
         if not pending:
-            conn.close()
             return jsonify({'success': False, 'message': 'Pending board not found'}), 404
         
-        # Check if IP already exists in main boards
         cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
         if cursor.fetchone():
-            conn.close()
             return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
         
-        # Create board in main table
         cursor.execute('''
             INSERT INTO boards (name, ip_address, door1_name, door2_name)
             VALUES (?, ?, ?, ?)
@@ -1557,7 +2150,6 @@ def adopt_pending_board(pending_id):
         
         board_id = cursor.lastrowid
         
-        # Auto-create doors
         cursor.execute('''
             INSERT INTO doors (board_id, door_number, name, relay_endpoint)
             VALUES (?, 1, ?, ?)
@@ -1568,21 +2160,16 @@ def adopt_pending_board(pending_id):
             VALUES (?, 2, ?, ?)
         ''', (board_id, pending['door2_name'], '/unlock_door2'))
         
-        # Remove from pending
         cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
+        logger.info(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
         
-        # Configure and sync board
         try:
-            # Get controller's IP address from request
             controller_ip = request.host.split(':')[0]
             controller_port = 8100
             
-            # Call ESP32's /api/set-controller endpoint
             board_url = f"http://{pending['ip_address']}/api/set-controller"
             
             config_data = {
@@ -1590,24 +2177,22 @@ def adopt_pending_board(pending_id):
                 'controller_port': controller_port
             }
             
-            print(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
+            logger.info(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
             
             response = requests.post(board_url, json=config_data, timeout=5)
             
             if response.status_code == 200:
-                print(f"✅ Board configured successfully!")
+                logger.info(f"✅ Board configured successfully!")
                 
-                # Wait for board to save config
                 time.sleep(2)
                 
-                # Sync user database
-                print(f"🔄 Syncing user database to board...")
+                logger.info(f"🔄 Syncing user database to board...")
                 sync_result = sync_board_full(board_id)
                 
                 if hasattr(sync_result, 'json'):
                     sync_data = sync_result.json
                     if sync_data and sync_data.get('success'):
-                        print(f"✅ Board synced with user database!")
+                        logger.info(f"✅ Board synced with user database!")
                 
                 return jsonify({
                     'success': True, 
@@ -1615,7 +2200,7 @@ def adopt_pending_board(pending_id):
                     'board_id': board_id
                 })
             else:
-                print(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
+                logger.warning(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
                 return jsonify({
                     'success': True, 
                     'message': 'Board adopted but auto-configuration failed - please sync manually',
@@ -1623,7 +2208,7 @@ def adopt_pending_board(pending_id):
                 })
                 
         except Exception as config_error:
-            print(f"⚠️ Board adopted but configuration failed: {config_error}")
+            logger.warning(f"⚠️ Board adopted but configuration failed: {config_error}")
             return jsonify({
                 'success': True, 
                 'message': 'Board adopted but auto-configuration failed - please sync manually',
@@ -1631,15 +2216,19 @@ def adopt_pending_board(pending_id):
             })
         
     except Exception as e:
-        print(f"❌ Error adopting board: {e}")
+        logger.error(f"❌ Error adopting board: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
         if conn:
             conn.close()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/pending-boards/<int:pending_id>', methods=['DELETE'])
+@login_required
 def delete_pending_board(pending_id):
     """Reject/delete a pending board"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -1647,23 +2236,26 @@ def delete_pending_board(pending_id):
         cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"🗑️ Pending board {pending_id} deleted")
+        logger.info(f"🗑️ Pending board {pending_id} deleted")
         return jsonify({'success': True, 'message': 'Pending board removed'})
     except Exception as e:
-        print(f"❌ Error deleting pending board: {e}")
+        logger.error(f"❌ Error deleting pending board: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== DOOR API ====================
 
-
 @app.route('/api/doors', methods=['GET'])
+@login_required
 def get_doors():
     """Get all doors"""
+    conn = None
     try:
-        # Update stale boards before loading doors
         mark_stale_boards_offline()
         
         conn = get_db()
@@ -1678,27 +2270,23 @@ def get_doors():
         ''')
         
         doors_data = cursor.fetchall()
-        conn.close()
         
         doors = []
         for door in doors_data:
             door_dict = dict(door)
             
-            # Determine door status
             status = "🔒 Locked"
             status_reason = ""
-            status_color = "#64748b"  # gray
+            status_color = "#64748b"
             
-            # Check emergency override first
             if door['emergency_override']:
                 if door['emergency_override'] == 'lock':
                     status = "🚨 Emergency Locked"
-                    status_color = "#ef4444"  # red
+                    status_color = "#ef4444"
                 elif door['emergency_override'] == 'unlock':
                     status = "🚨 Emergency Unlocked"
-                    status_color = "#f59e0b"  # orange
+                    status_color = "#f59e0b"
             
-            # Check board emergency mode
             elif door_dict.get('emergency_mode'):
                 if door_dict['emergency_mode'] == 'lock':
                     status = "🚨 Emergency Lockdown"
@@ -1707,23 +2295,22 @@ def get_doors():
                     status = "🚨 Emergency Evacuation"
                     status_color = "#f59e0b"
             
-            # Check door schedules
             else:
                 current_mode = get_current_door_mode(door['id'])
                 
                 if current_mode['mode'] == 'unlock':
                     status = "🔓 Unlocked"
                     status_reason = f"by schedule: {current_mode['schedule_name']}"
-                    status_color = "#10b981"  # green
+                    status_color = "#10b981"
                 elif current_mode['mode'] == 'locked':
                     status = "🔒 Locked"
                     status_reason = f"by schedule: {current_mode['schedule_name']}"
-                    status_color = "#ef4444"  # red
-                else:  # controlled
+                    status_color = "#ef4444"
+                else:
                     if current_mode['schedule_name']:
                         status = "🔐 Controlled"
                         status_reason = f"by schedule: {current_mode['schedule_name']}"
-                        status_color = "#3b82f6"  # blue
+                        status_color = "#3b82f6"
                     else:
                         status = "🔐 Controlled"
                         status_reason = "requires credentials"
@@ -1739,23 +2326,21 @@ def get_doors():
     except Exception as e:
         logger.error(f"❌ Error getting doors: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 def get_current_door_mode(door_id):
-    """
-    Get the current mode of a door based on schedules
-    Returns: {'mode': 'unlock/controlled/locked', 'schedule_name': 'Schedule Name'}
-    """
+    """Get the current mode of a door based on schedules"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get current time in local timezone
         now = datetime.now(pytz.timezone('America/New_York'))
-        current_day = now.weekday()  # 0 = Monday
+        current_day = now.weekday()
         current_time = now.strftime('%H:%M:%S')
         
-        # Get matching schedules for this door and current time
         cursor.execute('''
             SELECT ds.*, s.name as schedule_name
             FROM door_schedules ds
@@ -1773,7 +2358,6 @@ def get_current_door_mode(door_id):
               door_id, current_day, current_time, current_time))
         
         schedule = cursor.fetchone()
-        conn.close()
         
         if schedule:
             return {
@@ -1792,15 +2376,19 @@ def get_current_door_mode(door_id):
             'mode': 'controlled',
             'schedule_name': None
         }
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/doors/<int:door_id>/unlock', methods=['POST'])
+@login_required
 def unlock_door(door_id):
     """Manually unlock a specific door"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get door and board info
         cursor.execute('''
             SELECT d.*, b.ip_address, b.online, b.name as board_name
             FROM doors d
@@ -1811,31 +2399,25 @@ def unlock_door(door_id):
         door = cursor.fetchone()
         
         if not door:
-            conn.close()
             return jsonify({'success': False, 'message': 'Door not found'}), 404
         
         if not door['online']:
-            conn.close()
             return jsonify({'success': False, 'message': 'Board is offline'}), 503
         
-        # Log manual unlock
         cursor.execute('''
             INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
             VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard', ?)
         ''', (door_id, door['board_name'], door['name'], format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
-        # Send HTTP request to ESP32 board to unlock the door
         try:
-            # Use the correct ESP32 endpoint format
             url = f"http://{door['ip_address']}/unlock?door={door['door_number']}"
             
             logger.info(f"🔓 Sending manual unlock to {url}")
             response = requests.get(
                 url, 
-                auth=HTTPBasicAuth('admin', 'admin'),  # Add ESP32 authentication
+                auth=HTTPBasicAuth('admin', 'admin'),
                 timeout=5
             )
             logger.info(f"✅ ESP32 Response: {response.status_code}")
@@ -1845,31 +2427,34 @@ def unlock_door(door_id):
         return jsonify({'success': True, 'message': f'{door["name"]} unlocked'})
     except Exception as e:
         logger.error(f"❌ Error unlocking door: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/doors/<int:door_id>/settings', methods=['POST'])
+@login_required
 def update_door_settings(door_id):
     """Update door settings (unlock duration, etc.)"""
+    conn = None
     try:
         data = request.json
         unlock_duration = data.get('unlock_duration', 3000)
         
-        # Validate duration
         if unlock_duration < 500 or unlock_duration > 30000:
             return jsonify({'success': False, 'message': 'Duration must be between 500-30000ms'}), 400
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Add unlock_duration column if it doesn't exist
         try:
             cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
             conn.commit()
         except:
-            pass  # Column already exists
+            pass
         
-        # Update door settings
         cursor.execute('''
             UPDATE doors 
             SET unlock_duration = ?
@@ -1877,12 +2462,10 @@ def update_door_settings(door_id):
         ''', (unlock_duration, door_id))
         
         if cursor.rowcount == 0:
-            conn.close()
             return jsonify({'success': False, 'message': 'Door not found'}), 404
         
         conn.commit()
         
-        # Get board IP to sync the setting
         cursor.execute('''
             SELECT b.ip_address 
             FROM doors d
@@ -1891,30 +2474,26 @@ def update_door_settings(door_id):
         ''', (door_id,))
         
         board = cursor.fetchone()
-        conn.close()
         
-        # Send settings to ESP32 (optional - ESP32 will get it on next sync)
-        if board:
-            try:
-                # You can add an endpoint on ESP32 to update this, or it will get it on next sync
-                pass
-            except:
-                pass
-        
-        print(f"✅ Door {door_id} settings updated: unlock_duration={unlock_duration}ms")
+        logger.info(f"✅ Door {door_id} settings updated: unlock_duration={unlock_duration}ms")
         return jsonify({'success': True, 'message': 'Door settings updated'})
         
     except Exception as e:
-        print(f"❌ Error updating door settings: {e}")
+        logger.error(f"❌ Error updating door settings: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== DOOR SCHEDULES API ====================
 
-
 @app.route('/api/door-schedules/<int:door_id>', methods=['GET'])
+@login_required
 def get_door_schedules(door_id):
     """Get all schedules for a specific door"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -1928,31 +2507,31 @@ def get_door_schedules(door_id):
         schedules_data = cursor.fetchall()
         schedules = [dict(row) for row in schedules_data]
         
-        conn.close()
         return jsonify({'success': True, 'schedules': schedules})
     except Exception as e:
-        print(f"❌ Error getting door schedules: {e}")
+        logger.error(f"❌ Error getting door schedules: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/door-schedules/<int:door_id>', methods=['POST'])
+@login_required
 def save_door_schedules(door_id):
     """Save door schedules (replaces existing)"""
+    conn = None
     try:
         data = request.json
         schedules = data.get('schedules', [])
         
-        print(f"💾 Saving {len(schedules)} schedules for door {door_id}")
+        logger.info(f"💾 Saving {len(schedules)} schedules for door {door_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Delete existing schedules
         cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
         
-        # Insert new schedules
         for schedule in schedules:
-            # Convert day names to numbers if needed
             days = schedule.get('days', [])
             
             for day in days:
@@ -1971,18 +2550,23 @@ def save_door_schedules(door_id):
                 ))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Door schedules saved for door {door_id}")
+        logger.info(f"✅ Door schedules saved for door {door_id}")
         return jsonify({'success': True, 'message': 'Schedules saved successfully'})
     except Exception as e:
-        print(f"❌ Error saving door schedules: {e}")
+        logger.error(f"❌ Error saving door schedules: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/door-schedules/<int:door_id>', methods=['DELETE'])
+@login_required
 def delete_door_schedules(door_id):
     """Delete all schedules for a door"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -1990,18 +2574,24 @@ def delete_door_schedules(door_id):
         cursor.execute('DELETE FROM door_schedules WHERE door_id = ?', (door_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Door schedules deleted for door {door_id}")
+        logger.info(f"✅ Door schedules deleted for door {door_id}")
         return jsonify({'success': True, 'message': 'Schedules deleted successfully'})
     except Exception as e:
-        print(f"❌ Error deleting door schedules: {e}")
+        logger.error(f"❌ Error deleting door schedules: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== USER API ====================
 @app.route('/api/users', methods=['GET'])
+@login_required
 def get_users():
     """Get all users with their credentials and group assignments"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -2013,15 +2603,12 @@ def get_users():
         for user in users_data:
             user_dict = dict(user)
             
-            # Get cards
             cursor.execute('SELECT * FROM user_cards WHERE user_id = ?', (user['id'],))
             user_dict['cards'] = [dict(card) for card in cursor.fetchall()]
             
-            # Get PINs
             cursor.execute('SELECT * FROM user_pins WHERE user_id = ?', (user['id'],))
             user_dict['pins'] = [dict(pin) for pin in cursor.fetchall()]
             
-            # Get groups
             cursor.execute('''
                 SELECT ag.* 
                 FROM access_groups ag
@@ -2030,7 +2617,6 @@ def get_users():
             ''', (user['id'],))
             user_dict['groups'] = [dict(group) for group in cursor.fetchall()]
             
-            # Get schedules
             cursor.execute('''
                 SELECT s.* 
                 FROM access_schedules s
@@ -2041,23 +2627,26 @@ def get_users():
             
             users.append(user_dict)
         
-        conn.close()
         return jsonify({'success': True, 'users': users})
     except Exception as e:
-        print(f"❌ Error getting users: {e}")
+        logger.error(f"❌ Error getting users: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/users', methods=['POST'])
+@login_required
 def create_user():
     """Create a new user"""
+    conn = None
     try:
         data = request.json
-        print(f"👤 Creating user: {data.get('name')}")
+        logger.info(f"👤 Creating user: {data.get('name')}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Insert user
         cursor.execute('''
             INSERT INTO users (name, active, valid_from, valid_until, notes)
             VALUES (?, ?, ?, ?, ?)
@@ -2071,7 +2660,6 @@ def create_user():
         
         user_id = cursor.lastrowid
         
-        # Add cards
         if 'cards' in data:
             for card in data['cards']:
                 cursor.execute('''
@@ -2079,7 +2667,6 @@ def create_user():
                     VALUES (?, ?, ?)
                 ''', (user_id, card['number'], card.get('format', 'wiegand26')))
         
-        # Add PINs
         if 'pins' in data:
             for pin in data['pins']:
                 cursor.execute('''
@@ -2087,7 +2674,6 @@ def create_user():
                     VALUES (?, ?)
                 ''', (user_id, pin['pin']))
         
-        # Add to groups
         if 'group_ids' in data:
             for group_id in data['group_ids']:
                 cursor.execute('''
@@ -2095,7 +2681,6 @@ def create_user():
                     VALUES (?, ?)
                 ''', (user_id, group_id))
         
-        # Add to schedules
         if 'schedule_ids' in data:
             for schedule_id in data['schedule_ids']:
                 cursor.execute('''
@@ -2104,25 +2689,30 @@ def create_user():
                 ''', (user_id, schedule_id))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ User created: {data['name']} (ID: {user_id})")
+        logger.info(f"✅ User created: {data['name']} (ID: {user_id})")
         return jsonify({'success': True, 'message': 'User created successfully', 'user_id': user_id})
     except Exception as e:
-        print(f"❌ Error creating user: {e}")
+        logger.error(f"❌ Error creating user: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
 def update_user(user_id):
     """Update a user"""
+    conn = None
     try:
         data = request.json
-        print(f"✏️ Updating user ID {user_id}")
+        logger.info(f"✏️ Updating user ID {user_id}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # Update user
         cursor.execute('''
             UPDATE users 
             SET name = ?, active = ?, valid_from = ?, valid_until = ?, notes = ?
@@ -2136,7 +2726,6 @@ def update_user(user_id):
             user_id
         ))
         
-        # Update cards
         cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
         if 'cards' in data:
             for card in data['cards']:
@@ -2145,7 +2734,6 @@ def update_user(user_id):
                     VALUES (?, ?, ?)
                 ''', (user_id, card['number'], card.get('format', 'wiegand26')))
         
-        # Update PINs
         cursor.execute('DELETE FROM user_pins WHERE user_id = ?', (user_id,))
         if 'pins' in data:
             for pin in data['pins']:
@@ -2154,7 +2742,6 @@ def update_user(user_id):
                     VALUES (?, ?)
                 ''', (user_id, pin['pin']))
         
-        # Update groups
         cursor.execute('DELETE FROM user_groups WHERE user_id = ?', (user_id,))
         if 'group_ids' in data:
             for group_id in data['group_ids']:
@@ -2163,7 +2750,6 @@ def update_user(user_id):
                     VALUES (?, ?)
                 ''', (user_id, group_id))
         
-        # Update schedules
         cursor.execute('DELETE FROM user_schedules WHERE user_id = ?', (user_id,))
         if 'schedule_ids' in data:
             for schedule_id in data['schedule_ids']:
@@ -2173,19 +2759,25 @@ def update_user(user_id):
                 ''', (user_id, schedule_id))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ User {user_id} updated")
+        logger.info(f"✅ User {user_id} updated")
         return jsonify({'success': True, 'message': 'User updated successfully'})
     except Exception as e:
-        print(f"❌ Error updating user: {e}")
+        logger.error(f"❌ Error updating user: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
 def delete_user(user_id):
     """Delete a user"""
+    conn = None
     try:
-        print(f"🗑️ Deleting user ID {user_id}")
+        logger.info(f"🗑️ Deleting user ID {user_id}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2193,18 +2785,22 @@ def delete_user(user_id):
         cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ User {user_id} deleted")
+        logger.info(f"✅ User {user_id} deleted")
         return jsonify({'success': True, 'message': 'User deleted successfully'})
     except Exception as e:
-        print(f"❌ Error deleting user: {e}")
+        logger.error(f"❌ Error deleting user: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== CSV IMPORT/EXPORT FOR USERS ====================
 
 @app.route('/api/users/template', methods=['GET'])
+@login_required
 def download_user_template():
     """Download CSV template for bulk user import"""
     logger.info("📥 Generating user import template")
@@ -2212,10 +2808,8 @@ def download_user_template():
     output = StringIO()
     writer = csv.writer(output)
     
-    # Header row
     writer.writerow(['Name', 'Card Numbers', 'PIN Codes', 'Groups', 'Active', 'Valid From', 'Valid Until', 'Notes'])
     
-    # Example rows to show format
     writer.writerow([
         'John Doe',
         '123 45678',
@@ -2249,7 +2843,6 @@ def download_user_template():
     
     output.seek(0)
     
-    # Create response
     from flask import Response
     return Response(
         output.getvalue(),
@@ -2257,12 +2850,13 @@ def download_user_template():
         headers={'Content-Disposition': 'attachment; filename=user_import_template.csv'}
     )
 
-
 @app.route('/api/users/export', methods=['GET'])
+@login_required
 def export_users_csv():
     """Export all users to CSV file"""
     logger.info("📤 Exporting users to CSV")
     
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -2272,20 +2866,15 @@ def export_users_csv():
         output = StringIO()
         writer = csv.writer(output)
         
-        # Header
         writer.writerow(['Name', 'Card Numbers', 'PIN Codes', 'Groups', 'Active', 'Valid From', 'Valid Until', 'Notes'])
         
-        # Write each user
         for user in users_data:
-            # Get cards
             cursor.execute('SELECT card_number FROM user_cards WHERE user_id = ?', (user['id'],))
             cards = ','.join([row['card_number'] for row in cursor.fetchall()])
             
-            # Get PINs
             cursor.execute('SELECT pin FROM user_pins WHERE user_id = ?', (user['id'],))
             pins = ','.join([row['pin'] for row in cursor.fetchall()])
             
-            # Get groups
             cursor.execute('''
                 SELECT ag.name 
                 FROM access_groups ag
@@ -2305,8 +2894,6 @@ def export_users_csv():
                 user['notes'] or ''
             ])
         
-        conn.close()
-        
         output.seek(0)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2321,9 +2908,12 @@ def export_users_csv():
     except Exception as e:
         logger.error(f"❌ Error exporting users: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/users/import', methods=['POST'])
+@login_required
 def import_users_csv():
     """Import users from CSV file"""
     logger.info("📥 Importing users from CSV")
@@ -2335,8 +2925,8 @@ def import_users_csv():
     if not file.filename.endswith('.csv'):
         return jsonify({'error': 'File must be CSV format'}), 400
     
+    conn = None
     try:
-        # Read CSV content
         stream = StringIO(file.stream.read().decode("UTF8"), newline=None)
         csv_reader = csv.DictReader(stream)
         
@@ -2347,20 +2937,18 @@ def import_users_csv():
         updated = 0
         errors = []
         
-        for row_num, row in enumerate(csv_reader, start=2):  # Row 2 (after header)
+        for row_num, row in enumerate(csv_reader, start=2):
             try:
                 name = row.get('Name', '').strip()
                 if not name:
                     errors.append(f"Row {row_num}: Name is required")
                     continue
                 
-                # Check if user exists
                 cursor.execute('SELECT id FROM users WHERE name = ?', (name,))
                 existing = cursor.fetchone()
                 
                 if existing:
                     user_id = existing['id']
-                    # Update existing user
                     cursor.execute('''
                         UPDATE users 
                         SET active = ?, valid_from = ?, valid_until = ?, notes = ?
@@ -2373,14 +2961,12 @@ def import_users_csv():
                         user_id
                     ))
                     
-                    # Clear existing credentials and groups
                     cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
                     cursor.execute('DELETE FROM user_pins WHERE user_id = ?', (user_id,))
                     cursor.execute('DELETE FROM user_groups WHERE user_id = ?', (user_id,))
                     
                     updated += 1
                 else:
-                    # Create new user
                     cursor.execute('''
                         INSERT INTO users (name, active, valid_from, valid_until, notes)
                         VALUES (?, ?, ?, ?, ?)
@@ -2394,7 +2980,6 @@ def import_users_csv():
                     user_id = cursor.lastrowid
                     imported += 1
                 
-                # Add card numbers (comma-separated)
                 cards_str = row.get('Card Numbers', '').strip()
                 if cards_str:
                     for card_num in cards_str.split(','):
@@ -2405,7 +2990,6 @@ def import_users_csv():
                                 VALUES (?, ?, 'wiegand26')
                             ''', (user_id, card_num))
                 
-                # Add PIN codes (comma-separated)
                 pins_str = row.get('PIN Codes', '').strip()
                 if pins_str:
                     for pin in pins_str.split(','):
@@ -2416,7 +3000,6 @@ def import_users_csv():
                                 VALUES (?, ?)
                             ''', (user_id, pin))
                 
-                # Add to groups (comma-separated)
                 groups_str = row.get('Groups', '').strip()
                 if groups_str:
                     for group_name in groups_str.split(','):
@@ -2435,9 +3018,7 @@ def import_users_csv():
             except Exception as e:
                 errors.append(f"Row {row_num}: {str(e)}")
         
-        # Save all changes
         conn.commit()
-        conn.close()
         
         logger.info(f"✅ Import complete: {imported} new, {updated} updated")
         
@@ -2450,12 +3031,19 @@ def import_users_csv():
         
     except Exception as e:
         logger.error(f"❌ Error importing CSV: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== ACCESS GROUPS API ====================
 @app.route('/api/groups', methods=['GET'])
+@login_required
 def get_groups():
     """Get all access groups"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -2467,7 +3055,6 @@ def get_groups():
         for group in groups_data:
             group_dict = dict(group)
             
-            # Count doors
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM group_doors
@@ -2475,7 +3062,6 @@ def get_groups():
             ''', (group['id'],))
             group_dict['door_count'] = cursor.fetchone()['count']
             
-            # Count users
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM user_groups
@@ -2483,7 +3069,6 @@ def get_groups():
             ''', (group['id'],))
             group_dict['user_count'] = cursor.fetchone()['count']
             
-            # Get doors
             cursor.execute('''
                 SELECT d.*, b.name as board_name
                 FROM doors d
@@ -2495,18 +3080,22 @@ def get_groups():
             
             groups.append(group_dict)
         
-        conn.close()
         return jsonify({'success': True, 'groups': groups})
     except Exception as e:
-        print(f"❌ Error getting groups: {e}")
+        logger.error(f"❌ Error getting groups: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/groups', methods=['POST'])
+@login_required
 def create_group():
     """Create a new access group"""
+    conn = None
     try:
         data = request.json
-        print(f"👥 Creating group: {data.get('name')}")
+        logger.info(f"👥 Creating group: {data.get('name')}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2518,7 +3107,6 @@ def create_group():
         
         group_id = cursor.lastrowid
         
-        # Add doors
         if 'door_ids' in data:
             for door_id in data['door_ids']:
                 cursor.execute('''
@@ -2527,22 +3115,28 @@ def create_group():
                 ''', (group_id, door_id))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Group created: {data['name']} (ID: {group_id})")
+        logger.info(f"✅ Group created: {data['name']} (ID: {group_id})")
         return jsonify({'success': True, 'message': 'Group created successfully', 'group_id': group_id})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': 'Group with this name already exists'}), 400
     except Exception as e:
-        print(f"❌ Error creating group: {e}")
+        logger.error(f"❌ Error creating group: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/groups/<int:group_id>', methods=['PUT'])
+@login_required
 def update_group(group_id):
     """Update an access group"""
+    conn = None
     try:
         data = request.json
-        print(f"✏️ Updating group ID {group_id}")
+        logger.info(f"✏️ Updating group ID {group_id}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2553,7 +3147,6 @@ def update_group(group_id):
             WHERE id = ?
         ''', (data['name'], data.get('description', ''), data.get('color', '#6366f1'), group_id))
         
-        # Update doors
         cursor.execute('DELETE FROM group_doors WHERE group_id = ?', (group_id,))
         if 'door_ids' in data:
             for door_id in data['door_ids']:
@@ -2563,19 +3156,25 @@ def update_group(group_id):
                 ''', (group_id, door_id))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Group {group_id} updated")
+        logger.info(f"✅ Group {group_id} updated")
         return jsonify({'success': True, 'message': 'Group updated successfully'})
     except Exception as e:
-        print(f"❌ Error updating group: {e}")
+        logger.error(f"❌ Error updating group: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/groups/<int:group_id>', methods=['DELETE'])
+@login_required
 def delete_group(group_id):
     """Delete an access group"""
+    conn = None
     try:
-        print(f"🗑️ Deleting group ID {group_id}")
+        logger.info(f"🗑️ Deleting group ID {group_id}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2583,18 +3182,24 @@ def delete_group(group_id):
         cursor.execute('DELETE FROM access_groups WHERE id = ?', (group_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Group {group_id} deleted")
+        logger.info(f"✅ Group {group_id} deleted")
         return jsonify({'success': True, 'message': 'Group deleted successfully'})
     except Exception as e:
-        print(f"❌ Error deleting group: {e}")
+        logger.error(f"❌ Error deleting group: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== ACCESS SCHEDULES API ====================
 @app.route('/api/schedules', methods=['GET'])
+@login_required
 def get_schedules():
     """Get all access schedules (user time restrictions)"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -2606,7 +3211,6 @@ def get_schedules():
         for schedule in schedules_data:
             schedule_dict = dict(schedule)
             
-            # Get time ranges
             cursor.execute('''
                 SELECT * FROM schedule_times
                 WHERE schedule_id = ?
@@ -2614,7 +3218,6 @@ def get_schedules():
             ''', (schedule['id'],))
             schedule_dict['times'] = [dict(time) for time in cursor.fetchall()]
             
-            # Count users
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM user_schedules
@@ -2624,18 +3227,22 @@ def get_schedules():
             
             schedules.append(schedule_dict)
         
-        conn.close()
         return jsonify({'success': True, 'schedules': schedules})
     except Exception as e:
-        print(f"❌ Error getting schedules: {e}")
+        logger.error(f"❌ Error getting schedules: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/schedules', methods=['POST'])
+@login_required
 def create_schedule():
     """Create a new access schedule"""
+    conn = None
     try:
         data = request.json
-        print(f"📅 Creating schedule: {data.get('name')}")
+        logger.info(f"📅 Creating schedule: {data.get('name')}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2647,7 +3254,6 @@ def create_schedule():
         
         schedule_id = cursor.lastrowid
         
-        # Add time ranges
         if 'times' in data:
             for time_range in data['times']:
                 cursor.execute('''
@@ -2656,22 +3262,28 @@ def create_schedule():
                 ''', (schedule_id, time_range['day_of_week'], time_range['start_time'], time_range['end_time']))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Schedule created: {data['name']} (ID: {schedule_id})")
+        logger.info(f"✅ Schedule created: {data['name']} (ID: {schedule_id})")
         return jsonify({'success': True, 'message': 'Schedule created successfully', 'schedule_id': schedule_id})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': 'Schedule with this name already exists'}), 400
     except Exception as e:
-        print(f"❌ Error creating schedule: {e}")
+        logger.error(f"❌ Error creating schedule: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
+@login_required
 def update_schedule(schedule_id):
     """Update an access schedule"""
+    conn = None
     try:
         data = request.json
-        print(f"✏️ Updating schedule ID {schedule_id}")
+        logger.info(f"✏️ Updating schedule ID {schedule_id}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2682,7 +3294,6 @@ def update_schedule(schedule_id):
             WHERE id = ?
         ''', (data['name'], data.get('description', ''), data.get('active', True), schedule_id))
         
-        # Update time ranges
         cursor.execute('DELETE FROM schedule_times WHERE schedule_id = ?', (schedule_id,))
         if 'times' in data:
             for time_range in data['times']:
@@ -2692,19 +3303,25 @@ def update_schedule(schedule_id):
                 ''', (schedule_id, time_range['day_of_week'], time_range['start_time'], time_range['end_time']))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Schedule {schedule_id} updated")
+        logger.info(f"✅ Schedule {schedule_id} updated")
         return jsonify({'success': True, 'message': 'Schedule updated successfully'})
     except Exception as e:
-        print(f"❌ Error updating schedule: {e}")
+        logger.error(f"❌ Error updating schedule: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
+@login_required
 def delete_schedule(schedule_id):
     """Delete an access schedule"""
+    conn = None
     try:
-        print(f"🗑️ Deleting schedule ID {schedule_id}")
+        logger.info(f"🗑️ Deleting schedule ID {schedule_id}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2712,20 +3329,25 @@ def delete_schedule(schedule_id):
         cursor.execute('DELETE FROM access_schedules WHERE id = ?', (schedule_id,))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Schedule {schedule_id} deleted")
+        logger.info(f"✅ Schedule {schedule_id} deleted")
         return jsonify({'success': True, 'message': 'Schedule deleted successfully'})
     except Exception as e:
-        print(f"❌ Error deleting schedule: {e}")
+        logger.error(f"❌ Error deleting schedule: {e}")
+        if conn:
+            conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ==================== ACCESS LOGS API ====================
 @app.route('/api/logs', methods=['GET'])
+@login_required
 def get_logs():
     """Get access logs with advanced filtering"""
+    conn = None
     try:
-        # Get filter parameters
         limit = request.args.get('limit', 100, type=int)
         user_id = request.args.get('user_id', type=int)
         door_id = request.args.get('door_id', type=int)
@@ -2742,27 +3364,29 @@ def get_logs():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Build dynamic query with COALESCE for NULL handling
         query = '''
             SELECT 
                 al.id,
                 al.timestamp,
                 al.board_name,
                 al.door_name,
-                COALESCE(u.name, 'Unknown') as user_name,
+                COALESCE(u.name, al.temp_code_name, 'Unknown') as user_name,
                 al.credential,
                 al.credential_type,
                 al.access_granted,
                 al.reason,
                 al.door_id,
-                al.user_id
+                al.user_id,
+                al.temp_code_id,
+                al.temp_code_name,
+                al.temp_code_usage_count,
+                al.temp_code_remaining
             FROM access_logs al
             LEFT JOIN users u ON al.user_id = u.id
             WHERE 1=1
         '''
         params = []
         
-        # Apply filters
         if user_id:
             query += ' AND al.user_id = ?'
             params.append(user_id)
@@ -2799,7 +3423,7 @@ def get_logs():
         
         if search:
             query += ''' AND (
-                COALESCE(u.name, 'Unknown') LIKE ? OR 
+                COALESCE(u.name, al.temp_code_name, 'Unknown') LIKE ? OR 
                 al.board_name LIKE ? OR 
                 al.door_name LIKE ? OR 
                 al.credential LIKE ? OR 
@@ -2808,13 +3432,8 @@ def get_logs():
             search_param = f'%{search}%'
             params.extend([search_param] * 5)
         
-        # Order by timestamp descending (newest first)
         query += ' ORDER BY datetime(al.timestamp) DESC LIMIT ?'
         params.append(limit)
-        
-        logger.info(f"🔍 Executing query with {len(params)} parameters")
-        logger.info(f"   Query: {query}")
-        logger.info(f"   Params: {params}")
         
         cursor.execute(query, params)
         logs_data = cursor.fetchall()
@@ -2825,7 +3444,6 @@ def get_logs():
         for log in logs_data:
             log_dict = dict(log)
             
-            # Format timestamp
             try:
                 log_dict['timestamp'] = format_timestamp_for_display(log_dict.get('timestamp'))
             except Exception as e:
@@ -2834,12 +3452,7 @@ def get_logs():
             
             logs.append(log_dict)
         
-        conn.close()
-        
         logger.info(f"📤 Returning {len(logs)} logs to frontend")
-        if len(logs) > 0:
-            logger.info(f"   First log: {logs[0]}")
-            logger.info(f"   Last log: {logs[-1]}")
         
         return jsonify({'success': True, 'logs': logs})
         
@@ -2848,14 +3461,19 @@ def get_logs():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 @app.route('/api/logs/filter-options', methods=['GET'])
+@login_required
 def get_log_filter_options():
     """Get available filter options for logs"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
         
-        # Get unique users
         cursor.execute('''
             SELECT DISTINCT u.id, u.name 
             FROM users u
@@ -2864,7 +3482,6 @@ def get_log_filter_options():
         ''')
         users = [{'id': row['id'], 'name': row['name']} for row in cursor.fetchall()]
         
-        # Get unique boards
         cursor.execute('''
             SELECT DISTINCT board_name 
             FROM access_logs 
@@ -2873,7 +3490,6 @@ def get_log_filter_options():
         ''')
         boards = [row['board_name'] for row in cursor.fetchall()]
         
-        # Get unique doors
         cursor.execute('''
             SELECT DISTINCT d.id, d.name, b.name as board_name
             FROM doors d
@@ -2883,7 +3499,6 @@ def get_log_filter_options():
         ''')
         doors = [{'id': row['id'], 'name': f"{row['board_name']} - {row['name']}"} for row in cursor.fetchall()]
         
-        # Get unique credential types
         cursor.execute('''
             SELECT DISTINCT credential_type 
             FROM access_logs 
@@ -2891,8 +3506,6 @@ def get_log_filter_options():
             ORDER BY credential_type
         ''')
         credential_types = [row['credential_type'] for row in cursor.fetchall()]
-        
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -2904,11 +3517,16 @@ def get_log_filter_options():
     except Exception as e:
         logger.error(f"❌ Error getting filter options: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
-# ==================== ACCESS VALIDATION API ====================
+
+# ==================== ACCESS VALIDATION API (WITH TEMP CODES SUPPORT) ====================
 @app.route('/api/validate_access', methods=['POST'])
 def validate_access():
-    """COMPLETE MULTI-LAYER ACCESS VALIDATION"""
+    """COMPLETE MULTI-LAYER ACCESS VALIDATION INCLUDING TEMP CODES"""
+    conn = None
     try:
         data = request.json
         board_ip = data.get('board_ip')
@@ -2916,7 +3534,7 @@ def validate_access():
         credential = data.get('credential')
         credential_type = data.get('credential_type')
         
-        print(f"🔐 Access request: {credential_type}={credential} for door {door_number} from {board_ip}")
+        logger.info(f"🔐 Access request: {credential_type}={credential} for door {door_number} from {board_ip}")
         
         conn = get_db()
         cursor = conn.cursor()
@@ -2932,7 +3550,6 @@ def validate_access():
         door_info = cursor.fetchone()
         
         if not door_info:
-            conn.close()
             return jsonify({
                 'success': False,
                 'access_granted': False,
@@ -2963,24 +3580,233 @@ def validate_access():
         door_schedule = cursor.fetchone()
         door_mode = door_schedule['schedule_type'] if door_schedule else 'controlled'
         
-        print(f"  📅 Door mode: {door_mode}")
+        logger.info(f"  📅 Door mode: {door_mode}")
         
         # If UNLOCK mode - grant immediately
         if door_mode == 'unlock':
             cursor.execute('''
-                INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, ?, ?, 1, ?)
-            ''', (door_id, board_name, door_name, credential, credential_type, 'Door unlocked by schedule'))
+                INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            ''', (door_id, board_name, door_name, credential, credential_type, 'Door unlocked by schedule', format_timestamp_for_db()))
             conn.commit()
-            conn.close()
             
-            print(f"✅ Access granted: Door in UNLOCK mode")
+            logger.info(f"✅ Access granted: Door in UNLOCK mode")
             return jsonify({
                 'success': True,
                 'access_granted': True,
                 'reason': 'Door unlocked by schedule',
                 'user_name': 'N/A (Free Access)'
             })
+        
+        # ==================== STEP 2.5: CHECK IF IT'S A TEMP CODE (PINs ONLY) ====================
+        if credential_type == 'pin':
+            cursor.execute('''
+                SELECT tc.*
+                FROM temp_codes tc
+                WHERE tc.code = ?
+            ''', (credential,))
+            
+            temp_code = cursor.fetchone()
+            
+            if temp_code:
+                logger.info(f"  🎫 Temp code found: {temp_code['name']} (ID: {temp_code['id']})")
+                
+                temp_code_id = temp_code['id']
+                temp_code_name = temp_code['name']
+                
+                # Helper function to log temp code access
+                def log_temp_code_access(granted, reason, usage_info=""):
+                    cursor.execute('''
+                        INSERT INTO access_logs (
+                            temp_code_id, door_id, board_name, door_name,
+                            credential, credential_type, access_granted, reason,
+                            temp_code_name, temp_code_usage_count, temp_code_remaining,
+                            timestamp
+                        ) VALUES (?, ?, ?, ?, ?, 'temp_code', ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        temp_code_id, door_id, board_name, door_name,
+                        credential, granted, reason,
+                        temp_code_name,
+                        temp_code['current_uses'],
+                        usage_info,
+                        format_timestamp_for_db()
+                    ))
+                    conn.commit()
+                
+                # Check 1: Is it manually disabled?
+                if not temp_code['active']:
+                    logger.info(f"  ❌ DENIED: Temp code manually disabled")
+                    log_temp_code_access(False, f"Temp code '{temp_code_name}' is disabled")
+                    
+                    return jsonify({
+                        'success': True,
+                        'access_granted': False,
+                        'reason': 'Temp code disabled',
+                        'user_name': f"🎫 {temp_code_name}"
+                    })
+                
+                # Check 2: Door access (by groups or individual doors)
+                has_access = False
+                
+                if temp_code['access_method'] == 'groups':
+                    cursor.execute('''
+                        SELECT COUNT(*) as count
+                        FROM temp_code_groups tcg
+                        JOIN group_doors gd ON tcg.group_id = gd.group_id
+                        WHERE tcg.temp_code_id = ? AND gd.door_id = ?
+                    ''', (temp_code_id, door_id))
+                    has_access = cursor.fetchone()['count'] > 0
+                else:
+                    cursor.execute('''
+                        SELECT COUNT(*) as count
+                        FROM temp_code_doors
+                        WHERE temp_code_id = ? AND door_id = ?
+                    ''', (temp_code_id, door_id))
+                    has_access = cursor.fetchone()['count'] > 0
+                
+                if not has_access:
+                    logger.info(f"  ❌ DENIED: No access to {door_name}")
+                    log_temp_code_access(False, f"Temp code '{temp_code_name}' has no access to {door_name}")
+                    
+                    return jsonify({
+                        'success': True,
+                        'access_granted': False,
+                        'reason': f'Temp code has no access to {door_name}',
+                        'user_name': f"🎫 {temp_code_name}"
+                    })
+                
+                # Check 3: Time validity
+                if temp_code['time_type'] == 'hours':
+                    if temp_code['last_activated_at']:
+                        last_activated = datetime.fromisoformat(temp_code['last_activated_at'])
+                    else:
+                        last_activated = datetime.fromisoformat(temp_code['created_at'])
+                    
+                    if last_activated.tzinfo is None:
+                        last_activated = pytz.utc.localize(last_activated)
+                    
+                    expiry = last_activated + timedelta(hours=temp_code['valid_hours'])
+                    
+                    if now > expiry:
+                        cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code_id,))
+                        conn.commit()
+                        
+                        logger.info(f"  ❌ DENIED: Temp code expired")
+                        log_temp_code_access(False, f"Temp code '{temp_code_name}' expired (was valid for {temp_code['valid_hours']} hours)")
+                        
+                        return jsonify({
+                            'success': True,
+                            'access_granted': False,
+                            'reason': 'Temp code expired',
+                            'user_name': f"🎫 {temp_code_name}"
+                        })
+                    
+                    remaining = expiry - now
+                    hours_left = int(remaining.total_seconds() / 3600)
+                    mins_left = int((remaining.total_seconds() % 3600) / 60)
+                    remaining_str = f"{hours_left}h {mins_left}m remaining"
+                
+                elif temp_code['time_type'] == 'date_range':
+                    valid_from = datetime.fromisoformat(temp_code['valid_from'])
+                    valid_until = datetime.fromisoformat(temp_code['valid_until'])
+                    
+                    if valid_from.tzinfo is None:
+                        valid_from = pytz.utc.localize(valid_from)
+                    if valid_until.tzinfo is None:
+                        valid_until = pytz.utc.localize(valid_until)
+                    
+                    if now < valid_from:
+                        logger.info(f"  ❌ DENIED: Temp code not yet valid")
+                        log_temp_code_access(False, f"Temp code '{temp_code_name}' not yet valid (starts {format_timestamp_for_display(temp_code['valid_from'])})")
+                        
+                        return jsonify({
+                            'success': True,
+                            'access_granted': False,
+                            'reason': 'Temp code not yet valid',
+                            'user_name': f"🎫 {temp_code_name}"
+                        })
+                    
+                    if now > valid_until:
+                        cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code_id,))
+                        conn.commit()
+                        
+                        logger.info(f"  ❌ DENIED: Temp code expired")
+                        log_temp_code_access(False, f"Temp code '{temp_code_name}' expired on {format_timestamp_for_display(temp_code['valid_until'])}")
+                        
+                        return jsonify({
+                            'success': True,
+                            'access_granted': False,
+                            'reason': 'Temp code expired',
+                            'user_name': f"🎫 {temp_code_name}"
+                        })
+                    
+                    remaining_str = f"Valid until {format_timestamp_for_display(temp_code['valid_until'])}"
+                
+                else:  # permanent
+                    remaining_str = "Permanent access"
+                
+                # Check 4: Usage limits
+                if temp_code['usage_type'] == 'one_time':
+                    if temp_code['current_uses'] >= 1:
+                        cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code_id,))
+                        conn.commit()
+                        
+                        logger.info(f"  ❌ DENIED: One-time code already used")
+                        log_temp_code_access(False, f"Temp code '{temp_code_name}' already used (one-time only)", "1/1 uses")
+                        
+                        return jsonify({
+                            'success': True,
+                            'access_granted': False,
+                            'reason': 'One-time code already used',
+                            'user_name': f"🎫 {temp_code_name}"
+                        })
+                    
+                    usage_info = "1st use (one-time)"
+                
+                elif temp_code['usage_type'] == 'limited':
+                    if temp_code['current_uses'] >= temp_code['max_uses']:
+                        cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code_id,))
+                        conn.commit()
+                        
+                        logger.info(f"  ❌ DENIED: Usage limit reached")
+                        log_temp_code_access(False, f"Temp code '{temp_code_name}' usage limit reached", f"{temp_code['max_uses']}/{temp_code['max_uses']} uses")
+                        
+                        return jsonify({
+                            'success': True,
+                            'access_granted': False,
+                            'reason': f"Usage limit reached ({temp_code['max_uses']}/{temp_code['max_uses']})",
+                            'user_name': f"🎫 {temp_code_name}"
+                        })
+                    
+                    usage_info = f"{temp_code['current_uses'] + 1}/{temp_code['max_uses']} uses"
+                
+                else:  # unlimited
+                    usage_info = f"{temp_code['current_uses'] + 1} uses (unlimited)"
+                
+                # ✅ ALL CHECKS PASSED - GRANT ACCESS!
+                
+                cursor.execute('''
+                    UPDATE temp_codes 
+                    SET current_uses = current_uses + 1,
+                        last_used_at = ?,
+                        last_used_door = ?
+                    WHERE id = ?
+                ''', (format_timestamp_for_db(), door_name, temp_code_id))
+                
+                conn.commit()
+                
+                logger.info(f"  ✅ GRANTED: Temp code access")
+                log_temp_code_access(True, f"Temp code '{temp_code_name}' access granted", f"{usage_info}, {remaining_str}")
+                
+                return jsonify({
+                    'success': True,
+                    'access_granted': True,
+                    'reason': 'Temp code access granted',
+                    'user_name': f"🎫 {temp_code_name}",
+                    'door_name': door_name
+                })
+        
+        # ==================== CONTINUE WITH REGULAR USER VALIDATION ====================
         
         # STEP 3: Find user
         if credential_type == 'card':
@@ -2998,7 +3824,6 @@ def validate_access():
                 WHERE up.pin = ? AND up.active = 1
             ''', (credential,))
         else:
-            conn.close()
             return jsonify({
                 'success': False,
                 'access_granted': False,
@@ -3009,13 +3834,12 @@ def validate_access():
         
         if not user:
             cursor.execute('''
-                INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, ?, ?, 0, ?)
-            ''', (door_id, board_name, door_name, credential, credential_type, 'Unknown credential'))
+                INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            ''', (door_id, board_name, door_name, credential, credential_type, 'Unknown credential', format_timestamp_for_db()))
             conn.commit()
-            conn.close()
             
-            print(f"❌ Access denied: Unknown credential")
+            logger.info(f"❌ Access denied: Unknown credential")
             return jsonify({
                 'success': True,
                 'access_granted': False,
@@ -3025,18 +3849,17 @@ def validate_access():
         user_id = user['id']
         user_name = user['name']
         
-        print(f"  👤 User: {user_name}")
+        logger.info(f"  👤 User: {user_name}")
         
         # STEP 4: Check user status
         if not user['active']:
             cursor.execute('''
-                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'User inactive'))
+                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'User inactive', format_timestamp_for_db()))
             conn.commit()
-            conn.close()
             
-            print(f"❌ Access denied: User inactive")
+            logger.info(f"❌ Access denied: User inactive")
             return jsonify({
                 'success': True,
                 'access_granted': False,
@@ -3050,13 +3873,12 @@ def validate_access():
             valid_from = datetime.fromisoformat(user['valid_from']).date()
             if today < valid_from:
                 cursor.execute('''
-                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Not yet valid'))
+                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Not yet valid', format_timestamp_for_db()))
                 conn.commit()
-                conn.close()
                 
-                print(f"❌ Access denied: Not yet valid")
+                logger.info(f"❌ Access denied: Not yet valid")
                 return jsonify({
                     'success': True,
                     'access_granted': False,
@@ -3068,13 +3890,12 @@ def validate_access():
             valid_until = datetime.fromisoformat(user['valid_until']).date()
             if today > valid_until:
                 cursor.execute('''
-                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Expired'))
+                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Expired', format_timestamp_for_db()))
                 conn.commit()
-                conn.close()
                 
-                print(f"❌ Access denied: Expired")
+                logger.info(f"❌ Access denied: Expired")
                 return jsonify({
                     'success': True,
                     'access_granted': False,
@@ -3094,13 +3915,12 @@ def validate_access():
         
         if door_access == 0:
             cursor.execute('''
-                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'No door access'))
+                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'No door access', format_timestamp_for_db()))
             conn.commit()
-            conn.close()
             
-            print(f"❌ Access denied: No door access")
+            logger.info(f"❌ Access denied: No door access")
             return jsonify({
                 'success': True,
                 'access_granted': False,
@@ -3108,7 +3928,7 @@ def validate_access():
                 'user_name': user_name
             })
         
-        print(f"  ✅ User has door access via groups")
+        logger.info(f"  ✅ User has door access via groups")
         
         # STEP 6: Check user schedule
         cursor.execute('''
@@ -3137,13 +3957,12 @@ def validate_access():
             
             if not in_schedule:
                 cursor.execute('''
-                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Outside user schedule'))
+                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Outside user schedule', format_timestamp_for_db()))
                 conn.commit()
-                conn.close()
                 
-                print(f"❌ Access denied: Outside user schedule")
+                logger.info(f"❌ Access denied: Outside user schedule")
                 return jsonify({
                     'success': True,
                     'access_granted': False,
@@ -3151,20 +3970,19 @@ def validate_access():
                     'user_name': user_name
                 })
             
-            print(f"  ✅ User within allowed schedule")
+            logger.info(f"  ✅ User within allowed schedule")
         else:
-            print(f"  ℹ️  User has no schedule restrictions (24/7)")
+            logger.info(f"  ℹ️  User has no schedule restrictions (24/7)")
         
         # STEP 7: Final check - door LOCKED mode
         if door_mode == 'locked':
             cursor.execute('''
-                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Door locked by schedule'))
+                INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+            ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Door locked by schedule', format_timestamp_for_db()))
             conn.commit()
-            conn.close()
             
-            print(f"❌ Access denied: Door in LOCKED mode")
+            logger.info(f"❌ Access denied: Door in LOCKED mode")
             return jsonify({
                 'success': True,
                 'access_granted': False,
@@ -3172,16 +3990,15 @@ def validate_access():
                 'user_name': user_name
             })
         
-        # ALL CHECKS PASSED!
+        # ✅ ALL CHECKS PASSED!
         cursor.execute('''
-            INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-        ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Access granted'))
+            INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Access granted', format_timestamp_for_db()))
         
         conn.commit()
-        conn.close()
         
-        print(f"✅ Access granted: All checks passed")
+        logger.info(f"✅ Access granted: All checks passed")
         return jsonify({
             'success': True,
             'access_granted': True,
@@ -3191,11 +4008,24 @@ def validate_access():
         })
         
     except Exception as e:
-        print(f"❌ Error validating access: {e}")
+        logger.error(f"❌ Error validating access: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
+# ==================== SERVER START ====================
 if __name__ == '__main__':
     from waitress import serve
-    print("🚀 Access Control System starting...")
-    print("🌐 Serving on http://0.0.0.0:8100")
+    print("=" * 60)
+    print("🚀 Access Control System Starting...")
+    print("=" * 60)
+    print(f"🕐 Timezone: {TIMEZONE}")
+    print(f"🔐 Authentication: {'ENABLED' if AUTH_CONFIG['enabled'] else 'DISABLED'}")
+    if AUTH_CONFIG['enabled']:
+        print(f"👤 Admin Username: {AUTH_CONFIG['username']}")
+    print(f"🌐 Serving on http://0.0.0.0:8100")
+    print("=" * 60)
     serve(app, host='0.0.0.0', port=8100)
