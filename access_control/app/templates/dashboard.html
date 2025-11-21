@@ -830,36 +830,164 @@
            RESPONSIVE
            ======================================== */
         @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+        
+            .container {
+                border-radius: 12px;
+            }
+        
+            .header {
+                padding: 20px;
+            }
+        
+            .header h1 {
+                font-size: 20px;
+            }
+        
+            .header-actions {
+                width: 100%;
+                justify-content: stretch;
+            }
+        
+            .header-actions .btn {
+                flex: 1;
+            }
+        
             .stats-bar {
                 grid-template-columns: 1fr;
+                padding: 20px;
+                gap: 15px;
             }
-
+        
+            .tabs {
+                padding: 0 20px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+        
+            .tab {
+                padding: 12px 20px;
+                font-size: 14px;
+            }
+        
+            .tab-content {
+                padding: 20px;
+            }
+        
             .cards-grid {
                 grid-template-columns: 1fr;
             }
-
-            .header {
-                flex-direction: column;
-                gap: 15px;
-                align-items: flex-start;
+        
+            .table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
             }
-
-            .tabs {
-                overflow-x: scroll;
+        
+            table {
+                font-size: 13px;
             }
-
+        
+            th, td {
+                padding: 10px 8px;
+                white-space: nowrap;
+            }
+        
             .emergency-board-info {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 10px;
             }
-
+        
             .emergency-actions {
                 width: 100%;
+                flex-direction: column;
             }
-
+        
             .emergency-actions .btn {
-                flex: 1;
+                width: 100%;
+                justify-content: center;
+            }
+        
+            .card-actions {
+                flex-direction: column;
+            }
+        
+            .card-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        
+            .modal-content {
+                margin: 10px;
+                max-height: calc(100vh - 20px);
+            }
+        
+            .modal-body {
+                padding: 20px;
+            }
+        
+            .btn {
+                font-size: 13px;
+                padding: 10px 16px;
+                white-space: nowrap;
+            }
+        
+            .btn-small {
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+        
+            /* Better button visibility on mobile */
+            .btn-primary {
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            }
+        
+            .btn-success {
+                box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+            }
+        
+            .btn-danger {
+                box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+            }
+        
+            .btn-warning {
+                box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+            }
+        
+            /* Toast notifications on mobile */
+            .toast {
+                bottom: 20px;
+                right: 20px;
+                left: 20px;
+                min-width: auto;
+            }
+        }
+        
+        /* Extra small devices */
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 18px;
+            }
+        
+            .stat-card .stat-value {
+                font-size: 24px;
+            }
+        
+            .modal-content {
+                max-width: 100%;
+                border-radius: 0;
+                height: 100vh;
+                max-height: 100vh;
+            }
+        
+            table {
+                font-size: 12px;
+            }
+        
+            th, td {
+                padding: 8px 6px;
             }
         }
     </style>
@@ -914,8 +1042,8 @@
 
         <!-- Tabs Navigation -->
         <div class="tabs">
-            <button class="tab active" onclick="showTab('boards')">📡 Boards</button>
-            <button class="tab" onclick="showTab('doors')">🚪 Doors</button>
+            <button class="tab active" onclick="showTab('doors')">🚪 Doors</button>
+            <button class="tab" onclick="showTab('boards')">📡 Boards</button>
             <button class="tab" onclick="showTab('users')">👥 Users</button>
             <button class="tab" onclick="showTab('groups')">🏢 Groups</button>
             <button class="tab" onclick="showTab('schedules')">📅 Schedules</button>
@@ -924,7 +1052,7 @@
         </div>
 
         <!-- Tab: Boards -->
-        <div id="tab-boards" class="tab-content active">
+        <div id="tab-boards" class="tab-content">
             <!-- Pending Boards Notification -->
             <div class="notification-banner" id="pendingBoardsNotification">
                 <div class="notification-content">
@@ -951,7 +1079,7 @@
         </div>
 
         <!-- Tab: Doors -->
-        <div id="tab-doors" class="tab-content">
+        <div id="tab-doors" class="tab-content active">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>Doors</h2>
             </div>
@@ -1052,11 +1180,15 @@
 
         <!-- Tab: Access Logs -->
 <div id="tab-logs" class="tab-content">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
         <h2>Access Logs</h2>
-        <div style="display: flex; gap: 10px;">
-            <button class="btn btn-secondary btn-small" onclick="clearLogFilters()">🔄 Clear Filters</button>
-            <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Refresh</button>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-small" onclick="clearLogFilters()">
+                🔄 Clear Filters
+            </button>
+            <button class="btn btn-primary btn-small" onclick="loadLogs()">
+                🔄 Refresh Logs
+            </button>
         </div>
     </div>
 
@@ -1096,6 +1228,7 @@
                     <option value="">All Types</option>
                     <option value="card">Card</option>
                     <option value="pin">PIN</option>
+                    <option value="temp_code">Temp Code</option>
                     <option value="manual">Manual</option>
                     <option value="emergency">Emergency</option>
                 </select>
@@ -1148,6 +1281,7 @@
     <!-- Results Count -->
     <div style="margin-bottom: 15px; color: #64748b; font-size: 14px;">
         Showing <strong id="logsCount">0</strong> logs
+        <span id="logsLastRefresh" style="margin-left: 20px; font-style: italic;"></span>
     </div>
 
     <div class="table-container">
@@ -1531,26 +1665,27 @@
         // ==================== INITIALIZATION ====================
         document.addEventListener('DOMContentLoaded', function() {
             loadStats();
-            loadBoards();
+            loadDoors();  // ← Load doors instead of boards on startup
             loadPendingBoards();
             loadEmergencyStatus();
             
-            // Refresh data every 30 seconds
+            // Refresh data every 5 seconds
             setInterval(() => {
                 loadStats();
                 loadBoards();
                 loadPendingBoards();
                 loadEmergencyStatus();
-    
+        
                 // Reload current tab content
                 const activeTab = document.querySelector('.tab.active');
                 if (activeTab) {
-                    const tabName = activeTab.textContent.trim().split(' ')[1].toLowerCase();
-                    if (tabName === 'doors') loadDoors();
-                    if (tabName === 'users') loadUsers();
-                    if (tabName === 'groups') loadGroups();
-                    if (tabName === 'schedules') loadSchedules();
-                    if (tabName === 'logs') {
+                    const tabText = activeTab.textContent.trim();
+                    if (tabText.includes('Doors')) loadDoors();
+                    if (tabText.includes('Boards')) loadBoards();
+                    if (tabText.includes('Users')) loadUsers();
+                    if (tabText.includes('Groups')) loadGroups();
+                    if (tabText.includes('Schedules')) loadSchedules();
+                    if (tabText.includes('Logs')) {
                         loadLogFilterOptions();
                         loadLogs();
                     }
@@ -3338,63 +3473,77 @@ async function saveDoorSettings(event) {
                 
                 const limit = document.getElementById('filterLimit')?.value || '100';
                 params.append('limit', limit);
-
+        
                 const userId = document.getElementById('filterUser')?.value;
                 if (userId) params.append('user_id', userId);
-
+        
                 const boardName = document.getElementById('filterBoard')?.value;
                 if (boardName) params.append('board_name', boardName);
-
+        
                 const doorId = document.getElementById('filterDoor')?.value;
                 if (doorId) params.append('door_id', doorId);
-
+        
                 const credentialType = document.getElementById('filterCredentialType')?.value;
                 if (credentialType) params.append('credential_type', credentialType);
-
+        
                 const accessGranted = document.getElementById('filterAccessGranted')?.value;
                 if (accessGranted) params.append('access_granted', accessGranted);
-
+        
                 const dateFrom = document.getElementById('filterDateFrom')?.value;
                 if (dateFrom) params.append('date_from', dateFrom);
-
+        
                 const dateTo = document.getElementById('filterDateTo')?.value;
                 if (dateTo) params.append('date_to', dateTo);
-
+        
                 const search = document.getElementById('filterSearch')?.value;
                 if (search) params.append('search', search);
-
+        
                 const response = await fetch(`/api/logs?${params.toString()}`);
                 const data = await response.json();
-
+        
                 if (data.success) {
                     const container = document.getElementById('logsList');
                     const countElement = document.getElementById('logsCount');
+                    const refreshElement = document.getElementById('logsLastRefresh');
                     
                     countElement.textContent = data.logs.length;
-
+                    
+                    // Update last refresh time
+                    const now = new Date();
+                    refreshElement.textContent = `Last refreshed: ${now.toLocaleTimeString()}`;
+        
                     if (data.logs.length === 0) {
                         container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 40px;">No logs match the current filters</td></tr>';
                         return;
                     }
-
-                    container.innerHTML = data.logs.map(log => `
-                        <tr>
-                            <td style="white-space: nowrap;">${log.timestamp}</td>
-                            <td>${log.board_name || 'N/A'}</td>
-                            <td>${log.door_name || 'N/A'}</td>
-                            <td><strong>${log.user_name || 'Unknown'}</strong></td>
-                            <td>
-                                <strong>${log.credential || 'N/A'}</strong><br>
-                                <small style="color: #64748b;">(${log.credential_type || 'unknown'})</small>
-                            </td>
-                            <td style="text-align: center;">
-                                <span class="badge ${log.access_granted ? 'badge-success' : 'badge-danger'}">
-                                    ${log.access_granted ? '✅ Granted' : '❌ Denied'}
-                                </span>
-                            </td>
-                            <td>${log.reason}</td>
-                        </tr>
-                    `).join('');
+        
+                    container.innerHTML = data.logs.map(log => {
+                        // Check if it's a temp code
+                        const isTempCode = log.temp_code_id || log.credential_type === 'temp_code';
+                        const displayName = isTempCode 
+                            ? `🎫 ${log.temp_code_name || log.user_name}`
+                            : log.user_name || 'Unknown';
+                        
+                        return `
+                            <tr>
+                                <td style="white-space: nowrap;">${log.timestamp}</td>
+                                <td>${log.board_name || 'N/A'}</td>
+                                <td>${log.door_name || 'N/A'}</td>
+                                <td><strong>${displayName}</strong></td>
+                                <td>
+                                    <strong>${log.credential || 'N/A'}</strong><br>
+                                    <small style="color: #64748b;">(${log.credential_type || 'unknown'})</small>
+                                    ${isTempCode && log.temp_code_remaining ? `<br><small style="color: #10b981;">${log.temp_code_remaining}</small>` : ''}
+                                </td>
+                                <td style="text-align: center;">
+                                    <span class="badge ${log.access_granted ? 'badge-success' : 'badge-danger'}">
+                                        ${log.access_granted ? '✅ Granted' : '❌ Denied'}
+                                    </span>
+                                </td>
+                                <td>${log.reason}</td>
+                            </tr>
+                        `;
+                    }).join('');
                 }
             } catch (error) {
                 console.error('Error loading logs:', error);
