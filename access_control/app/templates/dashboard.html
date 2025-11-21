@@ -990,14 +990,279 @@
                 padding: 8px 6px;
             }
         }
+
+        /* ========================================
+           LOGIN OVERLAY & MODAL
+           ======================================== */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .login-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 420px;
+            margin: 20px;
+            overflow: hidden;
+            animation: loginSlideIn 0.4s ease-out;
+        }
+        
+        @keyframes loginSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .login-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+        }
+        
+        .login-header p {
+            font-size: 14px;
+            opacity: 0.9;
+            margin: 0;
+        }
+        
+        .login-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .login-body {
+            padding: 30px;
+        }
+        
+        .login-form-group {
+            margin-bottom: 20px;
+        }
+        
+        .login-form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        
+        .login-form-group input[type="text"],
+        .login-form-group input[type="password"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+            box-sizing: border-box;
+        }
+        
+        .login-form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        
+        .login-remember {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        
+        .login-remember input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+        
+        .login-remember label {
+            font-size: 14px;
+            color: #64748b;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .login-remember-days {
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .login-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .login-btn .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        .login-error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .login-error.show {
+            display: flex;
+        }
+        
+        .password-wrapper {
+            position: relative;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            color: #94a3b8;
+            padding: 5px;
+        }
+        
+        .login-footer {
+            text-align: center;
+            padding: 20px 30px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .login-footer p {
+            font-size: 12px;
+            color: #94a3b8;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
+
+    <!-- Login Overlay -->
+<div class="login-overlay" id="loginOverlay">
+    <div class="login-container">
+        <div class="login-header">
+            <div class="login-icon">🔐</div>
+            <h1>Access Control System</h1>
+            <p>Please sign in to continue</p>
+        </div>
+        
+        <div class="login-body">
+            <div class="login-error" id="loginError">
+                <span>⚠️</span>
+                <span id="loginErrorText">Invalid credentials</span>
+            </div>
+            
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="login-form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" name="username" 
+                           placeholder="Enter username" required autocomplete="username">
+                </div>
+                
+                <div class="login-form-group">
+                    <label for="loginPassword">Password</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="loginPassword" name="password" 
+                               placeholder="Enter password" required autocomplete="current-password">
+                        <button type="button" class="password-toggle" onclick="togglePasswordVisibility()">
+                            👁️
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="login-remember">
+                    <input type="checkbox" id="loginRemember" name="remember">
+                    <label for="loginRemember">
+                        Remember this device for <span class="login-remember-days" id="rememberDays">30</span> days
+                    </label>
+                </div>
+                
+                <button type="submit" class="login-btn" id="loginBtn">
+                    <span id="loginBtnText">🔑 Sign In</span>
+                </button>
+            </form>
+        </div>
+        
+        <div class="login-footer">
+            <p>Access Control System v1.0</p>
+        </div>
+    </div>
+</div>
     <div class="container">
         <!-- Header -->
         <div class="header">
             <h1>🔐 Access Control System</h1>
             <div class="header-actions">
+                <button class="btn btn-secondary btn-small" onclick="handleLogout()">🚪 Logout</button>
                 <button class="btn btn-secondary btn-small" onclick="location.reload()">🔄 Refresh</button>
             </div>
         </div>
@@ -1789,6 +2054,142 @@
     </div>
 
     <script>
+
+
+        // ==================== AUTHENTICATION ====================
+let isAuthenticated = false;
+let rememberDays = 30;
+
+async function checkAuthStatus() {
+    try {
+        const response = await fetch('/api/auth-status');
+        const data = await response.json();
+        
+        if (data.remember_days) {
+            rememberDays = data.remember_days;
+            document.getElementById('rememberDays').textContent = rememberDays;
+        }
+        
+        if (!data.auth_required) {
+            hideLoginOverlay();
+            isAuthenticated = true;
+            return true;
+        }
+        
+        if (data.authenticated) {
+            hideLoginOverlay();
+            isAuthenticated = true;
+            return true;
+        } else {
+            showLoginOverlay();
+            isAuthenticated = false;
+            
+            if (data.password_changed) {
+                showLoginError('Password has been changed. Please log in again.');
+            }
+            
+            return false;
+        }
+    } catch (error) {
+        console.error('Auth check failed:', error);
+        showLoginOverlay();
+        return false;
+    }
+}
+
+function showLoginOverlay() {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('loginUsername').focus();
+}
+
+function hideLoginOverlay() {
+    document.getElementById('loginOverlay').classList.add('hidden');
+}
+
+function showLoginError(message) {
+    const errorDiv = document.getElementById('loginError');
+    document.getElementById('loginErrorText').textContent = message;
+    errorDiv.classList.add('show');
+}
+
+function hideLoginError() {
+    document.getElementById('loginError').classList.remove('show');
+}
+
+function togglePasswordVisibility() {
+    const passwordInput = document.getElementById('loginPassword');
+    const toggleBtn = document.querySelector('.password-toggle');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+    } else {
+        passwordInput.type = 'password';
+        toggleBtn.textContent = '👁️';
+    }
+}
+
+async function handleLogin(event) {
+    event.preventDefault();
+    
+    const username = document.getElementById('loginUsername').value;
+    const password = document.getElementById('loginPassword').value;
+    const remember = document.getElementById('loginRemember').checked;
+    
+    const loginBtn = document.getElementById('loginBtn');
+    const loginBtnText = document.getElementById('loginBtnText');
+    
+    loginBtn.disabled = true;
+    loginBtnText.innerHTML = '<div class="spinner"></div> Signing in...';
+    hideLoginError();
+    
+    try {
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, remember })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            hideLoginOverlay();
+            isAuthenticated = true;
+            
+            if (data.remember_days > 0) {
+                showToast(`Welcome! Device remembered for ${data.remember_days} days`, 'success');
+            } else {
+                showToast('Login successful', 'success');
+            }
+            
+            loadStats();
+            loadDoors();
+            loadPendingBoards();
+        } else {
+            showLoginError(data.message || 'Invalid credentials');
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        showLoginError('Connection error. Please try again.');
+    } finally {
+        loginBtn.disabled = false;
+        loginBtnText.innerHTML = '🔑 Sign In';
+    }
+}
+
+async function handleLogout() {
+    try {
+        await fetch('/api/logout', { method: 'POST' });
+        isAuthenticated = false;
+        showLoginOverlay();
+        showToast('Logged out successfully', 'success');
+        document.getElementById('loginForm').reset();
+    } catch (error) {
+        console.error('Logout error:', error);
+    }
+}
+
+        
         // ==================== GLOBAL STATE ====================
         let currentBoardId = null;
         let currentUserId = null;
@@ -1802,20 +2203,23 @@
         let allDoors = [];
 
         // ==================== INITIALIZATION ====================
-        document.addEventListener('DOMContentLoaded', function() {
-            loadStats();
-            loadDoors();  // ← Load doors instead of boards on startup
-            loadPendingBoards();
-            loadEmergencyStatus();
-            
-            // Refresh data every 5 seconds
-            setInterval(() => {
+        document.addEventListener('DOMContentLoaded', async function() {
+    // Check authentication FIRST
+    const isAuthed = await checkAuthStatus();
+    
+    if (isAuthed) {
+        loadStats();
+        loadDoors();
+        loadPendingBoards();
+        loadEmergencyStatus();
+        
+        // Refresh data every 15 seconds
+        setInterval(() => {
+            if (isAuthenticated) {
                 loadStats();
-                loadBoards();
                 loadPendingBoards();
                 loadEmergencyStatus();
         
-                // Reload current tab content
                 const activeTab = document.querySelector('.tab.active');
                 if (activeTab) {
                     const tabText = activeTab.textContent.trim();
@@ -1824,14 +2228,16 @@
                     if (tabText.includes('Users')) loadUsers();
                     if (tabText.includes('Groups')) loadGroups();
                     if (tabText.includes('Schedules')) loadSchedules();
+                    if (tabText.includes('Temp')) loadTempCodes();
                     if (tabText.includes('Logs')) {
                         loadLogFilterOptions();
                         loadLogs();
                     }
                 }
-            }, 5000);
-        });
-
+            }
+        }, 15000);
+    }
+});
         // ==================== TAB MANAGEMENT ====================
         function showTab(tabName) {
             // Hide all tabs
