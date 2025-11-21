@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, make_response
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -28,7 +28,8 @@ def get_auth_config():
                 return {
                     'enabled': options.get('auth_enabled', True),
                     'username': options.get('auth_username', 'admin'),
-                    'password': options.get('auth_password', 'admin')
+                    'password': options.get('auth_password', 'admin'),
+                    'remember_days': options.get('remember_days', 30)
                 }
     except Exception as e:
         print(f"⚠️  Could not read auth config: {e}")
@@ -36,10 +37,21 @@ def get_auth_config():
     return {
         'enabled': True,
         'username': 'admin',
-        'password': 'admin'
+        'password': 'admin',
+        'remember_days': 30
     }
 
 AUTH_CONFIG = get_auth_config()
+
+import hashlib
+
+# Generate a password version hash - changes when password changes
+def get_password_version():
+    """Generate a hash of the current password config - used to invalidate sessions on password change"""
+    password_string = f"{AUTH_CONFIG['username']}:{AUTH_CONFIG['password']}"
+    return hashlib.sha256(password_string.encode()).hexdigest()[:16]
+
+PASSWORD_VERSION = get_password_version()
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
@@ -55,15 +67,17 @@ def login_required(f):
         if not AUTH_CONFIG['enabled']:
             return f(*args, **kwargs)
         
+        # Check session
         if 'logged_in' not in session:
             return jsonify({'error': 'Authentication required', 'login_required': True}), 401
         
+        # Check password version (invalidate if password changed)
+        if session.get('password_version') != PASSWORD_VERSION:
+            session.clear()
+            return jsonify({'error': 'Session expired (password changed)', 'login_required': True}), 401
+        
         return f(*args, **kwargs)
     return decorated_function
-
-def get_current_user():
-    """Get currently logged in username"""
-    return session.get('username', 'System')
 
 def init_admin_user():
     """Initialize default admin user from config"""
@@ -547,31 +561,48 @@ init_admin_user()
 # ==================== AUTHENTICATION API ====================
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Login endpoint"""
+    """Login endpoint with remember device support"""
     conn = None
     try:
         data = request.json
         username = data.get('username')
         password = data.get('password')
+        remember = data.get('remember', False)
         
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'}), 400
         
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT password_hash FROM admin_users WHERE username = ?', (username,))
-        user = cursor.fetchone()
-        
-        if user and check_password_hash(user['password_hash'], password):
+        # Check against config (primary auth source)
+        if username == AUTH_CONFIG['username'] and password == AUTH_CONFIG['password']:
             session['logged_in'] = True
             session['username'] = username
+            session['password_version'] = PASSWORD_VERSION
             
-            cursor.execute('UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?', (username,))
-            conn.commit()
+            # Set session duration based on remember checkbox
+            if remember:
+                # Make session permanent with configured duration
+                session.permanent = True
+                app.permanent_session_lifetime = timedelta(days=AUTH_CONFIG['remember_days'])
+                logger.info(f"✅ User '{username}' logged in (remembered for {AUTH_CONFIG['remember_days']} days)")
+            else:
+                # Session expires when browser closes
+                session.permanent = False
+                logger.info(f"✅ User '{username}' logged in (session only)")
             
-            logger.info(f"✅ User '{username}' logged in")
-            return jsonify({'success': True, 'message': 'Login successful'})
+            # Update last login in database
+            try:
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute('UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?', (username,))
+                conn.commit()
+            except:
+                pass
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Login successful',
+                'remember_days': AUTH_CONFIG['remember_days'] if remember else 0
+            })
         else:
             logger.warning(f"❌ Failed login attempt for '{username}'")
             return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
@@ -593,11 +624,39 @@ def logout():
 
 @app.route('/api/auth-status', methods=['GET'])
 def auth_status():
-    """Check if user is logged in"""
+    """Check if user is logged in and session is valid"""
+    if not AUTH_CONFIG['enabled']:
+        return jsonify({
+            'authenticated': True,
+            'auth_required': False,
+            'username': 'admin'
+        })
+    
+    # Check if logged in
+    if 'logged_in' not in session:
+        return jsonify({
+            'authenticated': False,
+            'auth_required': True,
+            'username': None,
+            'remember_days': AUTH_CONFIG['remember_days']
+        })
+    
+    # Check password version (invalidate if password changed)
+    if session.get('password_version') != PASSWORD_VERSION:
+        session.clear()
+        return jsonify({
+            'authenticated': False,
+            'auth_required': True,
+            'username': None,
+            'password_changed': True,
+            'remember_days': AUTH_CONFIG['remember_days']
+        })
+    
     return jsonify({
-        'authenticated': 'logged_in' in session,
-        'auth_required': AUTH_CONFIG['enabled'],
-        'username': session.get('username')
+        'authenticated': True,
+        'auth_required': True,
+        'username': session.get('username'),
+        'remember_days': AUTH_CONFIG['remember_days']
     })
 
 @app.route('/')
