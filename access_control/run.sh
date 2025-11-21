@@ -7,4 +7,4 @@ export SUPERVISOR_TOKEN
 bashio::log.info "Starting Access Control System on port 8100..."
 
 cd /app
-exec python3 -m waitress --host=0.0.0.0 --port=8100 app.main:app
+python -m waitress --host=0.0.0.0 --port=8100 --threads=4 app.main:app
