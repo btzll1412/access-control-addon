@@ -1048,6 +1048,7 @@
             <button class="tab" onclick="showTab('groups')">🏢 Groups</button>
             <button class="tab" onclick="showTab('schedules')">📅 Schedules</button>
             <button class="tab" onclick="showTab('emergency')">🚨 Emergency</button>
+            <button class="tab" onclick="showTab('tempcodes')">🎫 Temp Codes</button>
             <button class="tab" onclick="showTab('logs')">📋 Logs</button>
         </div>
 
@@ -1177,6 +1178,26 @@
 
             <div id="emergencyControlsList"></div>
         </div>
+
+
+        <!-- Tab: Temp Codes -->
+<div id="tab-tempcodes" class="tab-content">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+        <h2>🎫 Temporary Access Codes</h2>
+        <button class="btn btn-primary" onclick="openTempCodeModal()">➕ Create Temp Code</button>
+    </div>
+
+    <!-- Help Section -->
+    <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <h4 style="margin: 0 0 10px 0; color: #1e40af;">📘 About Temporary Codes</h4>
+        <p style="margin: 0; color: #1e3a8a;">
+            Temporary codes provide time-limited access without creating full user accounts.<br>
+            <strong>Use cases:</strong> Contractors, delivery personnel, guests, one-time visitors, cleaning crews.
+        </p>
+    </div>
+
+    <div class="cards-grid" id="tempCodesList"></div>
+</div>
 
         <!-- Tab: Access Logs -->
 <div id="tab-logs" class="tab-content">
@@ -1643,6 +1664,124 @@
         </div>
     </div>
 
+
+    <!-- Temp Code Modal -->
+<div id="tempCodeModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="tempCodeModalTitle">Create Temp Code</h3>
+            <button class="modal-close" onclick="closeTempCodeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="tempCodeForm" onsubmit="saveTempCode(event)">
+                <input type="hidden" id="tempCodeId">
+                
+                <div class="form-group">
+                    <label class="form-label">Code Name / Description *</label>
+                    <input type="text" class="form-input" id="tempCodeName" required
+                           placeholder="e.g., Plumber - John Smith, Delivery Access">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">PIN Code *</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" class="form-input" id="tempCodePin" required
+                               placeholder="4-8 digits" maxlength="8" pattern="[0-9]{4,8}"
+                               style="flex: 1;">
+                        <button type="button" class="btn btn-secondary" onclick="generateRandomPin()">
+                            🎲 Generate
+                        </button>
+                    </div>
+                    <div class="form-help">PIN must be 4-8 digits</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="tempCodeActive" checked> Active
+                    </label>
+                </div>
+
+                <!-- Usage Type -->
+                <div class="form-group">
+                    <label class="form-label">Usage Type *</label>
+                    <select class="form-select" id="tempCodeUsageType" onchange="updateUsageTypeUI()">
+                        <option value="one_time">One-Time Use (single entry)</option>
+                        <option value="limited">Limited Uses (set max entries)</option>
+                        <option value="unlimited">Unlimited Uses (within time period)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="maxUsesGroup" style="display: none;">
+                    <label class="form-label">Maximum Uses</label>
+                    <input type="number" class="form-input" id="tempCodeMaxUses" 
+                           min="1" max="100" value="5">
+                </div>
+
+                <!-- Time Validity -->
+                <div class="form-group">
+                    <label class="form-label">Time Validity *</label>
+                    <select class="form-select" id="tempCodeTimeType" onchange="updateTimeTypeUI()">
+                        <option value="hours">Valid for X Hours (from first use)</option>
+                        <option value="date_range">Date Range (specific dates)</option>
+                        <option value="permanent">No Expiry (until manually disabled)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="validHoursGroup">
+                    <label class="form-label">Valid for (hours)</label>
+                    <input type="number" class="form-input" id="tempCodeValidHours" 
+                           min="1" max="720" value="24">
+                    <div class="form-help">Timer starts when code is first used</div>
+                </div>
+
+                <div id="dateRangeGroup" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group">
+                            <label class="form-label">Valid From</label>
+                            <input type="datetime-local" class="form-input" id="tempCodeValidFrom">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Valid Until</label>
+                            <input type="datetime-local" class="form-input" id="tempCodeValidUntil">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Door Access -->
+                <div class="form-group">
+                    <label class="form-label">Access Method *</label>
+                    <select class="form-select" id="tempCodeAccessMethod" onchange="updateAccessMethodUI()">
+                        <option value="doors">Specific Doors</option>
+                        <option value="groups">Access Groups</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="tempCodeDoorsGroup">
+                    <label class="form-label">Select Doors *</label>
+                    <div id="tempCodeDoorsCheckboxes" class="checkbox-group"></div>
+                </div>
+
+                <div class="form-group" id="tempCodeGroupsGroup" style="display: none;">
+                    <label class="form-label">Select Groups *</label>
+                    <div id="tempCodeGroupsCheckboxes" class="checkbox-group"></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea class="form-textarea" id="tempCodeNotes" 
+                              placeholder="e.g., Contact: 555-1234, Purpose: HVAC repair"></textarea>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeTempCodeModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="document.getElementById('tempCodeForm').requestSubmit()">
+                💾 Save
+            </button>
+        </div>
+    </div>
+</div>
+
     <!-- Toast Notification -->
     <div id="toast" class="toast">
         <div class="toast-icon" id="toastIcon"></div>
@@ -1714,6 +1853,7 @@
             if (tabName === 'groups') loadGroups();
             if (tabName === 'schedules') loadSchedules();
             if (tabName === 'emergency') loadEmergencyControls();
+            if (tabName === 'tempcodes') loadTempCodes();
             if (tabName === 'logs') {
                 loadLogFilterOptions();
                 loadLogs();
@@ -3642,6 +3782,386 @@ async function saveDoorSettings(event) {
             
             // Reset file input
             input.value = '';
+        }
+
+        // ==================== TEMP CODES ====================
+        let currentTempCodeId = null;
+        
+        async function loadTempCodes() {
+            try {
+                const response = await fetch('/api/temp-codes');
+                const data = await response.json();
+        
+                if (data.success) {
+                    const container = document.getElementById('tempCodesList');
+                    
+                    if (data.temp_codes.length === 0) {
+                        container.innerHTML = '<p style="text-align: center; color: #64748b; padding: 40px;">No temporary codes configured yet</p>';
+                        return;
+                    }
+        
+                    container.innerHTML = data.temp_codes.map(code => {
+                        // Determine status
+                        let statusBadge = '';
+                        let statusColor = '';
+                        
+                        if (!code.active) {
+                            statusBadge = '<span class="badge badge-danger">❌ Disabled</span>';
+                            statusColor = '#ef4444';
+                        } else if (code.is_expired) {
+                            statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
+                            statusColor = '#f59e0b';
+                        } else if (code.usage_type === 'one_time' && code.current_uses >= 1) {
+                            statusBadge = '<span class="badge badge-warning">✅ Used</span>';
+                            statusColor = '#f59e0b';
+                        } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
+                            statusBadge = '<span class="badge badge-warning">🔢 Max Used</span>';
+                            statusColor = '#f59e0b';
+                        } else {
+                            statusBadge = '<span class="badge badge-success">✅ Active</span>';
+                            statusColor = '#10b981';
+                        }
+        
+                        // Usage info
+                        let usageInfo = '';
+                        if (code.usage_type === 'one_time') {
+                            usageInfo = `One-time (${code.current_uses}/1 uses)`;
+                        } else if (code.usage_type === 'limited') {
+                            usageInfo = `Limited (${code.current_uses}/${code.max_uses} uses)`;
+                        } else {
+                            usageInfo = `Unlimited (${code.current_uses} uses)`;
+                        }
+        
+                        // Time info
+                        let timeInfo = '';
+                        if (code.time_type === 'hours') {
+                            if (code.last_activated_at) {
+                                timeInfo = `${code.valid_hours}h from first use`;
+                            } else {
+                                timeInfo = `${code.valid_hours}h (not yet activated)`;
+                            }
+                        } else if (code.time_type === 'date_range') {
+                            timeInfo = `${code.valid_from || 'Now'} - ${code.valid_until || 'No end'}`;
+                        } else {
+                            timeInfo = 'No expiry';
+                        }
+        
+                        return `
+                            <div class="card" style="border-left: 4px solid ${statusColor};">
+                                <div class="card-header">
+                                    <div class="card-title">🎫 ${code.name}</div>
+                                    ${statusBadge}
+                                </div>
+                                <div class="card-body">
+                                    <div class="card-info">
+                                        <span class="card-info-label">PIN Code:</span>
+                                        <span class="card-info-value" style="font-family: monospace; font-size: 18px; letter-spacing: 2px;">
+                                            ${code.code}
+                                        </span>
+                                    </div>
+                                    <div class="card-info">
+                                        <span class="card-info-label">Usage:</span>
+                                        <span class="card-info-value">${usageInfo}</span>
+                                    </div>
+                                    <div class="card-info">
+                                        <span class="card-info-label">Validity:</span>
+                                        <span class="card-info-value">${timeInfo}</span>
+                                    </div>
+                                    <div class="card-info">
+                                        <span class="card-info-label">Access:</span>
+                                        <span class="card-info-value">
+                                            ${code.access_method === 'doors' 
+                                                ? `${code.doors?.length || 0} door(s)` 
+                                                : `${code.groups?.length || 0} group(s)`}
+                                        </span>
+                                    </div>
+                                    ${code.notes ? `
+                                        <div class="card-info">
+                                            <span class="card-info-label">Notes:</span>
+                                            <span class="card-info-value">${code.notes}</span>
+                                        </div>
+                                    ` : ''}
+                                    <div class="card-info">
+                                        <span class="card-info-label">Created:</span>
+                                        <span class="card-info-value">${code.created_at}</span>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn ${code.active ? 'btn-warning' : 'btn-success'} btn-small" 
+                                            onclick="toggleTempCode(${code.id}, ${!code.active})">
+                                        ${code.active ? '⏸️ Disable' : '▶️ Enable'}
+                                    </button>
+                                    <button class="btn btn-secondary btn-small" onclick="editTempCode(${code.id})">
+                                        ✏️ Edit
+                                    </button>
+                                    <button class="btn btn-danger btn-small" onclick="deleteTempCode(${code.id})">
+                                        🗑️ Delete
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } catch (error) {
+                console.error('Error loading temp codes:', error);
+                showToast('Error loading temp codes', 'error');
+            }
+        }
+        
+        async function openTempCodeModal(codeId = null) {
+            currentTempCodeId = codeId;
+            
+            // Load doors and groups
+            await Promise.all([loadDoorsForTempCode(), loadGroupsForTempCode()]);
+            
+            if (codeId) {
+                document.getElementById('tempCodeModalTitle').textContent = 'Edit Temp Code';
+                
+                const response = await fetch('/api/temp-codes');
+                const data = await response.json();
+                const code = data.temp_codes.find(c => c.id === codeId);
+                
+                if (code) {
+                    document.getElementById('tempCodeId').value = code.id;
+                    document.getElementById('tempCodeName').value = code.name;
+                    document.getElementById('tempCodePin').value = code.code;
+                    document.getElementById('tempCodeActive').checked = code.active;
+                    document.getElementById('tempCodeUsageType').value = code.usage_type;
+                    document.getElementById('tempCodeMaxUses').value = code.max_uses || 5;
+                    document.getElementById('tempCodeTimeType').value = code.time_type;
+                    document.getElementById('tempCodeValidHours').value = code.valid_hours || 24;
+                    document.getElementById('tempCodeValidFrom').value = code.valid_from || '';
+                    document.getElementById('tempCodeValidUntil').value = code.valid_until || '';
+                    document.getElementById('tempCodeAccessMethod').value = code.access_method;
+                    document.getElementById('tempCodeNotes').value = code.notes || '';
+                    
+                    // Select doors
+                    if (code.doors) {
+                        code.doors.forEach(door => {
+                            const checkbox = document.getElementById(`tempcode-door-${door.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+                    }
+                    
+                    // Select groups
+                    if (code.groups) {
+                        code.groups.forEach(group => {
+                            const checkbox = document.getElementById(`tempcode-group-${group.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+                    }
+                }
+            } else {
+                document.getElementById('tempCodeModalTitle').textContent = 'Create Temp Code';
+                document.getElementById('tempCodeForm').reset();
+                document.getElementById('tempCodeId').value = '';
+                document.getElementById('tempCodeActive').checked = true;
+            }
+            
+            updateUsageTypeUI();
+            updateTimeTypeUI();
+            updateAccessMethodUI();
+            
+            document.getElementById('tempCodeModal').classList.add('active');
+        }
+        
+        function closeTempCodeModal() {
+            document.getElementById('tempCodeModal').classList.remove('active');
+        }
+        
+        async function loadDoorsForTempCode() {
+            const response = await fetch('/api/doors');
+            const data = await response.json();
+        
+            if (data.success) {
+                const container = document.getElementById('tempCodeDoorsCheckboxes');
+                
+                if (data.doors.length === 0) {
+                    container.innerHTML = '<p style="color: #64748b; font-size: 13px;">No doors available.</p>';
+                } else {
+                    container.innerHTML = data.doors.map(door => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="tempcode-door-${door.id}" value="${door.id}">
+                            <label for="tempcode-door-${door.id}">
+                                ${door.board_name} - ${door.name}
+                            </label>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+        
+        async function loadGroupsForTempCode() {
+            const response = await fetch('/api/groups');
+            const data = await response.json();
+        
+            if (data.success) {
+                const container = document.getElementById('tempCodeGroupsCheckboxes');
+                
+                if (data.groups.length === 0) {
+                    container.innerHTML = '<p style="color: #64748b; font-size: 13px;">No groups available.</p>';
+                } else {
+                    container.innerHTML = data.groups.map(group => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="tempcode-group-${group.id}" value="${group.id}">
+                            <label for="tempcode-group-${group.id}">
+                                <span style="display: inline-block; width: 12px; height: 12px; background: ${group.color}; border-radius: 3px; margin-right: 8px;"></span>
+                                ${group.name}
+                            </label>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+        
+        function updateUsageTypeUI() {
+            const usageType = document.getElementById('tempCodeUsageType').value;
+            document.getElementById('maxUsesGroup').style.display = 
+                usageType === 'limited' ? 'block' : 'none';
+        }
+        
+        function updateTimeTypeUI() {
+            const timeType = document.getElementById('tempCodeTimeType').value;
+            document.getElementById('validHoursGroup').style.display = 
+                timeType === 'hours' ? 'block' : 'none';
+            document.getElementById('dateRangeGroup').style.display = 
+                timeType === 'date_range' ? 'block' : 'none';
+        }
+        
+        function updateAccessMethodUI() {
+            const method = document.getElementById('tempCodeAccessMethod').value;
+            document.getElementById('tempCodeDoorsGroup').style.display = 
+                method === 'doors' ? 'block' : 'none';
+            document.getElementById('tempCodeGroupsGroup').style.display = 
+                method === 'groups' ? 'block' : 'none';
+        }
+        
+        function generateRandomPin() {
+            const pin = Math.floor(1000 + Math.random() * 9000).toString();
+            document.getElementById('tempCodePin').value = pin;
+        }
+        
+        async function saveTempCode(event) {
+            event.preventDefault();
+            
+            const codeId = document.getElementById('tempCodeId').value;
+            const accessMethod = document.getElementById('tempCodeAccessMethod').value;
+            
+            // Collect selected doors or groups
+            let door_ids = [];
+            let group_ids = [];
+            
+            if (accessMethod === 'doors') {
+                door_ids = Array.from(document.querySelectorAll('#tempCodeDoorsCheckboxes input:checked'))
+                    .map(input => parseInt(input.value));
+                
+                if (door_ids.length === 0) {
+                    showToast('Please select at least one door', 'warning');
+                    return;
+                }
+            } else {
+                group_ids = Array.from(document.querySelectorAll('#tempCodeGroupsCheckboxes input:checked'))
+                    .map(input => parseInt(input.value));
+                
+                if (group_ids.length === 0) {
+                    showToast('Please select at least one group', 'warning');
+                    return;
+                }
+            }
+            
+            const tempCodeData = {
+                name: document.getElementById('tempCodeName').value,
+                code: document.getElementById('tempCodePin').value,
+                active: document.getElementById('tempCodeActive').checked,
+                usage_type: document.getElementById('tempCodeUsageType').value,
+                max_uses: parseInt(document.getElementById('tempCodeMaxUses').value) || null,
+                time_type: document.getElementById('tempCodeTimeType').value,
+                valid_hours: parseInt(document.getElementById('tempCodeValidHours').value) || null,
+                valid_from: document.getElementById('tempCodeValidFrom').value || null,
+                valid_until: document.getElementById('tempCodeValidUntil').value || null,
+                access_method: accessMethod,
+                door_ids: door_ids,
+                group_ids: group_ids,
+                notes: document.getElementById('tempCodeNotes').value
+            };
+            
+            try {
+                const url = codeId ? `/api/temp-codes/${codeId}` : '/api/temp-codes';
+                const method = codeId ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(tempCodeData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeTempCodeModal();
+                    loadTempCodes();
+                    
+                    // Sync all boards
+                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    showToast('All boards synced with new temp code', 'success');
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving temp code:', error);
+                showToast('Error saving temp code', 'error');
+            }
+        }
+        
+        function editTempCode(codeId) {
+            openTempCodeModal(codeId);
+        }
+        
+        async function toggleTempCode(codeId, active) {
+            try {
+                const response = await fetch(`/api/temp-codes/${codeId}/toggle`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: active })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadTempCodes();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error toggling temp code:', error);
+                showToast('Error toggling temp code', 'error');
+            }
+        }
+        
+        async function deleteTempCode(codeId) {
+            if (!confirm('Are you sure you want to delete this temporary code?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/temp-codes/${codeId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadTempCodes();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting temp code:', error);
+                showToast('Error deleting temp code', 'error');
+            }
         }
     </script>
 </body>
