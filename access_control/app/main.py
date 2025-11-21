@@ -79,6 +79,10 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def get_current_user():
+    """Get currently logged in username"""
+    return session.get('username', 'System')
+
 def init_admin_user():
     """Initialize default admin user from config"""
     conn = None
