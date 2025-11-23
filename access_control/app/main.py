@@ -582,6 +582,12 @@ init_db()
 migrate_database()
 init_admin_user()
 
+# ==================== MAIN ROUTES ====================
+@app.route('/')
+def index():
+    """Main dashboard page"""
+    return render_template('dashboard.html')
+    
 # ==================== AUTHENTICATION API ====================
 
 @app.route('/api/login', methods=['POST'])
@@ -684,10 +690,6 @@ def auth_status():
         'remember_days': AUTH_CONFIG['remember_days']
     })
 
-@app.route('/')
-def index():
-    """Main dashboard page"""
-    return render_template('dashboard.html')
 
 # ==================== TEMPORARY CODES API ====================
 
