@@ -1005,13 +1005,10 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            opacity: 1;
-            transition: opacity 0.3s ease;
         }
         
         .login-overlay.hidden {
-            opacity: 0;
-            pointer-events: none;
+            display: none !important;
         }
         
         .login-container {
@@ -2059,6 +2056,15 @@
     </div>
 
     <script>
+    console.log('🚀 JavaScript loaded successfully!');
+    console.log('Testing login form...');
+    
+    // Test that elements exist
+    window.addEventListener('DOMContentLoaded', function() {
+        console.log('✅ DOM loaded');
+        console.log('Login form exists:', !!document.getElementById('loginForm'));
+        console.log('Login button exists:', !!document.getElementById('loginBtn'));
+    });
 
 
         // ==================== AUTHENTICATION ====================
@@ -2124,10 +2130,6 @@ function showLoginOverlay() {
 function hideLoginOverlay() {
     const overlay = document.getElementById('loginOverlay');
     overlay.classList.add('hidden');
-    // Force hide after transition
-    setTimeout(() => {
-        overlay.style.display = 'none';
-    }, 300);
 }
 
 function showLoginError(message) {
