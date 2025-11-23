@@ -1106,23 +1106,25 @@ def toggle_temp_code(temp_code_id):
                     'expired_at': format_timestamp_for_display(temp_code['valid_until'])
                 }), 400
         
-        # If activating hours-based code, reset activation time
-        if new_active and temp_code['time_type'] == 'hours':
+        # If activating, reset usage counter and time expiry
+        if new_active:
+            # Reset usage counter
             cursor.execute('''
                 UPDATE temp_codes 
-                SET active = ?, last_activated_at = ?
+                SET active = ?, current_uses = 0, last_activated_at = ?
                 WHERE id = ?
-            ''', (new_active, format_timestamp_for_db(), temp_code_id))
+            ''', (True, format_timestamp_for_db() if temp_code['time_type'] == 'hours' else None, temp_code_id))
             
-            logger.info(f"✅ Temp code {temp_code_id} reactivated with new {temp_code['valid_hours']}h timer")
+            logger.info(f"✅ Temp code {temp_code_id} reactivated - counter reset to 0, timer reset")
         else:
+            # Just disable
             cursor.execute('''
                 UPDATE temp_codes 
                 SET active = ?
                 WHERE id = ?
-            ''', (new_active, temp_code_id))
+            ''', (False, temp_code_id))
             
-            logger.info(f"✅ Temp code {temp_code_id} {'activated' if new_active else 'deactivated'}")
+            logger.info(f"✅ Temp code {temp_code_id} deactivated")
         
         conn.commit()
         
