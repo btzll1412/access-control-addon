@@ -913,18 +913,31 @@ def update_temp_code(temp_code_id):
         conn = get_db()
         cursor = conn.cursor()
         
+        # ✅ Check if being reactivated (was inactive, now active)
+        cursor.execute('SELECT active, current_uses FROM temp_codes WHERE id = ?', (temp_code_id,))
+        old_data = cursor.fetchone()
+        was_inactive = old_data and not old_data['active']
+        is_now_active = data.get('active', True)
+        
+        # Reset usage counter if reactivating
+        reset_uses = 0 if (was_inactive and is_now_active) else old_data['current_uses']
+        
+        if was_inactive and is_now_active:
+            logger.info(f"🔄 Reactivating temp code - resetting usage counter to 0")
+        
         # Update temp code
         cursor.execute('''
             UPDATE temp_codes 
             SET name = ?, description = ?, active = ?,
                 usage_type = ?, max_uses = ?,
                 time_type = ?, valid_hours = ?, valid_from = ?, valid_until = ?,
-                access_method = ?, notes = ?
+                access_method = ?, notes = ?,
+                current_uses = ?
             WHERE id = ?
         ''', (
             data['name'],
             data.get('description', ''),
-            data.get('active', True),
+            is_now_active,
             data.get('usage_type', 'one_time'),
             data.get('max_uses', 1),
             data.get('time_type', 'hours'),
@@ -933,6 +946,7 @@ def update_temp_code(temp_code_id):
             data.get('valid_until'),
             data.get('access_method', 'doors'),
             data.get('notes', ''),
+            reset_uses,  # ✅ Reset counter if reactivating
             temp_code_id
         ))
         
@@ -957,8 +971,28 @@ def update_temp_code(temp_code_id):
         
         conn.commit()
         
-        logger.info(f"✅ Temp code {temp_code_id} updated")
-        return jsonify({'success': True, 'message': 'Temporary code updated'})
+        # ✅ Force sync to all boards after temp code update
+        logger.info(f"✅ Temp code {temp_code_id} updated - syncing to boards...")
+        
+        try:
+            # Get all online boards and sync
+            cursor.execute('SELECT id, name, ip_address FROM boards WHERE status = "online"')
+            boards = cursor.fetchall()
+            
+            synced_count = 0
+            for board in boards:
+                try:
+                    sync_board(board['id'])
+                    synced_count += 1
+                except Exception as sync_error:
+                    logger.warning(f"⚠️ Could not sync to {board['name']}: {sync_error}")
+            
+            logger.info(f"✅ Temp code synced to {synced_count} board(s)")
+            
+        except Exception as sync_error:
+            logger.warning(f"⚠️ Sync warning: {sync_error}")
+        
+        return jsonify({'success': True, 'message': 'Temporary code updated and synced'})
         
     except Exception as e:
         logger.error(f"❌ Error updating temp code: {e}")
