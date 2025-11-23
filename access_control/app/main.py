@@ -602,8 +602,28 @@ init_admin_user()
 # ==================== MAIN ROUTES ====================
 @app.route('/')
 def index():
-    """Main dashboard page"""
-    return render_template('dashboard.html')
+    """Serve the main dashboard"""
+    # ✅ If auth disabled, set a fake session to prevent login screen
+    if not AUTH_CONFIG['enabled']:
+        session.permanent = True
+        session['logged_in'] = True
+        session['username'] = 'no_auth'
+        session['password_version'] = PASSWORD_VERSION
+    
+    return render_template_string(open('index.html').read())
+
+@app.route('/api/debug-auth', methods=['GET'])
+def debug_auth():
+    """Debug endpoint to verify auth config"""
+    return jsonify({
+        'auth_enabled': AUTH_CONFIG['enabled'],
+        'auth_username': AUTH_CONFIG['username'],
+        'remember_days': AUTH_CONFIG['remember_days'],
+        'password_version': PASSWORD_VERSION,
+        'session_logged_in': 'logged_in' in session,
+        'session_username': session.get('username'),
+        'config_file_exists': os.path.exists('/data/options.json')
+    })
     
 # ==================== AUTHENTICATION API ====================
 
@@ -679,23 +699,23 @@ def logout():
 
 @app.route('/api/auth-status', methods=['GET'])
 def auth_status():
-    # ✅ Check if auth is enabled in config
-    if not AUTH_ENABLED:
-        # Auth is disabled - always authenticated
+    """Check authentication status"""
+    # ✅ If auth disabled, return not required
+    if not AUTH_CONFIG['enabled']:
         return jsonify({
             'success': True,
-            'auth_required': False,  # ✅ NO AUTH NEEDED
-            'authenticated': True,   # ✅ AUTO AUTHENTICATED
+            'auth_required': False,  # ✅ CRITICAL: This tells frontend no login needed
+            'authenticated': True,
             'remember_days': 0
         })
     
-    # Auth is enabled - check session
+    # Auth enabled - check session
     return jsonify({
         'success': True,
         'auth_required': True,
-        'authenticated': check_session(),
-        'remember_days': REMEMBER_DAYS,
-        'password_changed': session.get('password_changed', False)
+        'authenticated': 'logged_in' in session,
+        'remember_days': AUTH_CONFIG['remember_days'],
+        'password_changed': session.get('password_version') != PASSWORD_VERSION
     })
     
     # Check if logged in
