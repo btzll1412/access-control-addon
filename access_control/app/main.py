@@ -584,15 +584,6 @@ init_admin_user()
 
 # ==================== AUTHENTICATION API ====================
 
-@app.route('/login')
-def login_page():
-    """Serve login page (embedded in dashboard)"""
-    # Clear any existing session
-    session.clear()
-    
-    # Serve dashboard (which has login modal)
-    return render_template('dashboard.html')
-
 @app.route('/api/login', methods=['POST'])
 def login():
     """Login endpoint with remember device support"""
@@ -696,7 +687,6 @@ def auth_status():
 @app.route('/')
 def index():
     """Main dashboard page"""
-    # Just serve the dashboard - JavaScript will handle login check
     return render_template('dashboard.html')
 
 # ==================== TEMPORARY CODES API ====================
