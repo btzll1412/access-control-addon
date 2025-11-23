@@ -3197,7 +3197,8 @@ def copy_door_schedule(target_door_id):
         if not schedule:
             return jsonify({'success': False, 'message': 'No schedule data provided'}), 400
         
-        conn = get_db_connection()
+        # ✅ FIX: Use get_db() instead of get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
         
         # Create new access_schedule
@@ -3222,17 +3223,18 @@ def copy_door_schedule(target_door_id):
         ''', (target_door_id, new_schedule_id))
         
         conn.commit()
-        conn.close()
         
-        logger.info(f"✅ Copied schedule to door {target_door_id}")
+        logger.info(f"✅ Copied schedule '{schedule['name']}' to door {target_door_id} (new schedule_id: {new_schedule_id})")
         
         return jsonify({
             'success': True,
-            'message': 'Schedule copied successfully'
+            'message': f"Schedule copied to door {target_door_id}"
         })
         
     except Exception as e:
         logger.error(f"❌ Error copying schedule: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== USER API ====================
