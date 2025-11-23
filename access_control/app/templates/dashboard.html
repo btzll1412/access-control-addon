@@ -1223,7 +1223,7 @@
 
             <button type="button" onclick="alert('JavaScript is working!')">Test JS</button>
             
-            <form id="loginForm" onsubmit="return handleLogin(event);">
+            <form id="loginForm" onsubmit="event.preventDefault(); handleLogin(event); return false;">
                 <div class="login-form-group">
                     <label for="loginUsername">Username</label>
                     <input type="text" id="loginUsername" name="username" 
@@ -1252,7 +1252,6 @@
                     <span id="loginBtnText">🔑 Sign In</span>
                 </button>
             </form>
-        </div>
         
         <div class="login-footer">
             <p>Access Control System v1.0</p>
