@@ -1054,6 +1054,42 @@ def create_temp_code():
                 cursor.execute('SELECT id FROM temp_codes WHERE code = ?', (code,))
                 if not cursor.fetchone():
                     break
+
+        # Generate unique code
+        code = data.get('code', '').strip()
+        if not code:
+            import random
+            while True:
+                code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+                cursor.execute('SELECT id FROM temp_codes WHERE code = ?', (code,))
+                if not cursor.fetchone():
+                    break
+        
+        # ✅ NEW: Check if PIN is already used by a regular user
+        cursor.execute('''
+            SELECT u.name 
+            FROM user_pins up
+            JOIN users u ON up.user_id = u.id
+            WHERE up.pin = ?
+        ''', (code,))
+        
+        existing_user = cursor.fetchone()
+        if existing_user:
+            logger.warning(f"⚠️ PIN {code} already assigned to user {existing_user['name']}")
+            return jsonify({
+                'success': False, 
+                'message': f"PIN {code} is already registered to user '{existing_user['name']}'"
+            }), 400
+        
+        # Check if already exists as temp code
+        cursor.execute('SELECT name FROM temp_codes WHERE code = ?', (code,))
+        existing_temp = cursor.fetchone()
+        if existing_temp:
+            logger.warning(f"⚠️ PIN {code} already used as temp code '{existing_temp['name']}'")
+            return jsonify({
+                'success': False, 
+                'message': f"PIN {code} is already used as temporary code '{existing_temp['name']}'"
+            }), 400
         
         # Calculate time limits
         valid_from = None
@@ -3173,6 +3209,62 @@ def create_user():
         conn = get_db()
         cursor = conn.cursor()
         
+        # ✅ NEW: Check for duplicate cards
+        if 'cards' in data:
+            for card in data['cards']:
+                card_number = card['number']
+                cursor.execute('''
+                    SELECT u.name 
+                    FROM user_cards uc
+                    JOIN users u ON uc.user_id = u.id
+                    WHERE uc.card_number = ?
+                ''', (card_number,))
+                
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ Card {card_number} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False, 
+                        'message': f"Card {card_number} is already registered to user '{existing['name']}'"
+                    }), 400
+        
+        # ✅ NEW: Check for duplicate PINs
+        if 'pins' in data:
+            for pin in data['pins']:
+                pin_code = pin['pin']
+                
+                # Check in user_pins
+                cursor.execute('''
+                    SELECT u.name 
+                    FROM user_pins up
+                    JOIN users u ON up.user_id = u.id
+                    WHERE up.pin = ?
+                ''', (pin_code,))
+                
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ PIN {pin_code} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False, 
+                        'message': f"PIN {pin_code} is already registered to user '{existing['name']}'"
+                    }), 400
+                
+                # Check in temp_codes
+                cursor.execute('''
+                    SELECT name 
+                    FROM temp_codes
+                    WHERE code = ?
+                ''', (pin_code,))
+                
+                existing_temp = cursor.fetchone()
+                if existing_temp:
+                    logger.warning(f"⚠️ PIN {pin_code} already used as temp code '{existing_temp['name']}'")
+                    return jsonify({
+                        'success': False, 
+                        'message': f"PIN {pin_code} is already used as temporary code '{existing_temp['name']}'"
+                    }), 400
+        
+        # ✅ All checks passed - proceed with creation
         cursor.execute('''
             INSERT INTO users (name, active, valid_from, valid_until, notes)
             VALUES (?, ?, ?, ?, ?)
