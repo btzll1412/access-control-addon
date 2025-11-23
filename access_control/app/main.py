@@ -614,17 +614,6 @@ def index():
     return render_template('dashboard.html')
 
 
-@app.route('/api/debug-auth', methods=['GET'])
-def debug_auth():
-    """Debug authentication"""
-    return jsonify({
-        'auth_config_enabled': AUTH_CONFIG.get('enabled'),
-        'auth_username': AUTH_CONFIG.get('username'),
-        'session_logged_in': 'logged_in' in session,
-        'session_username': session.get('username'),
-        'session_data': dict(session),
-        'password_version': PASSWORD_VERSION
-    })
 
 @app.route('/api/debug-auth', methods=['GET'])
 def debug_auth():
