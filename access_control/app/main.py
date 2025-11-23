@@ -1962,10 +1962,9 @@ def receive_access_log():
         if data.get('credential_type') == 'pin' and data.get('access_granted'):
             credential = data.get('credential')
             
-            # Find matching temp code
+            # Find matching temp code (query only columns that exist)
             cursor.execute('''
-                SELECT id, name, usage_type, max_uses, current_uses, 
-                       validity_hours, first_used_at, active
+                SELECT id, name, usage_type, max_uses, current_uses, active
                 FROM temp_codes
                 WHERE code = ? AND active = 1
             ''', (credential,))
@@ -1975,11 +1974,6 @@ def receive_access_log():
             if temp_code:
                 # Increment usage count
                 new_uses = (temp_code['current_uses'] or 0) + 1
-                
-                # Set first use timestamp if not set
-                first_used_at = temp_code['first_used_at']
-                if not first_used_at:
-                    first_used_at = timestamp_for_db
                 
                 # Determine if should deactivate
                 should_deactivate = False
@@ -1995,29 +1989,14 @@ def receive_access_log():
                     should_deactivate = True
                     deactivate_reason = "usage limit reached"
                 
-                # Check time validity
-                if temp_code['validity_hours'] and first_used_at:
-                    try:
-                        first_use_dt = datetime.strptime(first_used_at, '%Y-%m-%d %H:%M:%S')
-                        now_dt = datetime.strptime(timestamp_for_db, '%Y-%m-%d %H:%M:%S')
-                        hours_elapsed = (now_dt - first_use_dt).total_seconds() / 3600
-                        
-                        if hours_elapsed >= temp_code['validity_hours']:
-                            should_deactivate = True
-                            deactivate_reason = "validity period expired"
-                    except Exception as e:
-                        logger.warning(f"  ⚠️ Error calculating temp code validity: {e}")
-                
-                # Update temp code in database
+                # Update temp code in database (without validity_hours)
                 cursor.execute('''
                     UPDATE temp_codes
                     SET current_uses = ?,
-                        first_used_at = ?,
                         active = ?
                     WHERE id = ?
                 ''', (
                     new_uses,
-                    first_used_at,
                     0 if should_deactivate else 1,
                     temp_code['id']
                 ))
