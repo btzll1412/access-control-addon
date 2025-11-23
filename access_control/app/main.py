@@ -2218,11 +2218,17 @@ def receive_access_log():
         else:
             timestamp_for_db = format_timestamp_for_db()
         
+        # ✅ Prepare temp_code_name for temp codes
+        temp_code_name_to_store = None
+        if credential_type_received == 'temp_code':
+            temp_code_name_to_store = user_name_received if user_name_received != 'Unknown' else None
+        
         cursor.execute('''
             INSERT INTO access_logs (
                 door_id, board_name, door_name, credential, 
-                credential_type, access_granted, reason, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                credential_type, access_granted, reason, timestamp,
+                user_id, temp_code_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             door['id'],
             data.get('board_name', door['board_name']),
@@ -2231,7 +2237,9 @@ def receive_access_log():
             data.get('credential_type'),
             data.get('access_granted'),
             data.get('reason'),
-            timestamp_for_db
+            timestamp_for_db,
+            user_id,  # ✅ This will be set for regular users, NULL for temp codes
+            temp_code_name_to_store  # ✅ This will be set for temp codes, NULL for regular users
         ))
         
         # ✅ TRACK TEMP CODE USAGE WITH PER-DOOR SUPPORT
