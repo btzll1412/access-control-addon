@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, make_response, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, make_response, redirect, url_for, render_template_string
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
