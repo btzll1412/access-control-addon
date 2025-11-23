@@ -50,7 +50,36 @@ def get_password_version():
     password_string = f"{AUTH_CONFIG['username']}:{AUTH_CONFIG['password']}"
     return hashlib.sha256(password_string.encode()).hexdigest()[:16]
 
-PASSWORD_VERSION = get_password_version()
+# ✅ NEW: Persistent password version to prevent false "password changed" warnings
+PASSWORD_VERSION_FILE = '/data/password_version.txt'
+
+def get_or_create_password_version():
+    """Get persistent password version"""
+    current_hash = get_password_version()
+    
+    try:
+        if os.path.exists(PASSWORD_VERSION_FILE):
+            with open(PASSWORD_VERSION_FILE, 'r') as f:
+                stored_hash = f.read().strip()
+                
+            # If password actually changed, update the file
+            if stored_hash != current_hash:
+                logger.info("🔐 Password changed - invalidating sessions")
+                with open(PASSWORD_VERSION_FILE, 'w') as f:
+                    f.write(current_hash)
+                return current_hash
+            else:
+                return stored_hash
+        else:
+            # First time - create file
+            with open(PASSWORD_VERSION_FILE, 'w') as f:
+                f.write(current_hash)
+            return current_hash
+    except Exception as e:
+        logger.warning(f"Could not read password version: {e}")
+        return current_hash
+
+PASSWORD_VERSION = get_or_create_password_version()
 
 # ==================== FLASK APP INITIALIZATION ====================
 # Get base directory for templates
