@@ -538,24 +538,47 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS access_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            door_id INTEGER,
+            door_id INTEGER NOT NULL,
             board_name TEXT,
             door_name TEXT,
             credential TEXT,
             credential_type TEXT,
-            access_granted BOOLEAN,
+            access_granted INTEGER,
             reason TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
+            timestamp TEXT,
             FOREIGN KEY (door_id) REFERENCES doors(id)
         )
     ''')
-    print("  ✅ Access logs table created")
+    
+    # ✅ NEW: Temp code per-door usage tracking table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS temp_code_door_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            temp_code_id INTEGER NOT NULL,
+            door_id INTEGER NOT NULL,
+            uses INTEGER DEFAULT 0,
+            last_used_at TEXT,
+            FOREIGN KEY (temp_code_id) REFERENCES temp_codes(id) ON DELETE CASCADE,
+            FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE,
+            UNIQUE(temp_code_id, door_id)
+        )
+    ''')
     
     conn.commit()
     conn.close()
-    print("✅ Database initialized successfully")
+    # ✅ Migration: Add usage_mode column to temp_codes if it doesn't exist
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE temp_codes ADD COLUMN usage_mode TEXT DEFAULT 'per_door'")
+        conn.commit()
+        conn.close()
+        logger.info("✅ Added usage_mode column to temp_codes")
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
+    logger.info("✅ Database initialized successfully")
+    
 
 # Initialize database on startup
 init_db()
@@ -2107,49 +2130,91 @@ def receive_access_log():
 
 @app.route('/api/temp-code-usage', methods=['POST'])
 def update_temp_code_usage():
-    """Receive temp code usage update from ESP32"""
+    """Receive temp code usage update from ESP32 - with per-door tracking"""
     conn = None
     try:
         data = request.get_json()
         
         code = data.get('code')
-        current_uses = data.get('current_uses')
+        door_id = data.get('door_id')  # ✅ NEW: Need door_id
         
-        if not code:
-            return jsonify({'success': False, 'message': 'Code required'}), 400
+        if not code or not door_id:
+            return jsonify({'success': False, 'message': 'Code and door_id required'}), 400
         
         conn = get_db()
         cursor = conn.cursor()
         
         # Find temp code by PIN
-        cursor.execute('SELECT id, usage_type, max_uses FROM temp_codes WHERE code = ?', (code,))
+        cursor.execute('SELECT id, usage_type, max_uses, usage_mode FROM temp_codes WHERE code = ?', (code,))
         temp_code = cursor.fetchone()
         
         if not temp_code:
             return jsonify({'success': False, 'message': 'Temp code not found'}), 404
         
-        # Update usage count
+        # ✅ NEW: Track per-door usage
+        cursor.execute('''
+            INSERT INTO temp_code_door_usage (temp_code_id, door_id, uses, last_used_at)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(temp_code_id, door_id) 
+            DO UPDATE SET uses = uses + 1, last_used_at = ?
+        ''', (temp_code['id'], door_id, format_timestamp_for_db(), format_timestamp_for_db()))
+        
+        # Also update global usage counter
         cursor.execute('''
             UPDATE temp_codes 
-            SET current_uses = ?,
+            SET current_uses = current_uses + 1,
                 last_used_at = ?
             WHERE id = ?
-        ''', (current_uses, format_timestamp_for_db(), temp_code['id']))
+        ''', (format_timestamp_for_db(), temp_code['id']))
         
-        # Auto-deactivate if used up
+        # ✅ NEW: Check if should auto-deactivate based on usage_mode
         should_deactivate = False
-        if temp_code['usage_type'] == 'one_time' and current_uses >= 1:
-            should_deactivate = True
-        elif temp_code['usage_type'] == 'limited' and current_uses >= temp_code['max_uses']:
-            should_deactivate = True
+        usage_mode = temp_code['usage_mode'] or 'per_door'
+        
+        if usage_mode == 'total':
+            # Old behavior: deactivate after total uses across all doors
+            cursor.execute('SELECT current_uses FROM temp_codes WHERE id = ?', (temp_code['id'],))
+            current_uses = cursor.fetchone()['current_uses']
+            
+            if temp_code['usage_type'] == 'one_time' and current_uses >= 1:
+                should_deactivate = True
+            elif temp_code['usage_type'] == 'limited' and current_uses >= temp_code['max_uses']:
+                should_deactivate = True
+        
+        elif usage_mode == 'per_door':
+            # New behavior: deactivate only if ALL assigned doors are used up
+            cursor.execute('SELECT doors FROM temp_codes WHERE id = ?', (temp_code['id'],))
+            doors_json = cursor.fetchone()['doors']
+            assigned_doors = json.loads(doors_json) if doors_json else []
+            
+            # Check if all doors have been used up
+            all_doors_used = True
+            for assigned_door in assigned_doors:
+                cursor.execute('''
+                    SELECT uses FROM temp_code_door_usage 
+                    WHERE temp_code_id = ? AND door_id = ?
+                ''', (temp_code['id'], assigned_door))
+                door_usage = cursor.fetchone()
+                
+                door_uses = door_usage['uses'] if door_usage else 0
+                
+                if temp_code['usage_type'] == 'one_time' and door_uses < 1:
+                    all_doors_used = False
+                    break
+                elif temp_code['usage_type'] == 'limited' and door_uses < temp_code['max_uses']:
+                    all_doors_used = False
+                    break
+            
+            if all_doors_used:
+                should_deactivate = True
         
         if should_deactivate:
             cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
-            logger.info(f"🎫 Temp code auto-deactivated (used up)")
+            logger.info(f"🎫 Temp code {temp_code['id']} auto-deactivated (all uses exhausted)")
         
         conn.commit()
         
-        logger.info(f"🎫 Temp code usage updated: {current_uses} uses")
+        logger.info(f"🎫 Temp code usage updated: door {door_id}")
         
         return jsonify({'success': True})
         
