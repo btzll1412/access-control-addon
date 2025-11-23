@@ -3187,6 +3187,54 @@ def delete_door_schedules(door_id):
         if conn:
             conn.close()
 
+@app.route('/api/door-schedules/<int:target_door_id>/copy', methods=['POST'])
+def copy_door_schedule(target_door_id):
+    """Copy a door schedule to another door"""
+    try:
+        data = request.json
+        schedule = data.get('schedule')
+        
+        if not schedule:
+            return jsonify({'success': False, 'message': 'No schedule data provided'}), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create new access_schedule
+        cursor.execute('''
+            INSERT INTO access_schedules (name, active, priority)
+            VALUES (?, 1, ?)
+        ''', (f"{schedule['name']} (Copy)", schedule.get('priority', 0)))
+        
+        new_schedule_id = cursor.lastrowid
+        
+        # Copy schedule_times for each day
+        for day in schedule.get('days', []):
+            cursor.execute('''
+                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, schedule_type)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (new_schedule_id, day, schedule['start_time'], schedule['end_time'], schedule['type']))
+        
+        # Link to target door
+        cursor.execute('''
+            INSERT INTO door_schedules (door_id, schedule_id)
+            VALUES (?, ?)
+        ''', (target_door_id, new_schedule_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Copied schedule to door {target_door_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Schedule copied successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error copying schedule: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # ==================== USER API ====================
 @app.route('/api/users', methods=['GET'])
 @login_required
