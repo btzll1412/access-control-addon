@@ -2264,6 +2264,15 @@ def receive_access_log():
         logger.info("✅ Access log saved to database")
         
         return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"❌ Error receiving access log: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 
         
