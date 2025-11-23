@@ -586,12 +586,12 @@ init_admin_user()
 
 @app.route('/login')
 def login_page():
-    """Serve login page"""
-    # If already logged in, redirect to dashboard
-    if 'logged_in' in session and session.get('password_version') == PASSWORD_VERSION:
-        return redirect(url_for('index'))
+    """Serve login page (embedded in dashboard)"""
+    # Clear any existing session
+    session.clear()
     
-    return render_template('login.html')
+    # Serve dashboard (which has login modal)
+    return render_template('dashboard.html')
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -696,17 +696,7 @@ def auth_status():
 @app.route('/')
 def index():
     """Main dashboard page"""
-    # Check if authentication is required
-    if AUTH_CONFIG['enabled']:
-        if 'logged_in' not in session:
-            # Not logged in - redirect to login page
-            return redirect(url_for('login_page'))
-        
-        # Check password version
-        if session.get('password_version') != PASSWORD_VERSION:
-            session.clear()
-            return redirect(url_for('login_page'))
-    
+    # Just serve the dashboard - JavaScript will handle login check
     return render_template('dashboard.html')
 
 # ==================== TEMPORARY CODES API ====================
