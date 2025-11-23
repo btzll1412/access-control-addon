@@ -3197,24 +3197,24 @@ def copy_door_schedule(target_door_id):
         if not schedule:
             return jsonify({'success': False, 'message': 'No schedule data provided'}), 400
         
-        # ✅ FIX: Use get_db() instead of get_db_connection()
         conn = get_db()
         cursor = conn.cursor()
         
-        # Create new access_schedule
+        # ✅ FIX: Door schedules don't have priority - they use schedule_times.priority instead
+        # Create new access_schedule (just name and active)
         cursor.execute('''
-            INSERT INTO access_schedules (name, active, priority)
-            VALUES (?, 1, ?)
-        ''', (f"{schedule['name']} (Copy)", schedule.get('priority', 0)))
+            INSERT INTO access_schedules (name, active)
+            VALUES (?, 1)
+        ''', (f"{schedule['name']} (Copy)",))
         
         new_schedule_id = cursor.lastrowid
         
-        # Copy schedule_times for each day
+        # Copy schedule_times for each day WITH priority
         for day in schedule.get('days', []):
             cursor.execute('''
-                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, schedule_type)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (new_schedule_id, day, schedule['start_time'], schedule['end_time'], schedule['type']))
+                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, schedule_type, priority)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (new_schedule_id, day, schedule['start_time'], schedule['end_time'], schedule['type'], schedule.get('priority', 0)))
         
         # Link to target door
         cursor.execute('''
@@ -3228,7 +3228,7 @@ def copy_door_schedule(target_door_id):
         
         return jsonify({
             'success': True,
-            'message': f"Schedule copied to door {target_door_id}"
+            'message': f"Schedule copied successfully"
         })
         
     except Exception as e:
