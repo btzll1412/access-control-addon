@@ -2266,12 +2266,12 @@ if data.get('credential_type') == 'pin' and data.get('access_granted'):
         
         return jsonify({'success': True})
         
-    except Exception as e:
+    except Exception as e:  # ✅ ADD THIS!
         logger.error(f"❌ Error receiving access log: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
+    finally:  # ✅ ADD THIS!
         if conn:
             conn.close()
 
