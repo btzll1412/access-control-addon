@@ -2966,10 +2966,23 @@ def unlock_door(door_id):
         if not door['online']:
             return jsonify({'success': False, 'message': 'Board is offline'}), 503
         
+        # Get current logged-in user
+        manual_user = get_current_user()  # Returns username from session
+        
         cursor.execute('''
-            INSERT INTO access_logs (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-            VALUES (?, ?, ?, 'Manual', 'manual', 1, 'Manual unlock from dashboard', ?)
-        ''', (door_id, door['board_name'], door['name'], format_timestamp_for_db()))
+            INSERT INTO access_logs (
+                door_id, board_name, door_name, credential, 
+                credential_type, access_granted, reason, timestamp,
+                user_id, temp_code_name
+            ) VALUES (?, ?, ?, 'Manual', 'manual', 1, ?, ?, NULL, ?)
+        ''', (
+            door_id, 
+            door['board_name'], 
+            door['name'], 
+            f'Manual unlock by {manual_user}',
+            format_timestamp_for_db(),
+            f'👤 {manual_user}'  # This will show in logs
+        ))
         
         conn.commit()
         
@@ -4559,6 +4572,12 @@ def validate_access():
         has_schedule = cursor.fetchone()['has_schedule'] > 0
         
         if has_schedule:
+            # Get current time in HH:MM:SS format for comparison
+            current_day = now.weekday()  # 0=Monday, 6=Sunday
+            current_time = now.strftime('%H:%M:%S')
+            
+            logger.info(f"  📅 Checking user schedule: Day={current_day}, Time={current_time}")
+            
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM user_schedules us
@@ -4568,7 +4587,7 @@ def validate_access():
                   AND s.active = 1
                   AND st.day_of_week = ?
                   AND st.start_time <= ?
-                  AND st.end_time > ?
+                  AND st.end_time >= ?
             ''', (user_id, current_day, current_time, current_time))
             
             in_schedule = cursor.fetchone()['count'] > 0
@@ -4577,14 +4596,15 @@ def validate_access():
                 cursor.execute('''
                     INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
                     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 'Outside user schedule', format_timestamp_for_db()))
+                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 
+                      f'Outside allowed schedule (Current: {current_time})', format_timestamp_for_db()))
                 conn.commit()
                 
-                logger.info(f"❌ Access denied: Outside user schedule")
+                logger.info(f"❌ Access denied: Outside user schedule (Current: {current_time})")
                 return jsonify({
                     'success': True,
                     'access_granted': False,
-                    'reason': 'Outside allowed schedule',
+                    'reason': f'Outside allowed schedule',
                     'user_name': user_name
                 })
             
