@@ -1203,7 +1203,7 @@
 </head>
 <body>
 
-    <!-- Login Overlay -->
+   <!-- Login Overlay -->
 <div class="login-overlay" id="loginOverlay">
     <div class="login-container">
         <div class="login-header">
@@ -1217,10 +1217,8 @@
                 <span>⚠️</span>
                 <span id="loginErrorText">Invalid credentials</span>
             </div>
-
-            <button type="button" onclick="alert('JavaScript is working!')">Test JS</button>
             
-            <form id="loginForm" onsubmit="handleLogin(event)">
+            <form id="loginForm">
                 <div class="login-form-group">
                     <label for="loginUsername">Username</label>
                     <input type="text" id="loginUsername" name="username" 
@@ -1249,6 +1247,7 @@
                     <span id="loginBtnText">🔑 Sign In</span>
                 </button>
             </form>
+        </div>
         
         <div class="login-footer">
             <p>Access Control System v1.0</p>
@@ -2056,15 +2055,53 @@
     </div>
 
     <script>
-    console.log('🚀 JavaScript loaded successfully!');
-    console.log('Testing login form...');
+'use strict';
+
+console.log('🔥 SCRIPT STARTING...');
+
+// Attach login handler
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ DOM Ready');
     
-    // Test that elements exist
-    window.addEventListener('DOMContentLoaded', function() {
-        console.log('✅ DOM loaded');
-        console.log('Login form exists:', !!document.getElementById('loginForm'));
-        console.log('Login button exists:', !!document.getElementById('loginBtn'));
-    });
+    const loginForm = document.getElementById('loginForm');
+    console.log('Login form found:', !!loginForm);
+    
+    if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            console.log('🔐 Form submitted!');
+            
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            const remember = document.getElementById('loginRemember').checked;
+            
+            console.log('Credentials:', username, password);
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, remember })
+                });
+                
+                const data = await response.json();
+                console.log('Response:', data);
+                
+                if (data.success) {
+                    document.getElementById('loginOverlay').style.display = 'none';
+                    alert('Login successful!');
+                    location.reload();
+                } else {
+                    alert('Login failed: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        });
+    }
+});
+
 
 
         // ==================== AUTHENTICATION ====================
@@ -2155,50 +2192,7 @@ function togglePasswordVisibility() {
     }
 }
 
-async function handleLogin(event) {
-    event.preventDefault();
-    
-    const username = document.getElementById('loginUsername').value;
-    const password = document.getElementById('loginPassword').value;
-    const remember = document.getElementById('loginRemember').checked;
-    
-    console.log('🔐 Login attempt:', { username, remember });
-    
-    const loginBtn = document.getElementById('loginBtn');
-    const loginBtnText = document.getElementById('loginBtnText');
-    
-    loginBtn.disabled = true;
-    loginBtnText.innerHTML = '<div class="spinner"></div> Signing in...';
-    hideLoginError();
-    
-    try {
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, remember })
-        });
-        
-        const data = await response.json();
-        console.log('📥 Login response:', data);
-        
-        if (data.success) {
-            console.log('✅ Login successful!');
-            hideLoginOverlay();
-            isAuthenticated = true;
-            loadDashboard();
-            showToast(data.message || 'Login successful', 'success');
-        } else {
-            console.error('❌ Login failed:', data.message);
-            showLoginError(data.message || 'Invalid credentials');
-        }
-    } catch (error) {
-        console.error('❌ Login error:', error);
-        showLoginError('Connection error. Please try again.');
-    } finally {
-        loginBtn.disabled = false;
-        loginBtnText.innerHTML = '🔑 Sign In';
-    }
-}
+
 async function handleLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
