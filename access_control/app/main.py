@@ -610,7 +610,7 @@ def index():
         session['username'] = 'no_auth'
         session['password_version'] = PASSWORD_VERSION
     
-    return render_template_string(open('index.html').read())
+    return render_template('dashboard.html')
 
 @app.route('/api/debug-auth', methods=['GET'])
 def debug_auth():
