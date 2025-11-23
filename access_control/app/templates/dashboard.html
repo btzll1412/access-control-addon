@@ -4212,18 +4212,23 @@ async function saveDoorSettings(event) {
                         let statusColor = '';
                         
                         if (!code.active) {
-                            statusBadge = '<span class="badge badge-danger">❌ Disabled</span>';
-                            statusColor = '#ef4444';
+                            // Manually disabled
+                            statusBadge = '<span class="badge badge-secondary">⏸️ Disabled</span>';
+                            statusColor = '#64748b';
                         } else if (code.is_expired) {
+                            // Time expired
                             statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
                             statusColor = '#f59e0b';
                         } else if (code.usage_type === 'one_time' && code.current_uses >= 1) {
-                            statusBadge = '<span class="badge badge-warning">✅ Used</span>';
+                            // One-time code used
+                            statusBadge = '<span class="badge badge-warning">🎫 Used</span>';
                             statusColor = '#f59e0b';
                         } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
-                            statusBadge = '<span class="badge badge-warning">🔢 Max Used</span>';
+                            // Limited uses exhausted
+                            statusBadge = '<span class="badge badge-warning">🔢 Limit Reached</span>';
                             statusColor = '#f59e0b';
                         } else {
+                            // Active and ready to use
                             statusBadge = '<span class="badge badge-success">✅ Active</span>';
                             statusColor = '#10b981';
                         }
