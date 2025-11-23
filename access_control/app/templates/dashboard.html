@@ -3171,11 +3171,18 @@ async function handleLogout() {
                 };
 
                 return `
-                    <div style="border: 2px solid ${typeColors[schedule.type]}; border-radius: 12px; padding: 20px; margin-bottom: 15px; position: relative;">
-                        <button onclick="removeDoorSchedule(${index})" 
-                                style="position: absolute; top: 15px; right: 15px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 18px;">
-                            ×
-                        </button>
+            <div style="border: 2px solid ${typeColors[schedule.type]}; border-radius: 12px; padding: 20px; margin-bottom: 15px; position: relative;">
+                <!-- ✅ NEW: Copy button -->
+                <button onclick="copyScheduleToOtherDoors(${index})" 
+                        class="btn btn-secondary btn-small"
+                        style="position: absolute; top: 15px; right: 55px;">
+                    📋 Copy
+                </button>
+                
+                <button onclick="removeDoorSchedule(${index})" 
+                        style="position: absolute; top: 15px; right: 15px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 18px;">
+                    ×
+                </button>
 
                         <div class="form-group">
                             <label class="form-label">Schedule Name</label>
@@ -3286,6 +3293,54 @@ async function handleLogout() {
                 showToast('Error saving schedules', 'error');
             }
         }
+
+    @app.route('/api/door-schedules/<int:target_door_id>/copy', methods=['POST'])
+def copy_door_schedule(target_door_id):
+    """Copy a door schedule to another door"""
+    try:
+        data = request.json
+        schedule = data.get('schedule')
+        
+        if not schedule:
+            return jsonify({'success': False, 'message': 'No schedule data provided'}), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create new access_schedule
+        cursor.execute('''
+            INSERT INTO access_schedules (name, active, priority)
+            VALUES (?, 1, ?)
+        ''', (f"{schedule['name']} (Copy)", schedule.get('priority', 0)))
+        
+        new_schedule_id = cursor.lastrowid
+        
+        # Copy schedule_times for each day
+        for day in schedule.get('days', []):
+            cursor.execute('''
+                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, schedule_type)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (new_schedule_id, day, schedule['start_time'], schedule['end_time'], schedule['type']))
+        
+        # Link to target door
+        cursor.execute('''
+            INSERT INTO door_schedules (door_id, schedule_id)
+            VALUES (?, ?)
+        ''', (target_door_id, new_schedule_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Copied schedule to door {target_door_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Schedule copied successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error copying schedule: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
         // ==================== DOOR SETTINGS ====================
 let currentDoorSettings = null;
@@ -4682,6 +4737,128 @@ async function saveDoorSettings(event) {
             } catch (error) {
                 console.error('Error deleting temp code:', error);
                 showToast('Error deleting temp code', 'error');
+            }
+        }
+
+    // ==================== COPY DOOR SCHEDULE ====================
+        async function copyScheduleToOtherDoors(scheduleIndex) {
+            const schedule = doorSchedules[scheduleIndex];
+            
+            // Get all doors except current one
+            try {
+                const response = await fetch('/api/doors');
+                const data = await response.json();
+                
+                if (!data.success) {
+                    showToast('Error loading doors', 'error');
+                    return;
+                }
+                
+                const currentDoorId = parseInt(document.getElementById('doorScheduleDoorId').value);
+                const otherDoors = data.doors.filter(d => d.id !== currentDoorId);
+                
+                if (otherDoors.length === 0) {
+                    showToast('No other doors available', 'warning');
+                    return;
+                }
+                
+                // Build selection modal
+                const modalHtml = `
+                    <div id="copyScheduleModal" class="modal active">
+                        <div class="modal-content" style="max-width: 600px;">
+                            <div class="modal-header">
+                                <h3 class="modal-title">📋 Copy Schedule to Other Doors</h3>
+                                <button class="modal-close" onclick="closeCopyScheduleModal()">&times;</button>
+                            </div>
+                            <div class="modal-body">
+                                <p style="margin-bottom: 20px; color: #64748b;">
+                                    Copy "${schedule.name}" schedule to the selected doors:
+                                </p>
+                                
+                                <div class="form-group">
+                                    <div class="checkbox-group" id="copyScheduleDoorsList">
+                                        ${otherDoors.map(door => `
+                                            <div class="checkbox-item">
+                                                <input type="checkbox" id="copy-door-${door.id}" value="${door.id}">
+                                                <label for="copy-door-${door.id}">
+                                                    ${door.board_name} - ${door.name}
+                                                </label>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                
+                                <div style="background: #dbeafe; padding: 12px; border-radius: 8px; margin-top: 15px;">
+                                    <small style="color: #1e40af;">
+                                        ℹ️ This will create a copy of this schedule on each selected door.
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" onclick="closeCopyScheduleModal()">Cancel</button>
+                                <button class="btn btn-primary" onclick="executeCopySchedule(${scheduleIndex})">
+                                    📋 Copy Schedule
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Inject modal into page
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                
+            } catch (error) {
+                console.error('Error preparing copy:', error);
+                showToast('Error preparing copy', 'error');
+            }
+        }
+        
+        function closeCopyScheduleModal() {
+            const modal = document.getElementById('copyScheduleModal');
+            if (modal) modal.remove();
+        }
+        
+        async function executeCopySchedule(scheduleIndex) {
+            const schedule = doorSchedules[scheduleIndex];
+            
+            // Get selected doors
+            const selectedDoorIds = Array.from(
+                document.querySelectorAll('#copyScheduleDoorsList input:checked')
+            ).map(cb => parseInt(cb.value));
+            
+            if (selectedDoorIds.length === 0) {
+                showToast('Please select at least one door', 'warning');
+                return;
+            }
+            
+            try {
+                showToast(`Copying schedule to ${selectedDoorIds.length} door(s)...`, 'info');
+                
+                // Copy schedule to each door
+                for (const targetDoorId of selectedDoorIds) {
+                    const response = await fetch(`/api/door-schedules/${targetDoorId}/copy`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ schedule: schedule })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        showToast(`Error copying to door ${targetDoorId}: ${data.message}`, 'error');
+                    }
+                }
+                
+                showToast(`✅ Schedule copied to ${selectedDoorIds.length} door(s)!`, 'success');
+                closeCopyScheduleModal();
+                
+                // Sync all boards
+                await fetch('/api/boards/sync-all', { method: 'POST' });
+                showToast('All boards synced with new schedules', 'success');
+                
+            } catch (error) {
+                console.error('Error copying schedule:', error);
+                showToast('Error copying schedule', 'error');
             }
         }
     </script>
