@@ -2256,24 +2256,7 @@ if data.get('credential_type') == 'pin' and data.get('access_granted'):
         if should_deactivate:
             cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
             logger.info(f"🎫 Temp code '{temp_code['name']}' DEACTIVATED ({deactivate_reason})")
-        else:
-            logger.info(f"🎫 Temp code '{temp_code['name']}' used: {new_uses} total uses")
-        # ✅ ✅ ✅ END OF TEMP CODE TRACKING ✅ ✅ ✅
         
-        conn.commit()
-        
-        logger.info("✅ Access log saved to database")
-        
-        return jsonify({'success': True})
-        
-    except Exception as e:  # ✅ ADD THIS!
-        logger.error(f"❌ Error receiving access log: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:  # ✅ ADD THIS!
-        if conn:
-            conn.close()
 
 
 @app.route('/api/temp-code-usage', methods=['POST'])
