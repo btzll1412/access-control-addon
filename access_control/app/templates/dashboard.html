@@ -2113,7 +2113,12 @@ function showLoginOverlay() {
 }
 
 function hideLoginOverlay() {
-    document.getElementById('loginOverlay').classList.add('hidden');
+    const overlay = document.getElementById('loginOverlay');
+    overlay.classList.add('hidden');
+    // Force hide after transition
+    setTimeout(() => {
+        overlay.style.display = 'none';
+    }, 300);
 }
 
 function showLoginError(message) {
