@@ -1221,7 +1221,7 @@
                 <span id="loginErrorText">Invalid credentials</span>
             </div>
             
-            <form id="loginForm" onsubmit="handleLogin(event)">
+            <form id="loginForm" onsubmit="return handleLogin(event);">
                 <div class="login-form-group">
                     <label for="loginUsername">Username</label>
                     <input type="text" id="loginUsername" name="username" 
@@ -2193,6 +2193,8 @@ async function handleLogin(event) {
         loginBtn.disabled = false;
         loginBtnText.innerHTML = '🔑 Sign In';
     }
+
+    return false;
 }
 async function handleLogout() {
     try {
@@ -2270,11 +2272,17 @@ async function handleLogout() {
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.classList.remove('active');
             });
-
+        
             // Show selected tab
             document.getElementById('tab-' + tabName).classList.add('active');
-            event.target.classList.add('active');
-
+            
+            // Find and activate the clicked tab button
+            const clickedTab = Array.from(document.querySelectorAll('.tab'))
+                .find(tab => tab.textContent.toLowerCase().includes(tabName.substring(0, 4)));
+            if (clickedTab) {
+                clickedTab.classList.add('active');
+            }
+        
             // Load data for tab
             if (tabName === 'boards') loadBoards();
             if (tabName === 'doors') loadDoors();
@@ -2288,7 +2296,6 @@ async function handleLogout() {
                 loadLogs();
             }
         }
-
         // ==================== STATS ====================
         async function loadStats() {
             try {
