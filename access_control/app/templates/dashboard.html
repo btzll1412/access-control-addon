@@ -1961,9 +1961,13 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">
-                        <input type="checkbox" id="tempCodeActive" checked> Active
-                    </label>
+                    <label class="form-label">Status</label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="tempCodeActive" checked>
+                        <label class="form-check-label" for="tempCodeActive">
+                            Active
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Usage Type -->
@@ -4214,16 +4218,17 @@ async function saveDoorSettings(event) {
                         // First check if it's actually USABLE (not just active flag)
                         let isUsable = true;
                         let whyNotUsable = '';
+                        let totalDoorsAssigned = code.doors ? code.doors.length : 0;
                         
                         // Check 1: Is it disabled?
                         if (!code.active) {
                             // If manually disabled, determine WHY it was disabled
                             
-                            // Check usage limits
-                            if (code.usage_type === 'one_time' && code.current_uses >= 1) {
+                            // Check usage limits (per-door logic)
+                            if (code.usage_type === 'one_time' && code.current_uses >= totalDoorsAssigned) {
                                 isUsable = false;
                                 whyNotUsable = 'used_up';
-                            } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
+                            } else if (code.usage_type === 'limited' && code.current_uses >= (code.max_uses * totalDoorsAssigned)) {
                                 isUsable = false;
                                 whyNotUsable = 'used_up';
                             }
@@ -4264,14 +4269,16 @@ async function saveDoorSettings(event) {
                             }
                         }
         
-                        // Usage info
+                        // Build usage info string with per-door tracking
                         let usageInfo = '';
+                        let totalDoorsAssigned = code.doors ? code.doors.length : 0;
+                        
                         if (code.usage_type === 'one_time') {
-                            usageInfo = `One-time (${code.current_uses}/1 uses)`;
+                            usageInfo = `One-time per door (${code.current_uses}/${totalDoorsAssigned} doors used)`;
                         } else if (code.usage_type === 'limited') {
-                            usageInfo = `Limited (${code.current_uses}/${code.max_uses} uses)`;
+                            usageInfo = `Limited (${code.max_uses} uses per door, ${totalDoorsAssigned} doors)`;
                         } else {
-                            usageInfo = `Unlimited (${code.current_uses} uses)`;
+                            usageInfo = 'Unlimited';
                         }
         
                         // Time info
