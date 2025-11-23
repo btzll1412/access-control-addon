@@ -364,6 +364,35 @@ def migrate_database():
         if conn:
             conn.close()
 
+
+def upgrade_database():
+    """Add missing columns for temp code support"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check if columns exist in access_logs
+        cursor.execute("PRAGMA table_info(access_logs)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'user_id' not in columns:
+            logger.info("🔧 Adding user_id column to access_logs")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN user_id INTEGER")
+        
+        if 'credential_type' not in columns:
+            logger.info("🔧 Adding credential_type column to access_logs")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN credential_type TEXT")
+        
+        conn.commit()
+        logger.info("✅ Database upgrade complete")
+    except Exception as e:
+        logger.error(f"❌ Error upgrading database: {e}")
+        conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+
 def init_db():
     """Initialize database with complete schema"""
     print("🔧 Initializing database...")
@@ -597,6 +626,7 @@ def init_db():
 # Initialize database on startup
 init_db()
 migrate_database()
+upgrade_database()
 init_admin_user()
 
 # ==================== MAIN ROUTES ====================
