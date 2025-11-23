@@ -564,19 +564,16 @@ def init_db():
         )
     ''')
     
-    conn.commit()
-    conn.close()
     # ✅ Migration: Add usage_mode column to temp_codes if it doesn't exist
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
         cursor.execute("ALTER TABLE temp_codes ADD COLUMN usage_mode TEXT DEFAULT 'per_door'")
-        conn.commit()
-        conn.close()
         logger.info("✅ Added usage_mode column to temp_codes")
     except sqlite3.OperationalError:
         # Column already exists
         pass
+    
+    conn.commit()
+    conn.close()
     logger.info("✅ Database initialized successfully")
     
 
