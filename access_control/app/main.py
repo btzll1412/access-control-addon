@@ -679,13 +679,24 @@ def logout():
 
 @app.route('/api/auth-status', methods=['GET'])
 def auth_status():
-    """Check if user is logged in and session is valid"""
-    if not AUTH_CONFIG['enabled']:
+    # ✅ Check if auth is enabled in config
+    if not AUTH_ENABLED:
+        # Auth is disabled - always authenticated
         return jsonify({
-            'authenticated': True,
-            'auth_required': False,
-            'username': 'admin'
+            'success': True,
+            'auth_required': False,  # ✅ NO AUTH NEEDED
+            'authenticated': True,   # ✅ AUTO AUTHENTICATED
+            'remember_days': 0
         })
+    
+    # Auth is enabled - check session
+    return jsonify({
+        'success': True,
+        'auth_required': True,
+        'authenticated': check_session(),
+        'remember_days': REMEMBER_DAYS,
+        'password_changed': session.get('password_changed', False)
+    })
     
     # Check if logged in
     if 'logged_in' not in session:
