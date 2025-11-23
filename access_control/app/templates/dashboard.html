@@ -2074,7 +2074,7 @@ async function checkAuthStatus() {
             document.getElementById('rememberDays').textContent = rememberDays;
         }
         
-        if (!data.auth_required) {
+        if (!data.auth_required) {  // ✅ Check this condition
             hideLoginOverlay();
             isAuthenticated = true;
             return true;
@@ -2100,7 +2100,6 @@ async function checkAuthStatus() {
         return false;
     }
 }
-
 function showLoginOverlay() {
     document.getElementById('loginOverlay').classList.remove('hidden');
     document.getElementById('loginUsername').focus();
