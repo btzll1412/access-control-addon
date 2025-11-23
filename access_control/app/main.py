@@ -2172,90 +2172,100 @@ def receive_access_log():
         ))
         
         # ✅ TRACK TEMP CODE USAGE WITH PER-DOOR SUPPORT
-if data.get('credential_type') == 'pin' and data.get('access_granted'):
-    credential = data.get('credential')
-    door_id = door['id']  # We already have this from earlier lookup
-    
-    # Find matching temp code
-    cursor.execute('''
-        SELECT id, name, usage_type, max_uses, current_uses, active, usage_mode
-        FROM temp_codes
-        WHERE code = ? AND active = 1
-    ''', (credential,))
-    
-    temp_code = cursor.fetchone()
-    
-    if temp_code:
-        usage_mode = temp_code['usage_mode'] or 'per_door'
-        
-        # ✅ Track per-door usage
-        cursor.execute('''
-            INSERT INTO temp_code_door_usage (temp_code_id, door_id, uses, last_used_at)
-            VALUES (?, ?, 1, ?)
-            ON CONFLICT(temp_code_id, door_id) 
-            DO UPDATE SET uses = uses + 1, last_used_at = ?
-        ''', (temp_code['id'], door_id, timestamp_for_db, timestamp_for_db))
-        
-        # ✅ Update global counter
-        new_uses = (temp_code['current_uses'] or 0) + 1
-        cursor.execute('''
-            UPDATE temp_codes
-            SET current_uses = ?,
-                last_used_at = ?
-            WHERE id = ?
-        ''', (new_uses, timestamp_for_db, temp_code['id']))
-        
-        # ✅ Check if should deactivate
-        should_deactivate = False
-        deactivate_reason = ""
-        
-        if usage_mode == 'total':
-            # Total usage across all doors
-            if temp_code['usage_type'] == 'one_time' and new_uses >= 1:
-                should_deactivate = True
-                deactivate_reason = "one-time use completed"
-            elif temp_code['usage_type'] == 'limited' and new_uses >= temp_code['max_uses']:
-                should_deactivate = True
-                deactivate_reason = "usage limit reached"
-        
-        elif usage_mode == 'per_door':
-            # Check if ALL assigned doors have been used
+        if data.get('credential_type') == 'pin' and data.get('access_granted'):
+            credential = data.get('credential')
+            door_id = door['id']  # We already have this from earlier lookup
+            
+            # Find matching temp code
             cursor.execute('''
-                SELECT d.id
-                FROM doors d
-                JOIN temp_code_doors tcd ON d.id = tcd.door_id
-                WHERE tcd.temp_code_id = ?
-            ''', (temp_code['id'],))
+                SELECT id, name, usage_type, max_uses, current_uses, active, usage_mode
+                FROM temp_codes
+                WHERE code = ? AND active = 1
+            ''', (credential,))
             
-            assigned_doors = [row['id'] for row in cursor.fetchall()]
+            temp_code = cursor.fetchone()
             
-            if assigned_doors:
-                all_doors_exhausted = True
-                for check_door_id in assigned_doors:
-                    cursor.execute('''
-                        SELECT uses FROM temp_code_door_usage 
-                        WHERE temp_code_id = ? AND door_id = ?
-                    ''', (temp_code['id'], check_door_id))
-                    
-                    door_usage = cursor.fetchone()
-                    door_uses = door_usage['uses'] if door_usage else 0
-                    
-                    # Check if this door still has uses remaining
-                    if temp_code['usage_type'] == 'one_time' and door_uses < 1:
-                        all_doors_exhausted = False
-                        break
-                    elif temp_code['usage_type'] == 'limited' and door_uses < temp_code['max_uses']:
-                        all_doors_exhausted = False
-                        break
+            if temp_code:
+                usage_mode = temp_code['usage_mode'] or 'per_door'
                 
-                if all_doors_exhausted:
-                    should_deactivate = True
-                    deactivate_reason = "all doors exhausted"
+                # ✅ Track per-door usage
+                cursor.execute('''
+                    INSERT INTO temp_code_door_usage (temp_code_id, door_id, uses, last_used_at)
+                    VALUES (?, ?, 1, ?)
+                    ON CONFLICT(temp_code_id, door_id) 
+                    DO UPDATE SET uses = uses + 1, last_used_at = ?
+                ''', (temp_code['id'], door_id, timestamp_for_db, timestamp_for_db))
+                
+                # ✅ Update global counter
+                new_uses = (temp_code['current_uses'] or 0) + 1
+                cursor.execute('''
+                    UPDATE temp_codes
+                    SET current_uses = ?,
+                        last_used_at = ?
+                    WHERE id = ?
+                ''', (new_uses, timestamp_for_db, temp_code['id']))
+                
+                # ✅ Check if should deactivate
+                should_deactivate = False
+                deactivate_reason = ""
+                
+                if usage_mode == 'total':
+                    # Total usage across all doors
+                    if temp_code['usage_type'] == 'one_time' and new_uses >= 1:
+                        should_deactivate = True
+                        deactivate_reason = "one-time use completed"
+                    elif temp_code['usage_type'] == 'limited' and new_uses >= temp_code['max_uses']:
+                        should_deactivate = True
+                        deactivate_reason = "usage limit reached"
+                
+                elif usage_mode == 'per_door':
+                    # Check if ALL assigned doors have been used
+                    cursor.execute('''
+                        SELECT d.id
+                        FROM doors d
+                        JOIN temp_code_doors tcd ON d.id = tcd.door_id
+                        WHERE tcd.temp_code_id = ?
+                    ''', (temp_code['id'],))
+                    
+                    assigned_doors = [row['id'] for row in cursor.fetchall()]
+                    
+                    if assigned_doors:
+                        all_doors_exhausted = True
+                        for check_door_id in assigned_doors:
+                            cursor.execute('''
+                                SELECT uses FROM temp_code_door_usage 
+                                WHERE temp_code_id = ? AND door_id = ?
+                            ''', (temp_code['id'], check_door_id))
+                            
+                            door_usage = cursor.fetchone()
+                            door_uses = door_usage['uses'] if door_usage else 0
+                            
+                            # Check if this door still has uses remaining
+                            if temp_code['usage_type'] == 'one_time' and door_uses < 1:
+                                all_doors_exhausted = False
+                                break
+                            elif temp_code['usage_type'] == 'limited' and door_uses < temp_code['max_uses']:
+                                all_doors_exhausted = False
+                                break
+                        
+                        if all_doors_exhausted:
+                            should_deactivate = True
+                            deactivate_reason = "all doors exhausted"
+                
+                # Apply deactivation if needed
+                if should_deactivate:
+                    cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
+                    logger.info(f"🎫 Temp code '{temp_code['name']}' DEACTIVATED ({deactivate_reason})")
+                else:
+                    logger.info(f"🎫 Temp code '{temp_code['name']}' used: {new_uses} total uses")
         
-        # Apply deactivation if needed
-        if should_deactivate:
-            cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
-            logger.info(f"🎫 Temp code '{temp_code['name']}' DEACTIVATED ({deactivate_reason})")
+        conn.commit()
+        
+        logger.info("✅ Access log saved to database")
+        
+        return jsonify({'success': True})
+
+
         
 
 
