@@ -2616,13 +2616,39 @@ def sync_board_full(board_id):
             # Only include temp codes that have access to at least one door on this board
             if tc_dict['doors']:
                 temp_codes.append(tc_dict)
+
+        # ✅ NEW: Get user schedules
+        cursor.execute('''
+            SELECT u.id, u.name, st.day_of_week, st.start_time, st.end_time
+            FROM users u
+            JOIN user_schedules us ON u.id = us.user_id
+            JOIN access_schedules s ON us.schedule_id = s.id
+            JOIN schedule_times st ON s.id = st.schedule_id
+            WHERE u.active = 1 AND s.active = 1
+            ORDER BY u.name, st.day_of_week, st.start_time
+        ''')
+        
+        schedule_data = cursor.fetchall()
+        user_schedules = {}
+        
+        for row in schedule_data:
+            user_name = row['name']
+            if user_name not in user_schedules:
+                user_schedules[user_name] = []
+            
+            user_schedules[user_name].append({
+                'day': row['day_of_week'],
+                'start': row['start_time'],
+                'end': row['end_time']
+            })
         
         # Build sync payload
         sync_data = {
             'users': users,
             'door_schedules': door_schedules,
             'door_names': door_names,
-            'temp_codes': temp_codes  # ✅ NEW: Include temp codes
+            'temp_codes': temp_codes,   # ✅ NEW: Include temp codes
+            'user_schedules': user_schedules
         }
         
         # Send to board
