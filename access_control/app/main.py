@@ -2024,15 +2024,13 @@ def receive_access_log():
         
         cursor.execute('''
             INSERT INTO access_logs (
-                door_id, board_name, door_name, user_id, credential, 
+                door_id, board_name, door_name, credential, 
                 credential_type, access_granted, reason, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             door['id'],
             data.get('board_name', door['board_name']),
             data.get('door_name'),
-            user_id,
-            user_name_received,
             data.get('credential'),
             data.get('credential_type'),
             data.get('access_granted'),
