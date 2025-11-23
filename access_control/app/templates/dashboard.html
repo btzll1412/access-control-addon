@@ -4294,7 +4294,7 @@ async function saveDoorSettings(event) {
         
                         // Build usage info string with per-door tracking
                         let usageInfo = '';
-                        let totalDoorsAssigned = code.doors ? code.doors.length : 0;
+                       
                         
                         if (code.usage_type === 'one_time') {
                             usageInfo = `One-time per door (${code.current_uses}/${totalDoorsAssigned} doors used)`;
