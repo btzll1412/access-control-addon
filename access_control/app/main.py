@@ -2243,7 +2243,8 @@ def receive_access_log():
         ))
         
         # ✅ TRACK TEMP CODE USAGE WITH PER-DOOR SUPPORT
-        if data.get('credential_type') == 'pin' and data.get('access_granted'):
+        credential_type_check = data.get('credential_type')
+        if (credential_type_check == 'pin' or credential_type_check == 'temp_code') and data.get('access_granted'):
             credential = data.get('credential')
             door_id = door['id']  # We already have this from earlier lookup
             
