@@ -1223,7 +1223,7 @@
 
             <button type="button" onclick="alert('JavaScript is working!')">Test JS</button>
             
-            <form id="loginForm" onsubmit="event.preventDefault(); handleLogin(event); return false;">
+            <form id="loginForm" onsubmit="handleLogin(event)">
                 <div class="login-form-group">
                     <label for="loginUsername">Username</label>
                     <input type="text" id="loginUsername" name="username" 
@@ -2107,6 +2107,15 @@ async function checkAuthStatus() {
         return false;
     }
 }
+
+
+function loadDashboard() {
+    loadStats();
+    loadDoors();
+    loadPendingBoards();
+    loadEmergencyStatus();
+}
+
 function showLoginOverlay() {
     document.getElementById('loginOverlay').classList.remove('hidden');
     document.getElementById('loginUsername').focus();
@@ -2151,7 +2160,7 @@ async function handleLogin(event) {
     const password = document.getElementById('loginPassword').value;
     const remember = document.getElementById('loginRemember').checked;
     
-    console.log('🔐 Login attempt:', { username, password, remember });
+    console.log('🔐 Login attempt:', { username, remember });
     
     const loginBtn = document.getElementById('loginBtn');
     const loginBtnText = document.getElementById('loginBtnText');
@@ -2161,33 +2170,21 @@ async function handleLogin(event) {
     hideLoginError();
     
     try {
-        console.log('📤 Sending login request...');
-        
         const response = await fetch('/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password, remember })
         });
         
-        console.log('📥 Response status:', response.status);
-        
         const data = await response.json();
-        console.log('📥 Response data:', data);
+        console.log('📥 Login response:', data);
         
         if (data.success) {
             console.log('✅ Login successful!');
             hideLoginOverlay();
             isAuthenticated = true;
-            
-            if (data.remember_days > 0) {
-                showToast(`Welcome! Device remembered for ${data.remember_days} days`, 'success');
-            } else {
-                showToast('Login successful', 'success');
-            }
-            
-            loadStats();
-            loadDoors();
-            loadPendingBoards();
+            loadDashboard();
+            showToast(data.message || 'Login successful', 'success');
         } else {
             console.error('❌ Login failed:', data.message);
             showLoginError(data.message || 'Invalid credentials');
@@ -2199,8 +2196,6 @@ async function handleLogin(event) {
         loginBtn.disabled = false;
         loginBtnText.innerHTML = '🔑 Sign In';
     }
-
-    return false;
 }
 async function handleLogout() {
     try {
