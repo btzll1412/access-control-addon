@@ -693,66 +693,107 @@ def get_temp_codes():
             status = "active"
             status_color = "#10b981"
             status_text = "Active"
+            is_expired = False  # ✅ ADD THIS FLAG
             
             if not code_dict['active']:
-                status = "disabled"
-                status_color = "#6b7280"
-                status_text = "Disabled"
-            
-            # Check usage limits
-            elif code_dict['usage_type'] == 'one_time' and code_dict['current_uses'] >= 1:
-                status = "used_up"
-                status_color = "#ef4444"
-                status_text = "Used"
-            
-            elif code_dict['usage_type'] == 'limited' and code_dict['current_uses'] >= code_dict['max_uses']:
-                status = "used_up"
-                status_color = "#ef4444"
-                status_text = f"Used ({code_dict['current_uses']}/{code_dict['max_uses']})"
-            
-            # Check time limits
-            elif code_dict['time_type'] == 'hours':
-                if code_dict['last_activated_at']:
-                    activated = datetime.fromisoformat(code_dict['last_activated_at'])
-                else:
-                    activated = datetime.fromisoformat(code_dict['created_at'])
+                # Determine WHY it's inactive
+                is_used_up = False
                 
-                if activated.tzinfo is None:
-                    activated = pytz.utc.localize(activated)
+                # Check usage limits
+                if code_dict['usage_type'] == 'one_time' and code_dict['current_uses'] >= 1:
+                    is_used_up = True
+                elif code_dict['usage_type'] == 'limited' and code_dict['current_uses'] >= code_dict['max_uses']:
+                    is_used_up = True
                 
-                expiry = activated + timedelta(hours=code_dict['valid_hours'])
+                # Check time limits for expiry
+                if code_dict['time_type'] == 'hours':
+                    if code_dict['last_activated_at']:
+                        activated = datetime.fromisoformat(code_dict['last_activated_at'])
+                    else:
+                        activated = datetime.fromisoformat(code_dict['created_at'])
+                    
+                    if activated.tzinfo is None:
+                        activated = pytz.utc.localize(activated)
+                    
+                    expiry = activated + timedelta(hours=code_dict['valid_hours'])
+                    
+                    if now > expiry:
+                        is_expired = True
                 
-                if now > expiry:
+                elif code_dict['time_type'] == 'date_range':
+                    valid_until = datetime.fromisoformat(code_dict['valid_until'])
+                    
+                    if valid_until.tzinfo is None:
+                        valid_until = pytz.utc.localize(valid_until)
+                    
+                    if now > valid_until:
+                        is_expired = True
+                
+                # Set status based on reason for being inactive
+                if is_used_up:
+                    status = "used_up"
+                    status_color = "#f59e0b"
+                    if code_dict['usage_type'] == 'one_time':
+                        status_text = "Used (1/1)"
+                    else:
+                        status_text = f"Used ({code_dict['current_uses']}/{code_dict['max_uses']})"
+                elif is_expired:
                     status = "expired"
                     status_color = "#f59e0b"
                     status_text = "Expired"
                 else:
-                    remaining = expiry - now
-                    hours_left = int(remaining.total_seconds() / 3600)
-                    mins_left = int((remaining.total_seconds() % 3600) / 60)
-                    status_text = f"Active ({hours_left}h {mins_left}m left)"
+                    # Manually disabled
+                    status = "disabled"
+                    status_color = "#64748b"
+                    status_text = "Disabled"
             
-            elif code_dict['time_type'] == 'date_range':
-                valid_from = datetime.fromisoformat(code_dict['valid_from'])
-                valid_until = datetime.fromisoformat(code_dict['valid_until'])
+            else:
+                # Active - check if it WILL expire soon
+                if code_dict['time_type'] == 'hours':
+                    if code_dict['last_activated_at']:
+                        activated = datetime.fromisoformat(code_dict['last_activated_at'])
+                    else:
+                        activated = datetime.fromisoformat(code_dict['created_at'])
+                    
+                    if activated.tzinfo is None:
+                        activated = pytz.utc.localize(activated)
+                    
+                    expiry = activated + timedelta(hours=code_dict['valid_hours'])
+                    
+                    if now > expiry:
+                        is_expired = True
+                        status = "expired"
+                        status_color = "#f59e0b"
+                        status_text = "Expired"
+                    else:
+                        remaining = expiry - now
+                        hours_left = int(remaining.total_seconds() / 3600)
+                        mins_left = int((remaining.total_seconds() % 3600) / 60)
+                        status_text = f"Active ({hours_left}h {mins_left}m left)"
                 
-                if valid_from.tzinfo is None:
-                    valid_from = pytz.utc.localize(valid_from)
-                if valid_until.tzinfo is None:
-                    valid_until = pytz.utc.localize(valid_until)
-                
-                if now < valid_from:
-                    status = "not_yet_valid"
-                    status_color = "#f59e0b"
-                    status_text = "Not Yet Valid"
-                elif now > valid_until:
-                    status = "expired"
-                    status_color = "#f59e0b"
-                    status_text = "Expired"
+                elif code_dict['time_type'] == 'date_range':
+                    valid_from = datetime.fromisoformat(code_dict['valid_from'])
+                    valid_until = datetime.fromisoformat(code_dict['valid_until'])
+                    
+                    if valid_from.tzinfo is None:
+                        valid_from = pytz.utc.localize(valid_from)
+                    if valid_until.tzinfo is None:
+                        valid_until = pytz.utc.localize(valid_until)
+                    
+                    if now < valid_from:
+                        status = "not_yet_valid"
+                        status_color = "#f59e0b"
+                        status_text = "Not Yet Valid"
+                    elif now > valid_until:
+                        is_expired = True
+                        status = "expired"
+                        status_color = "#f59e0b"
+                        status_text = "Expired"
             
             code_dict['status'] = status
             code_dict['status_color'] = status_color
             code_dict['status_text'] = status_text
+            code_dict['is_expired'] = is_expired  # ✅ ADD THIS
             
             # Get doors
             cursor.execute('''
