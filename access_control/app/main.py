@@ -830,11 +830,36 @@ def get_temp_codes():
                 # Determine WHY it's inactive
                 is_used_up = False
                 
-                # Check usage limits
-                if code_dict['usage_type'] == 'one_time' and code_dict['current_uses'] >= 1:
-                    is_used_up = True
-                elif code_dict['usage_type'] == 'limited' and code_dict['current_uses'] >= code_dict['max_uses']:
-                    is_used_up = True
+                # ✅ NEW: Check per-door usage for "one_time_per_door" mode
+                if code_dict['usage_type'] == 'one_time':
+                    # Check if all assigned doors have been used
+                    cursor.execute('''
+                        SELECT COUNT(DISTINCT door_id) as doors_used
+                        FROM temp_code_door_usage
+                        WHERE temp_code_id = ? AND uses > 0
+                    ''', (code_dict['id'],))
+                    
+                    usage_result = cursor.fetchone()
+                    doors_used = usage_result['doors_used'] if usage_result else 0
+                    
+                    # Get total assigned doors
+                    cursor.execute('''
+                        SELECT COUNT(*) as total_doors
+                        FROM temp_code_doors
+                        WHERE temp_code_id = ?
+                    ''', (code_dict['id'],))
+                    
+                    total_doors_result = cursor.fetchone()
+                    total_doors = total_doors_result['total_doors'] if total_doors_result else 0
+                    
+                    # If all doors used, it's used up
+                    if doors_used >= total_doors and total_doors > 0:
+                        is_used_up = True
+                
+                elif code_dict['usage_type'] == 'limited':
+                    # For limited, check global counter
+                    if code_dict['current_uses'] >= code_dict['max_uses']:
+                        is_used_up = True
                 
                 # Check time limits for expiry
                 if code_dict['time_type'] == 'hours':
@@ -864,8 +889,26 @@ def get_temp_codes():
                 if is_used_up:
                     status = "used_up"
                     status_color = "#f59e0b"
+                    
                     if code_dict['usage_type'] == 'one_time':
-                        status_text = "Used (1/1)"
+                        # Get doors used count
+                        cursor.execute('''
+                            SELECT COUNT(DISTINCT door_id) as doors_used
+                            FROM temp_code_door_usage
+                            WHERE temp_code_id = ? AND uses > 0
+                        ''', (code_dict['id'],))
+                        
+                        doors_used = cursor.fetchone()['doors_used'] or 0
+                        
+                        cursor.execute('''
+                            SELECT COUNT(*) as total_doors
+                            FROM temp_code_doors
+                            WHERE temp_code_id = ?
+                        ''', (code_dict['id'],))
+                        
+                        total_doors = cursor.fetchone()['total_doors'] or 0
+                        
+                        status_text = f"Used ({doors_used}/{total_doors} doors)"
                     else:
                         status_text = f"Used ({code_dict['current_uses']}/{code_dict['max_uses']})"
                 elif is_expired:
@@ -936,6 +979,25 @@ def get_temp_codes():
             ''', (code_dict['id'],))
             
             code_dict['doors'] = [dict(door) for door in cursor.fetchall()]
+            
+            # ✅ NEW: Get per-door usage count
+            cursor.execute('''
+                SELECT COUNT(DISTINCT door_id) as doors_used
+                FROM temp_code_door_usage
+                WHERE temp_code_id = ? AND uses > 0
+            ''', (code_dict['id'],))
+            
+            usage_result = cursor.fetchone()
+            doors_used = usage_result['doors_used'] if usage_result else 0
+            
+            # Update usage text
+            total_doors = len(code_dict['doors'])
+            if code_dict['usage_type'] == 'one_time':
+                code_dict['usage_text'] = f"One-time per door ({doors_used}/{total_doors} doors used)"
+            elif code_dict['usage_type'] == 'limited':
+                code_dict['usage_text'] = f"Limited ({code_dict['current_uses']} total uses, {doors_used}/{total_doors} doors used)"
+            else:
+                code_dict['usage_text'] = f"Unlimited ({code_dict['current_uses']} uses)"
             
             # Get groups
             cursor.execute('''
@@ -2125,9 +2187,10 @@ def receive_access_log():
         
         user_id = None
         user_name_received = data.get('user_name', 'Unknown')
+        credential_type_received = data.get('credential_type', '')
 
-        # ✅ FIX: Check if it's a temp code (starts with emoji or "Temp")
-        if user_name_received and (user_name_received.startswith('🎫') or user_name_received.startswith('Temp')):
+        # ✅ FIX: Check if it's a temp code (by credential_type OR by name prefix)
+        if credential_type_received == 'temp_code' or (user_name_received and (user_name_received.startswith('🎫') or user_name_received.startswith('Temp'))):
             # It's a temp code - just use the name as-is, no user lookup needed
             logger.info(f"  🎫 Temp code access: {user_name_received}")
             user_id = None  # Temp codes don't have user IDs
