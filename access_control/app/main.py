@@ -1958,6 +1958,76 @@ def receive_access_log():
             timestamp_for_db
         ))
         
+        # ✅ ✅ ✅ NEW: TRACK TEMP CODE USAGE ✅ ✅ ✅
+        if data.get('credential_type') == 'pin' and data.get('access_granted'):
+            credential = data.get('credential')
+            
+            # Find matching temp code
+            cursor.execute('''
+                SELECT id, name, usage_type, max_uses, current_uses, 
+                       validity_hours, first_used_at, active
+                FROM temp_codes
+                WHERE code = ? AND active = 1
+            ''', (credential,))
+            
+            temp_code = cursor.fetchone()
+            
+            if temp_code:
+                # Increment usage count
+                new_uses = (temp_code['current_uses'] or 0) + 1
+                
+                # Set first use timestamp if not set
+                first_used_at = temp_code['first_used_at']
+                if not first_used_at:
+                    first_used_at = timestamp_for_db
+                
+                # Determine if should deactivate
+                should_deactivate = False
+                deactivate_reason = ""
+                
+                # Check one-time usage
+                if temp_code['usage_type'] == 'one_time' and new_uses >= 1:
+                    should_deactivate = True
+                    deactivate_reason = "one-time use completed"
+                
+                # Check limited usage
+                elif temp_code['usage_type'] == 'limited' and new_uses >= temp_code['max_uses']:
+                    should_deactivate = True
+                    deactivate_reason = "usage limit reached"
+                
+                # Check time validity
+                if temp_code['validity_hours'] and first_used_at:
+                    try:
+                        first_use_dt = datetime.strptime(first_used_at, '%Y-%m-%d %H:%M:%S')
+                        now_dt = datetime.strptime(timestamp_for_db, '%Y-%m-%d %H:%M:%S')
+                        hours_elapsed = (now_dt - first_use_dt).total_seconds() / 3600
+                        
+                        if hours_elapsed >= temp_code['validity_hours']:
+                            should_deactivate = True
+                            deactivate_reason = "validity period expired"
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Error calculating temp code validity: {e}")
+                
+                # Update temp code in database
+                cursor.execute('''
+                    UPDATE temp_codes
+                    SET current_uses = ?,
+                        first_used_at = ?,
+                        active = ?
+                    WHERE id = ?
+                ''', (
+                    new_uses,
+                    first_used_at,
+                    0 if should_deactivate else 1,
+                    temp_code['id']
+                ))
+                
+                logger.info(f"🎫 Temp code '{temp_code['name']}' used: {new_uses}/{temp_code['max_uses'] or '∞'}")
+                
+                if should_deactivate:
+                    logger.info(f"🎫 Temp code '{temp_code['name']}' DEACTIVATED ({deactivate_reason})")
+        # ✅ ✅ ✅ END OF TEMP CODE TRACKING ✅ ✅ ✅
+        
         conn.commit()
         
         logger.info("✅ Access log saved to database")
@@ -1972,6 +2042,8 @@ def receive_access_log():
     finally:
         if conn:
             conn.close()
+
+
 
 @app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
 @login_required
