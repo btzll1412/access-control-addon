@@ -586,7 +586,8 @@ init_admin_user()
 @app.route('/')
 def index():
     """Main dashboard page"""
-    return "TEST - Route is working!"
+    return render_template('dashboard.html')
+
     
 # ==================== AUTHENTICATION API ====================
 
