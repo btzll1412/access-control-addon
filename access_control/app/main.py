@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, make_response
+from flask import Flask, render_template, request, jsonify, session, make_response, redirect, url_for
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -583,6 +583,16 @@ migrate_database()
 init_admin_user()
 
 # ==================== AUTHENTICATION API ====================
+
+@app.route('/login')
+def login_page():
+    """Serve login page"""
+    # If already logged in, redirect to dashboard
+    if 'logged_in' in session and session.get('password_version') == PASSWORD_VERSION:
+        return redirect(url_for('index'))
+    
+    return render_template('login.html')
+
 @app.route('/api/login', methods=['POST'])
 def login():
     """Login endpoint with remember device support"""
@@ -686,6 +696,17 @@ def auth_status():
 @app.route('/')
 def index():
     """Main dashboard page"""
+    # Check if authentication is required
+    if AUTH_CONFIG['enabled']:
+        if 'logged_in' not in session:
+            # Not logged in - redirect to login page
+            return redirect(url_for('login_page'))
+        
+        # Check password version
+        if session.get('password_version') != PASSWORD_VERSION:
+            session.clear()
+            return redirect(url_for('login_page'))
+    
     return render_template('dashboard.html')
 
 # ==================== TEMPORARY CODES API ====================
