@@ -2105,6 +2105,62 @@ def receive_access_log():
             conn.close()
 
 
+@app.route('/api/temp-code-usage', methods=['POST'])
+def update_temp_code_usage():
+    """Receive temp code usage update from ESP32"""
+    conn = None
+    try:
+        data = request.get_json()
+        
+        code = data.get('code')
+        current_uses = data.get('current_uses')
+        
+        if not code:
+            return jsonify({'success': False, 'message': 'Code required'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Find temp code by PIN
+        cursor.execute('SELECT id, usage_type, max_uses FROM temp_codes WHERE code = ?', (code,))
+        temp_code = cursor.fetchone()
+        
+        if not temp_code:
+            return jsonify({'success': False, 'message': 'Temp code not found'}), 404
+        
+        # Update usage count
+        cursor.execute('''
+            UPDATE temp_codes 
+            SET current_uses = ?,
+                last_used_at = ?
+            WHERE id = ?
+        ''', (current_uses, format_timestamp_for_db(), temp_code['id']))
+        
+        # Auto-deactivate if used up
+        should_deactivate = False
+        if temp_code['usage_type'] == 'one_time' and current_uses >= 1:
+            should_deactivate = True
+        elif temp_code['usage_type'] == 'limited' and current_uses >= temp_code['max_uses']:
+            should_deactivate = True
+        
+        if should_deactivate:
+            cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
+            logger.info(f"🎫 Temp code auto-deactivated (used up)")
+        
+        conn.commit()
+        
+        logger.info(f"🎫 Temp code usage updated: {current_uses} uses")
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating temp code usage: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 
 @app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
 @login_required
