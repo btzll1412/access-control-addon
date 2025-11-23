@@ -4207,28 +4207,43 @@ async function saveDoorSettings(event) {
                     }
         
                     container.innerHTML = data.temp_codes.map(code => {
-                        // Determine status
+                        // Determine status - SMART LOGIC
                         let statusBadge = '';
                         let statusColor = '';
                         
+                        // Check if manually disabled FIRST
                         if (!code.active) {
-                            // Manually disabled
-                            statusBadge = '<span class="badge badge-secondary">⏸️ Disabled</span>';
-                            statusColor = '#64748b';
-                        } else if (code.is_expired) {
-                            // Time expired
-                            statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
-                            statusColor = '#f59e0b';
-                        } else if (code.usage_type === 'one_time' && code.current_uses >= 1) {
-                            // One-time code used
-                            statusBadge = '<span class="badge badge-warning">🎫 Used</span>';
-                            statusColor = '#f59e0b';
-                        } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
-                            // Limited uses exhausted
-                            statusBadge = '<span class="badge badge-warning">🔢 Limit Reached</span>';
-                            statusColor = '#f59e0b';
+                            // Check WHY it's disabled
+                            let isUsedUp = false;
+                            let isExpired = false;
+                            
+                            // Check usage limits
+                            if (code.usage_type === 'one_time' && code.current_uses >= 1) {
+                                isUsedUp = true;
+                            } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
+                                isUsedUp = true;
+                            }
+                            
+                            // Check time expiry
+                            if (code.status === 'expired') {
+                                isExpired = true;
+                            }
+                            
+                            // Determine badge based on WHY it's inactive
+                            if (isUsedUp) {
+                                statusBadge = '<span class="badge badge-warning">🎫 Used</span>';
+                                statusColor = '#f59e0b';
+                            } else if (isExpired) {
+                                statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
+                                statusColor = '#f59e0b';
+                            } else {
+                                // Manually disabled
+                                statusBadge = '<span class="badge badge-secondary">⏸️ Disabled</span>';
+                                statusColor = '#64748b';
+                            }
+                            
                         } else {
-                            // Active and ready to use
+                            // Code is ACTIVE - show as active (green)
                             statusBadge = '<span class="badge badge-success">✅ Active</span>';
                             statusColor = '#10b981';
                         }
