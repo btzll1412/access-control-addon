@@ -2237,11 +2237,28 @@ async function handleLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
         isAuthenticated = false;
+        
+        // Clear any cached data
+        session.clear();
+        
+        // Show login overlay
         showLoginOverlay();
-        showToast('Logged out successfully', 'success');
+        
+        // Reset login form
         document.getElementById('loginForm').reset();
+        
+        // Show success message
+        showToast('Logged out successfully', 'success');
+        
+        // Force page reload after 1 second to clear all state
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+        
     } catch (error) {
         console.error('Logout error:', error);
+        // Even if logout fails, reload the page
+        window.location.reload();
     }
 }
 
