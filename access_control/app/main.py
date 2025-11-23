@@ -59,6 +59,22 @@ app.secret_key = secrets.token_hex(32)
 # Database path
 DB_PATH = '/data/access_control.db'
 
+# ==================== INGRESS SUPPORT ====================
+import os
+
+# Get ingress path from environment
+INGRESS_PATH = os.environ.get('INGRESS_PATH', '')
+
+# Apply ingress prefix to all routes
+if INGRESS_PATH:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    
+    # Update static/template paths
+    app.config['APPLICATION_ROOT'] = INGRESS_PATH
+    
+    logger.info(f"🔗 Ingress enabled: {INGRESS_PATH}")
+
 # ==================== AUTHENTICATION HELPERS ====================
 def login_required(f):
     """Decorator to require login for routes"""
@@ -586,7 +602,11 @@ init_admin_user()
 @app.route('/')
 def index():
     """Main dashboard page"""
-    return render_template('dashboard.html')
+    # Read the HTML file directly
+    html_path = os.path.join(os.path.dirname(__file__), 'dashboard.html')
+    with open(html_path, 'r') as f:
+        html_content = f.read()
+    return html_content
 
     
 # ==================== AUTHENTICATION API ====================
