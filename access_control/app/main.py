@@ -4562,6 +4562,8 @@ def validate_access():
         logger.info(f"  ✅ User has door access via groups")
         
         # STEP 6: Check user schedule
+        logger.info(f"🔍 STEP 6: Checking user schedule for user_id={user_id}")
+        
         cursor.execute('''
             SELECT COUNT(*) as has_schedule
             FROM user_schedules us
@@ -4571,12 +4573,15 @@ def validate_access():
         
         has_schedule = cursor.fetchone()['has_schedule'] > 0
         
+        logger.info(f"  📅 User has schedule? {has_schedule}")
+        
         if has_schedule:
-            # Get current time in HH:MM:SS format for comparison
+            # Get current time
             current_day = now.weekday()  # 0=Monday, 6=Sunday
             current_time = now.strftime('%H:%M:%S')
             
-            logger.info(f"  📅 Checking user schedule: Day={current_day}, Time={current_time}")
+            logger.info(f"  🕐 Current day: {current_day} (0=Mon, 6=Sun)")
+            logger.info(f"  🕐 Current time: {current_time}")
             
             cursor.execute('''
                 SELECT COUNT(*) as count
@@ -4592,15 +4597,38 @@ def validate_access():
             
             in_schedule = cursor.fetchone()['count'] > 0
             
+            logger.info(f"  📊 Schedule match count: {in_schedule}")
+            
+            # DEBUG: Show what schedules exist for this user
+            cursor.execute('''
+                SELECT st.day_of_week, st.start_time, st.end_time, s.name
+                FROM user_schedules us
+                JOIN access_schedules s ON us.schedule_id = s.id
+                JOIN schedule_times st ON s.id = st.schedule_id
+                WHERE us.user_id = ? AND s.active = 1
+            ''', (user_id,))
+            
+            user_schedules = cursor.fetchall()
+            for sched in user_schedules:
+                logger.info(f"    Schedule: {sched['name']} - Day {sched['day_of_week']}, {sched['start_time']} to {sched['end_time']}")
+            
             if not in_schedule:
+                logger.info(f"  ❌ User is OUTSIDE their schedule!")
+                
                 cursor.execute('''
-                    INSERT INTO access_logs (user_id, door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                ''', (user_id, door_id, board_name, door_name, credential, credential_type, 
-                      f'Outside allowed schedule (Current: {current_time})', format_timestamp_for_db()))
+                    INSERT INTO access_logs (
+                        user_id, door_id, board_name, door_name, 
+                        credential, credential_type, access_granted, 
+                        reason, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                ''', (
+                    user_id, door_id, board_name, door_name, 
+                    credential, credential_type, 
+                    f'Outside allowed schedule (Day: {current_day}, Time: {current_time})', 
+                    format_timestamp_for_db()
+                ))
                 conn.commit()
                 
-                logger.info(f"❌ Access denied: Outside user schedule (Current: {current_time})")
                 return jsonify({
                     'success': True,
                     'access_granted': False,
@@ -4608,7 +4636,7 @@ def validate_access():
                     'user_name': user_name
                 })
             
-            logger.info(f"  ✅ User within allowed schedule")
+            logger.info(f"  ✅ User is WITHIN their schedule")
         else:
             logger.info(f"  ℹ️  User has no schedule restrictions (24/7)")
         
