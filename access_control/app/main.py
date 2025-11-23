@@ -617,6 +617,12 @@ def login():
         password = data.get('password')
         remember = data.get('remember', False)
         
+        logger.info(f"🔐 Login attempt: username='{username}'")
+        logger.info(f"   Config username: '{AUTH_CONFIG['username']}'")
+        logger.info(f"   Config password: '{AUTH_CONFIG['password']}'")
+        logger.info(f"   Username match: {username == AUTH_CONFIG['username']}")
+        logger.info(f"   Password match: {password == AUTH_CONFIG['password']}")
+        
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'}), 400
         
@@ -643,8 +649,8 @@ def login():
                 cursor = conn.cursor()
                 cursor.execute('UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?', (username,))
                 conn.commit()
-            except:
-                pass
+            except Exception as db_error:
+                logger.warning(f"Could not update last_login: {db_error}")
             
             return jsonify({
                 'success': True, 
@@ -657,11 +663,12 @@ def login():
             
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         if conn:
             conn.close()
-
 @app.route('/api/logout', methods=['POST'])
 def logout():
     """Logout endpoint"""
