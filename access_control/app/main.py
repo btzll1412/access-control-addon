@@ -602,12 +602,46 @@ init_admin_user()
 @app.route('/')
 def index():
     """Main dashboard page"""
-    # Read the HTML file directly
-    html_path = os.path.join(os.path.dirname(__file__), 'dashboard.html')
-    with open(html_path, 'r') as f:
-        html_content = f.read()
-    return html_content
-
+    try:
+        logger.info("📄 Dashboard requested")
+        
+        # Try multiple possible locations
+        possible_paths = [
+            '/app/dashboard.html',
+            '/data/dashboard.html',
+            os.path.join(os.path.dirname(__file__), 'dashboard.html'),
+            '/addon/dashboard.html'
+        ]
+        
+        for path in possible_paths:
+            logger.info(f"  Trying: {path}")
+            if os.path.exists(path):
+                logger.info(f"  ✅ Found at: {path}")
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                logger.info(f"  ✅ Read {len(content)} bytes")
+                return content
+            else:
+                logger.info(f"  ❌ Not found: {path}")
+        
+        # If we get here, file not found anywhere
+        logger.error("❌ dashboard.html not found in any location!")
+        return """
+        <h1>Dashboard File Not Found</h1>
+        <p>Checked locations:</p>
+        <ul>
+            <li>/app/dashboard.html</li>
+            <li>/data/dashboard.html</li>
+            <li>Relative path</li>
+            <li>/addon/dashboard.html</li>
+        </ul>
+        """, 404
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading dashboard: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return f"<h1>Error loading dashboard</h1><pre>{str(e)}\n\n{traceback.format_exc()}</pre>", 500
     
 # ==================== AUTHENTICATION API ====================
 
