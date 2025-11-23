@@ -4468,77 +4468,78 @@ async function saveDoorSettings(event) {
         }
         
         async function saveTempCode(event) {
-            event.preventDefault();
-            
-            const codeId = document.getElementById('tempCodeId').value;
-            const accessMethod = document.getElementById('tempCodeAccessMethod').value;
-            
-            // Collect selected doors or groups
-            let door_ids = [];
-            let group_ids = [];
-            
-            if (accessMethod === 'doors') {
-                door_ids = Array.from(document.querySelectorAll('#tempCodeDoorsCheckboxes input:checked'))
-                    .map(input => parseInt(input.value));
-                
-                if (door_ids.length === 0) {
-                    showToast('Please select at least one door', 'warning');
-                    return;
-                }
-            } else {
-                group_ids = Array.from(document.querySelectorAll('#tempCodeGroupsCheckboxes input:checked'))
-                    .map(input => parseInt(input.value));
-                
-                if (group_ids.length === 0) {
-                    showToast('Please select at least one group', 'warning');
-                    return;
-                }
-            }
-            
-            const tempCodeData = {
-                name: document.getElementById('tempCodeName').value,
-                code: document.getElementById('tempCodePin').value,
-                active: document.getElementById('tempCodeActive').checked,
-                usage_type: document.getElementById('tempCodeUsageType').value,
-                max_uses: parseInt(document.getElementById('tempCodeMaxUses').value) || null,
-                time_type: document.getElementById('tempCodeTimeType').value,
-                valid_hours: parseInt(document.getElementById('tempCodeValidHours').value) || null,
-                valid_from: document.getElementById('tempCodeValidFrom').value || null,
-                valid_until: document.getElementById('tempCodeValidUntil').value || null,
-                access_method: accessMethod,
-                door_ids: door_ids,
-                group_ids: group_ids,
-                notes: document.getElementById('tempCodeNotes').value
-            };
-            
-            try {
-                const url = codeId ? `/api/temp-codes/${codeId}` : '/api/temp-codes';
-                const method = codeId ? 'PUT' : 'POST';
-                
-                const response = await fetch(url, {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(tempCodeData)
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    closeTempCodeModal();
-                    loadTempCodes();
-                    
-                    // Sync all boards
-                    await fetch('/api/boards/sync-all', { method: 'POST' });
-                    showToast('All boards synced with new temp code', 'success');
-                } else {
-                    showToast(data.message, 'error');
-                }
-            } catch (error) {
-                console.error('Error saving temp code:', error);
-                showToast('Error saving temp code', 'error');
-            }
+    event.preventDefault();
+    
+    const codeId = document.getElementById('tempCodeId').value;
+    const accessMethod = document.getElementById('tempCodeAccessMethod').value;
+    
+    // Collect selected doors or groups
+    let door_ids = [];
+    let group_ids = [];
+    
+    if (accessMethod === 'doors') {
+        door_ids = Array.from(document.querySelectorAll('#tempCodeDoorsCheckboxes input:checked'))
+            .map(input => parseInt(input.value));
+        
+        if (door_ids.length === 0) {
+            showToast('Please select at least one door', 'warning');
+            return;
         }
+    } else {
+        group_ids = Array.from(document.querySelectorAll('#tempCodeGroupsCheckboxes input:checked'))
+            .map(input => parseInt(input.value));
+        
+        if (group_ids.length === 0) {
+            showToast('Please select at least one group', 'warning');
+            return;
+        }
+    }
+    
+    const tempCodeData = {
+        name: document.getElementById('tempCodeName').value,
+        code: document.getElementById('tempCodePin').value,
+        active: document.getElementById('tempCodeActive').checked,
+        usage_type: document.getElementById('tempCodeUsageType').value,
+        max_uses: parseInt(document.getElementById('tempCodeMaxUses').value) || null,
+        time_type: document.getElementById('tempCodeTimeType').value,
+        valid_hours: parseInt(document.getElementById('tempCodeValidHours').value) || null,
+        valid_from: document.getElementById('tempCodeValidFrom').value || null,
+        valid_until: document.getElementById('tempCodeValidUntil').value || null,
+        access_method: accessMethod,
+        door_ids: door_ids,
+        group_ids: group_ids,
+        notes: document.getElementById('tempCodeNotes').value
+    };
+    
+    try {
+        const url = codeId ? `/api/temp-codes/${codeId}` : '/api/temp-codes';
+        const method = codeId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tempCodeData)
+        });
+        
+        const data = await response.json();
+        
+        // ✅ THIS IS THE CORRECT LOCATION
+        if (data.success) {
+            closeTempCodeModal();
+            loadTempCodes();  // ✅ Reload temp codes to show updated status
+            showToast(data.message, 'success');
+            
+            // Sync all boards
+            await fetch('/api/boards/sync-all', { method: 'POST' });
+            showToast('All boards synced with new temp code', 'success');
+        } else {
+            showToast(data.message, 'error');
+        }
+    } catch (error) {
+        console.error('Error saving temp code:', error);
+        showToast('Error saving temp code', 'error');
+    }
+}
         
         function editTempCode(codeId) {
             openTempCodeModal(codeId);
