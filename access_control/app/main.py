@@ -707,7 +707,7 @@ def auth_status():
     if not AUTH_CONFIG['enabled']:
         return jsonify({
             'success': True,
-            'auth_required': False,  # ✅ CRITICAL: This tells frontend no login needed
+            'auth_required': False,
             'authenticated': True,
             'remember_days': 0
         })
@@ -720,15 +720,6 @@ def auth_status():
         'remember_days': AUTH_CONFIG['remember_days'],
         'password_changed': session.get('password_version') != PASSWORD_VERSION
     })
-    
-    # Check if logged in
-    if 'logged_in' not in session:
-        return jsonify({
-            'authenticated': False,
-            'auth_required': True,
-            'username': None,
-            'remember_days': AUTH_CONFIG['remember_days']
-        })
     
     # Check password version (invalidate if password changed)
     if session.get('password_version') != PASSWORD_VERSION:
