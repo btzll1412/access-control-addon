@@ -2054,15 +2054,16 @@
         <div class="toast-message" id="toastMessage"></div>
     </div>
 
-    <script>
+<script>
 'use strict';
 
 console.log('🔥 SCRIPT STARTING...');
 
-// Attach login handler
-document.addEventListener('DOMContentLoaded', function() {
+// ==================== SINGLE DOMCONTENTLOADED LISTENER ====================
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('✅ DOM Ready');
     
+    // 1. Setup login handler
     const loginForm = document.getElementById('loginForm');
     console.log('Login form found:', !!loginForm);
     
@@ -2089,8 +2090,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (data.success) {
                     document.getElementById('loginOverlay').style.display = 'none';
-                    alert('Login successful!');
-                    location.reload();
+                    isAuthenticated = true;
+                    loadDashboard();
+                    showToast('Login successful!', 'success');
                 } else {
                     alert('Login failed: ' + data.message);
                 }
@@ -2100,8 +2102,46 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // 2. Check authentication and load dashboard
+    console.log('🚀 Dashboard loading...');
+    const isAuthed = await checkAuthStatus();
+    console.log('Auth check result:', isAuthed);
+    
+    if (isAuthed) {
+        console.log('✅ Loading dashboard data...');
+        loadStats();
+        loadDoors();
+        loadPendingBoards();
+        loadEmergencyStatus();
+        
+        // Refresh data every 15 seconds
+        setInterval(() => {
+            if (isAuthenticated) {
+                loadStats();
+                loadPendingBoards();
+                loadEmergencyStatus();
+        
+                const activeTab = document.querySelector('.tab.active');
+                if (activeTab) {
+                    const tabText = activeTab.textContent.trim();
+                    if (tabText.includes('Doors')) loadDoors();
+                    if (tabText.includes('Boards')) loadBoards();
+                    if (tabText.includes('Users')) loadUsers();
+                    if (tabText.includes('Groups')) loadGroups();
+                    if (tabText.includes('Schedules')) loadSchedules();
+                    if (tabText.includes('Temp')) loadTempCodes();
+                    if (tabText.includes('Logs')) {
+                        loadLogFilterOptions();
+                        loadLogs();
+                    }
+                }
+            }
+        }, 15000);
+    } else {
+        console.log('⏸️ Not authenticated - waiting for login');
+    }
 });
-
 
 
         // ==================== AUTHENTICATION ====================
@@ -2219,47 +2259,7 @@ async function handleLogout() {
         let allDoors = [];
 
         // ==================== INITIALIZATION ====================
-        document.addEventListener('DOMContentLoaded', async function() {
-    console.log('🚀 Dashboard loading...');
-    
-    // Check authentication FIRST
-    const isAuthed = await checkAuthStatus();
-    console.log('Auth check result:', isAuthed);
-    
-    if (isAuthed) {
-        console.log('✅ Loading dashboard data...');
-        loadStats();
-        loadDoors();
-        loadPendingBoards();
-        loadEmergencyStatus();
         
-        // Refresh data every 15 seconds
-        setInterval(() => {
-            if (isAuthenticated) {
-                loadStats();
-                loadPendingBoards();
-                loadEmergencyStatus();
-        
-                const activeTab = document.querySelector('.tab.active');
-                if (activeTab) {
-                    const tabText = activeTab.textContent.trim();
-                    if (tabText.includes('Doors')) loadDoors();
-                    if (tabText.includes('Boards')) loadBoards();
-                    if (tabText.includes('Users')) loadUsers();
-                    if (tabText.includes('Groups')) loadGroups();
-                    if (tabText.includes('Schedules')) loadSchedules();
-                    if (tabText.includes('Temp')) loadTempCodes();
-                    if (tabText.includes('Logs')) {
-                        loadLogFilterOptions();
-                        loadLogs();
-                    }
-                }
-            }
-        }, 15000);
-    } else {
-        console.log('⏸️ Not authenticated - waiting for login');
-    }
-});
         // ==================== TAB MANAGEMENT ====================
         function showTab(tabName) {
             // Hide all tabs
