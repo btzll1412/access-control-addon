@@ -4217,24 +4217,29 @@ async function saveDoorSettings(event) {
                         
                         // Check 1: Is it disabled?
                         if (!code.active) {
-                            isUsable = false;
-                            whyNotUsable = 'disabled';
+                            // If manually disabled, determine WHY it was disabled
+                            
+                            // Check usage limits
+                            if (code.usage_type === 'one_time' && code.current_uses >= 1) {
+                                isUsable = false;
+                                whyNotUsable = 'used_up';
+                            } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
+                                isUsable = false;
+                                whyNotUsable = 'used_up';
+                            }
+                            // Check time expiry
+                            else if (code.status === 'expired' || code.is_expired) {
+                                isUsable = false;
+                                whyNotUsable = 'expired';
+                            }
+                            // Otherwise, it's just manually disabled
+                            else {
+                                isUsable = false;
+                                whyNotUsable = 'disabled';
+                            }
                         }
-                        
-                        // Check 2: Is it used up? (THIS IS THE KEY FIX!)
-                        if (code.usage_type === 'one_time' && code.current_uses >= 1) {
-                            isUsable = false;
-                            whyNotUsable = 'used_up';
-                        } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
-                            isUsable = false;
-                            whyNotUsable = 'used_up';
-                        }
-                        
-                        // Check 3: Is it expired?
-                        if (code.status === 'expired' || code.is_expired) {
-                            isUsable = false;
-                            whyNotUsable = 'expired';
-                        }
+                        // If active = true, code is usable (even if it was previously used/expired)
+                        // The "Enable" button resets everything
                         
                         // NOW determine the badge based on actual usability
                         if (isUsable && code.active) {
