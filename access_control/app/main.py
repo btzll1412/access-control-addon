@@ -1952,7 +1952,13 @@ def receive_access_log():
         user_id = None
         user_name_received = data.get('user_name', 'Unknown')
         
-        if user_name_received and user_name_received != 'Unknown' and 'N/A' not in user_name_received:
+        # Check if it's a temp code (starts with "Temp:")
+        if user_name_received and user_name_received.startswith('Temp:'):
+            # It's a temp code - just use the name as-is, no user lookup needed
+            logger.info(f"  🎫 Temp code access: {user_name_received}")
+            user_id = None  # Temp codes don't have user IDs
+            
+        elif user_name_received and user_name_received != 'Unknown' and 'N/A' not in user_name_received:
             cursor.execute('SELECT id, name FROM users WHERE name = ?', (user_name_received,))
             user = cursor.fetchone()
             if user:
@@ -1985,6 +1991,7 @@ def receive_access_log():
             data.get('board_name', door['board_name']),
             data.get('door_name'),
             user_id,
+            user_name_received,
             data.get('credential'),
             data.get('credential_type'),
             data.get('access_granted'),
