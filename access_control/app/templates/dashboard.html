@@ -2069,22 +2069,28 @@ async function checkAuthStatus() {
         const response = await fetch('/api/auth-status');
         const data = await response.json();
         
+        console.log('🔐 Auth status received:', data);  // Debug output
+        
         if (data.remember_days) {
             rememberDays = data.remember_days;
             document.getElementById('rememberDays').textContent = rememberDays;
         }
         
-        if (!data.auth_required) {  // ✅ Check this condition
+        // ✅ CRITICAL FIX: Check auth_required FIRST!
+        if (!data.auth_required) {
+            console.log('✅ Auth not required - hiding login');
             hideLoginOverlay();
             isAuthenticated = true;
             return true;
         }
         
         if (data.authenticated) {
+            console.log('✅ Authenticated - hiding login');
             hideLoginOverlay();
             isAuthenticated = true;
             return true;
         } else {
+            console.log('❌ Not authenticated - showing login');
             showLoginOverlay();
             isAuthenticated = false;
             
@@ -2095,7 +2101,7 @@ async function checkAuthStatus() {
             return false;
         }
     } catch (error) {
-        console.error('Auth check failed:', error);
+        console.error('❌ Auth check failed:', error);
         showLoginOverlay();
         return false;
     }
@@ -2215,10 +2221,14 @@ async function handleLogout() {
 
         // ==================== INITIALIZATION ====================
         document.addEventListener('DOMContentLoaded', async function() {
+    console.log('🚀 Dashboard loading...');
+    
     // Check authentication FIRST
     const isAuthed = await checkAuthStatus();
+    console.log('Auth check result:', isAuthed);
     
     if (isAuthed) {
+        console.log('✅ Loading dashboard data...');
         loadStats();
         loadDoors();
         loadPendingBoards();
@@ -2247,6 +2257,8 @@ async function handleLogout() {
                 }
             }
         }, 15000);
+    } else {
+        console.log('⏸️ Not authenticated - waiting for login');
     }
 });
         // ==================== TAB MANAGEMENT ====================
