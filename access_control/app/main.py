@@ -603,14 +603,28 @@ init_admin_user()
 @app.route('/')
 def index():
     """Serve the main dashboard"""
-    # ✅ If auth disabled, set a fake session to prevent login screen
+    # ✅ If auth disabled, set fake session to prevent login screen
     if not AUTH_CONFIG['enabled']:
         session.permanent = True
         session['logged_in'] = True
         session['username'] = 'no_auth'
         session['password_version'] = PASSWORD_VERSION
+        logger.info("🔓 Auth disabled - auto-authenticated")
     
     return render_template('dashboard.html')
+
+
+@app.route('/api/debug-auth', methods=['GET'])
+def debug_auth():
+    """Debug authentication"""
+    return jsonify({
+        'auth_config_enabled': AUTH_CONFIG.get('enabled'),
+        'auth_username': AUTH_CONFIG.get('username'),
+        'session_logged_in': 'logged_in' in session,
+        'session_username': session.get('username'),
+        'session_data': dict(session),
+        'password_version': PASSWORD_VERSION
+    })
 
 @app.route('/api/debug-auth', methods=['GET'])
 def debug_auth():
