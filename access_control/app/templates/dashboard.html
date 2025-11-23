@@ -4207,45 +4207,56 @@ async function saveDoorSettings(event) {
                     }
         
                     container.innerHTML = data.temp_codes.map(code => {
-                        // Determine status - SMART LOGIC
+                        // ✅✅✅ CORRECTED SMART LOGIC ✅✅✅
                         let statusBadge = '';
                         let statusColor = '';
                         
-                        // Check if manually disabled FIRST
+                        // First check if it's actually USABLE (not just active flag)
+                        let isUsable = true;
+                        let whyNotUsable = '';
+                        
+                        // Check 1: Is it disabled?
                         if (!code.active) {
-                            // Check WHY it's disabled
-                            let isUsedUp = false;
-                            let isExpired = false;
-                            
-                            // Check usage limits
-                            if (code.usage_type === 'one_time' && code.current_uses >= 1) {
-                                isUsedUp = true;
-                            } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
-                                isUsedUp = true;
-                            }
-                            
-                            // Check time expiry
-                            if (code.status === 'expired') {
-                                isExpired = true;
-                            }
-                            
-                            // Determine badge based on WHY it's inactive
-                            if (isUsedUp) {
-                                statusBadge = '<span class="badge badge-warning">🎫 Used</span>';
-                                statusColor = '#f59e0b';
-                            } else if (isExpired) {
-                                statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
-                                statusColor = '#f59e0b';
-                            } else {
-                                // Manually disabled
-                                statusBadge = '<span class="badge badge-secondary">⏸️ Disabled</span>';
-                                statusColor = '#64748b';
-                            }
-                            
-                        } else {
-                            // Code is ACTIVE - show as active (green)
+                            isUsable = false;
+                            whyNotUsable = 'disabled';
+                        }
+                        
+                        // Check 2: Is it used up? (THIS IS THE KEY FIX!)
+                        if (code.usage_type === 'one_time' && code.current_uses >= 1) {
+                            isUsable = false;
+                            whyNotUsable = 'used_up';
+                        } else if (code.usage_type === 'limited' && code.current_uses >= code.max_uses) {
+                            isUsable = false;
+                            whyNotUsable = 'used_up';
+                        }
+                        
+                        // Check 3: Is it expired?
+                        if (code.status === 'expired' || code.is_expired) {
+                            isUsable = false;
+                            whyNotUsable = 'expired';
+                        }
+                        
+                        // NOW determine the badge based on actual usability
+                        if (isUsable && code.active) {
+                            // Code is actually usable and active
                             statusBadge = '<span class="badge badge-success">✅ Active</span>';
                             statusColor = '#10b981';
+                        } else {
+                            // Not usable - show why
+                            if (whyNotUsable === 'used_up') {
+                                statusBadge = '<span class="badge badge-warning">🎫 Used</span>';
+                                statusColor = '#f59e0b';
+                            } else if (whyNotUsable === 'expired') {
+                                statusBadge = '<span class="badge badge-warning">⏰ Expired</span>';
+                                statusColor = '#f59e0b';
+                            } else if (whyNotUsable === 'disabled') {
+                                statusBadge = '<span class="badge badge-secondary">⏸️ Disabled</span>';
+                                statusColor = '#64748b';
+                            } else {
+                                // Fallback
+                                statusBadge = '<span class="badge badge-secondary">⏸️ Inactive</span>';
+                                statusColor = '#64748b';
+                            }
                         }
         
                         // Usage info
@@ -4333,6 +4344,7 @@ async function saveDoorSettings(event) {
                 showToast('Error loading temp codes', 'error');
             }
         }
+
         
         async function openTempCodeModal(codeId = null) {
             currentTempCodeId = codeId;
@@ -4545,19 +4557,29 @@ async function saveDoorSettings(event) {
             openTempCodeModal(codeId);
         }
         
-        async function toggleTempCode(codeId, active) {
+        async function toggleTempCode(codeId, newActiveState) {
             try {
                 const response = await fetch(`/api/temp-codes/${codeId}/toggle`, {
-                    method: 'POST',
+                    method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ active: active })
+                    body: JSON.stringify({ active: newActiveState })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
                     showToast(data.message, 'success');
+                    
+                    // ✅ RELOAD to show updated status
                     loadTempCodes();
+                    
+                    // ✅ Give user feedback that boards are syncing
+                    showToast('Syncing to boards...', 'info');
+                    
+                    // ✅ Wait a moment for sync, then reload again
+                    setTimeout(() => {
+                        loadTempCodes();
+                    }, 2000);
                 } else {
                     showToast(data.message, 'error');
                 }
