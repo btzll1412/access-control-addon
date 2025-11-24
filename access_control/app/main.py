@@ -4940,6 +4940,12 @@ if __name__ == '__main__':
     print("=" * 60)
     print("🚀 Access Control System Starting...")
     print("=" * 60)
+    
+    # ✅ Initialize database and run migrations BEFORE starting server
+    init_db()
+    migrate_database()
+    upgrade_database()
+    
     print(f"🕐 Timezone: {TIMEZONE}")
     print(f"🔐 Authentication: {'ENABLED' if AUTH_CONFIG['enabled'] else 'DISABLED'}")
     if AUTH_CONFIG['enabled']:
