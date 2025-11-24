@@ -1450,50 +1450,46 @@ def get_timezone_info():
 @app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
 @login_required
 def emergency_lock_board(board_id):
-    """Emergency lock all doors on a board"""
+    """Activate emergency lockdown for entire board"""
     conn = None
     try:
         data = request.json
-        activated_by = data.get('activated_by', get_current_user())
-        
-        logger.info(f"🚨 EMERGENCY LOCK activated on board {board_id} by {activated_by}")
+        activated_by = data.get('activated_by', 'Unknown')
         
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
-        board = cursor.fetchone()
-        
-        if not board:
-            return jsonify({'success': False, 'message': 'Board not found'}), 404
-        
+        # Set emergency mode
         cursor.execute('''
             UPDATE boards 
             SET emergency_mode = 'lock',
-                emergency_activated_at = CURRENT_TIMESTAMP,
                 emergency_activated_by = ?,
-                emergency_auto_reset_at = NULL
+                emergency_activated_at = datetime('now')
             WHERE id = ?
         ''', (activated_by, board_id))
         
+        # Get board info
+        cursor.execute('SELECT name, ip_address FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        # ✅ FIX: Log without door_id (emergency board-wide event)
         cursor.execute('''
             INSERT INTO access_logs 
-            (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?, ?)
-        ''', (board['name'], f'Emergency lock activated by {activated_by}', format_timestamp_for_db()))
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES (?, 'emergency', 0, 'Emergency lockdown activated', ?)
+        ''', (board['name'], activated_by))
         
         conn.commit()
         
-        # Send emergency lock to ESP32
-        try:
-            url = f"http://{board['ip_address']}/api/emergency-lock"
-            requests.post(url, json={'mode': 'lock'}, timeout=3)
-        except:
-            pass
+        # Sync board
+        if board:
+            sync_board(board_id)
+        
+        logger.info(f"🚨 Emergency LOCK activated on board {board_id} by {activated_by}")
         
         return jsonify({
             'success': True,
-            'message': f'Emergency lock activated on {board["name"]}'
+            'message': f"Emergency lockdown activated on {board['name']}"
         })
         
     except Exception as e:
@@ -1505,45 +1501,124 @@ def emergency_lock_board(board_id):
         if conn:
             conn.close()
 
+
 @app.route('/api/boards/<int:board_id>/emergency-unlock', methods=['POST'])
 @login_required
 def emergency_unlock_board(board_id):
-    """Emergency unlock all doors on a board"""
+    """Activate emergency unlock (evacuation) for entire board"""
     conn = None
     try:
         data = request.json
-        activated_by = data.get('activated_by', get_current_user())
+        activated_by = data.get('activated_by', 'Unknown')
         auto_reset_minutes = data.get('auto_reset_minutes', 30)
-        
-        logger.info(f"🚨 EMERGENCY UNLOCK activated on board {board_id} by {activated_by}")
         
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
-        board = cursor.fetchone()
+        # Calculate auto-reset time
+        auto_reset_at = None
+        if auto_reset_minutes:
+            from datetime import datetime, timedelta
+            auto_reset_at = (datetime.now() + timedelta(minutes=auto_reset_minutes)).isoformat()
         
-        if not board:
-            return jsonify({'success': False, 'message': 'Board not found'}), 404
-        
-        auto_reset_at = datetime.now() + timedelta(minutes=auto_reset_minutes)
-        
+        # Set emergency mode
         cursor.execute('''
             UPDATE boards 
             SET emergency_mode = 'unlock',
-                emergency_activated_at = CURRENT_TIMESTAMP,
                 emergency_activated_by = ?,
+                emergency_activated_at = datetime('now'),
                 emergency_auto_reset_at = ?
             WHERE id = ?
-        ''', (activated_by, auto_reset_at.isoformat(), board_id))
+        ''', (activated_by, auto_reset_at, board_id))
         
+        # Get board info
+        cursor.execute('SELECT name, ip_address FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        # ✅ FIX: Log without door_id
         cursor.execute('''
             INSERT INTO access_logs 
-            (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-            VALUES (?, 'ALL DOORS', 'EMERGENCY', 'emergency', 0, ?, ?)
-        ''', (board['name'], f'Emergency unlock activated by {activated_by}', format_timestamp_for_db()))
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES (?, 'emergency', 1, 'Emergency unlock (evacuation) activated', ?)
+        ''', (board['name'], activated_by))
         
         conn.commit()
+        
+        # Sync board
+        if board:
+            sync_board(board_id)
+        
+        logger.info(f"🚨 Emergency UNLOCK activated on board {board_id} by {activated_by}")
+        
+        return jsonify({
+            'success': True,
+            'message': f"Emergency unlock activated on {board['name']}"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error activating emergency unlock: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/boards/<int:board_id>/emergency-reset', methods=['POST'])
+@login_required
+def emergency_reset_board(board_id):
+    """Reset emergency mode back to normal"""
+    conn = None
+    try:
+        data = request.json
+        reset_by = data.get('reset_by', 'Unknown')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get board info
+        cursor.execute('SELECT name, ip_address FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        
+        # Reset emergency mode
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = NULL,
+                emergency_activated_by = NULL,
+                emergency_activated_at = NULL,
+                emergency_auto_reset_at = NULL
+            WHERE id = ?
+        ''', (board_id,))
+        
+        # ✅ FIX: Log without door_id
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES (?, 'emergency', 1, 'Emergency mode reset to normal', ?)
+        ''', (board['name'], reset_by))
+        
+        conn.commit()
+        
+        # Sync board
+        if board:
+            sync_board(board_id)
+        
+        logger.info(f"✅ Emergency mode reset on board {board_id} by {reset_by}")
+        
+        return jsonify({
+            'success': True,
+            'message': f"Emergency mode reset on {board['name']}"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error resetting emergency mode: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
         
         # Send emergency unlock to ESP32
         try:
@@ -1687,6 +1762,209 @@ def emergency_override_door(door_id):
             ''', (door_id, door['board_name'], door['name'], 'Emergency override reset', format_timestamp_for_db()))
         
         conn.commit()
+
+
+        # ==================== SYSTEM-WIDE EMERGENCY CONTROLS ====================
+
+@app.route('/api/emergency/system-lock', methods=['POST'])
+@login_required
+def emergency_system_lock():
+    """Activate emergency lockdown on ALL boards"""
+    conn = None
+    try:
+        data = request.json
+        activated_by = data.get('activated_by', 'Unknown')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get all boards
+        cursor.execute('SELECT id, name, ip_address FROM boards')
+        boards = cursor.fetchall()
+        
+        if not boards:
+            return jsonify({'success': False, 'message': 'No boards found'}), 404
+        
+        # Lock all boards
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = 'lock',
+                emergency_activated_by = ?,
+                emergency_activated_at = datetime('now')
+        ''', (activated_by,))
+        
+        # Log system-wide emergency
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES ('SYSTEM-WIDE', 'emergency', 0, 'SYSTEM-WIDE emergency lockdown activated', ?)
+        ''', (activated_by,))
+        
+        conn.commit()
+        
+        # Sync all boards
+        synced = 0
+        for board in boards:
+            try:
+                sync_board(board['id'])
+                synced += 1
+            except Exception as e:
+                logger.error(f"Failed to sync board {board['id']}: {e}")
+        
+        logger.info(f"🚨🚨 SYSTEM-WIDE EMERGENCY LOCK activated by {activated_by} - {synced}/{len(boards)} boards synced")
+        
+        return jsonify({
+            'success': True,
+            'message': f"SYSTEM-WIDE lockdown activated on {synced}/{len(boards)} boards"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error activating system-wide emergency lock: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/emergency/system-unlock', methods=['POST'])
+@login_required
+def emergency_system_unlock():
+    """Activate emergency unlock on ALL boards (evacuation)"""
+    conn = None
+    try:
+        data = request.json
+        activated_by = data.get('activated_by', 'Unknown')
+        auto_reset_minutes = data.get('auto_reset_minutes', 30)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get all boards
+        cursor.execute('SELECT id, name, ip_address FROM boards')
+        boards = cursor.fetchall()
+        
+        if not boards:
+            return jsonify({'success': False, 'message': 'No boards found'}), 404
+        
+        # Calculate auto-reset time
+        auto_reset_at = None
+        if auto_reset_minutes:
+            from datetime import datetime, timedelta
+            auto_reset_at = (datetime.now() + timedelta(minutes=auto_reset_minutes)).isoformat()
+        
+        # Unlock all boards
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = 'unlock',
+                emergency_activated_by = ?,
+                emergency_activated_at = datetime('now'),
+                emergency_auto_reset_at = ?
+        ''', (activated_by, auto_reset_at))
+        
+        # Log system-wide emergency
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES ('SYSTEM-WIDE', 'emergency', 1, 'SYSTEM-WIDE emergency unlock (evacuation) activated', ?)
+        ''', (activated_by,))
+        
+        conn.commit()
+        
+        # Sync all boards
+        synced = 0
+        for board in boards:
+            try:
+                sync_board(board['id'])
+                synced += 1
+            except Exception as e:
+                logger.error(f"Failed to sync board {board['id']}: {e}")
+        
+        logger.info(f"🚨🚨 SYSTEM-WIDE EMERGENCY UNLOCK activated by {activated_by} - {synced}/{len(boards)} boards synced")
+        
+        return jsonify({
+            'success': True,
+            'message': f"SYSTEM-WIDE unlock activated on {synced}/{len(boards)} boards"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error activating system-wide emergency unlock: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/emergency/system-reset', methods=['POST'])
+@login_required
+def emergency_system_reset():
+    """Reset ALL boards to normal operation"""
+    conn = None
+    try:
+        data = request.json
+        reset_by = data.get('reset_by', 'Unknown')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get all boards
+        cursor.execute('SELECT id, name, ip_address FROM boards')
+        boards = cursor.fetchall()
+        
+        if not boards:
+            return jsonify({'success': False, 'message': 'No boards found'}), 404
+        
+        # Reset all boards
+        cursor.execute('''
+            UPDATE boards 
+            SET emergency_mode = NULL,
+                emergency_activated_by = NULL,
+                emergency_activated_at = NULL,
+                emergency_auto_reset_at = NULL
+        ''')
+        
+        # Reset all door overrides
+        cursor.execute('''
+            UPDATE doors
+            SET emergency_override = NULL
+        ''')
+        
+        # Log system-wide reset
+        cursor.execute('''
+            INSERT INTO access_logs 
+            (board_name, credential_type, access_granted, reason, user_name)
+            VALUES ('SYSTEM-WIDE', 'emergency', 1, 'SYSTEM-WIDE emergency reset to normal', ?)
+        ''', (reset_by,))
+        
+        conn.commit()
+        
+        # Sync all boards
+        synced = 0
+        for board in boards:
+            try:
+                sync_board(board['id'])
+                synced += 1
+            except Exception as e:
+                logger.error(f"Failed to sync board {board['id']}: {e}")
+        
+        logger.info(f"✅ SYSTEM-WIDE emergency reset by {reset_by} - {synced}/{len(boards)} boards synced")
+        
+        return jsonify({
+            'success': True,
+            'message': f"SYSTEM-WIDE reset completed on {synced}/{len(boards)} boards"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error resetting system-wide emergency: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
         
         # Send to ESP32
         try:
