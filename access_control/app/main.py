@@ -384,6 +384,10 @@ def migrate_database():
         if 'temp_code_remaining' not in columns:
             print("  ➕ Adding temp_code_remaining to access_logs...")
             cursor.execute("ALTER TABLE access_logs ADD COLUMN temp_code_remaining TEXT")
+
+        if 'user_name' not in columns:
+            print("  ➕ Adding user_name to access_logs...")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN user_name TEXT")
         
         conn.commit()
         print("  ✅ Migration completed")
