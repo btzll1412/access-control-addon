@@ -1824,32 +1824,8 @@ def emergency_system_reset():
     finally:
         if conn:
             conn.close()
-        
-        # Send to ESP32
-        try:
-            url = f"http://{door['ip_address']}/api/door-override"
-            requests.post(url, json={
-                'door_number': door['door_number'],
-                'override': override_mode
-            }, timeout=3)
-        except:
-            pass
-        
-        action = override_mode if override_mode else 'reset'
-        return jsonify({
-            'success': True,
-            'message': f'Door {door["name"]} emergency override: {action}'
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error setting door emergency override: {e}")
-        if conn:
-            conn.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
 
+# ✅ Continue with next function (emergency-status)
 @app.route('/api/emergency-status', methods=['GET'])
 @login_required
 def get_emergency_status():
