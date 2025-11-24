@@ -19,7 +19,7 @@ Flash ESP32 boards directly from your browser - no Arduino IDE needed!
 2. **Click "INSTALL FIRMWARE"** on the web flasher
 3. **Select your COM port** from the browser prompt
 4. **Wait 2-3 minutes** for flashing to complete
-5. **Connect to WiFi:** `AccessControl-Setup` (password: `12345678`)
+5. **Connect to WiFi:** `AccessControl-Setup` (password: `Config123`)
 6. **Configure at:** [http://192.168.4.1](http://192.168.4.1)
 
 ---
