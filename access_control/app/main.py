@@ -388,6 +388,47 @@ def migrate_database():
         if 'user_name' not in columns:
             print("  ➕ Adding user_name to access_logs...")
             cursor.execute("ALTER TABLE access_logs ADD COLUMN user_name TEXT")
+
+        cursor.execute("PRAGMA table_info(access_logs)")
+        access_logs_info = cursor.fetchall()
+        
+        door_id_column = next((col for col in access_logs_info if col[1] == 'door_id'), None)
+        
+        if door_id_column and door_id_column[3] == 1:  # col[3] is 'notnull' field
+            print("  🔧 Fixing door_id NOT NULL constraint in access_logs...")
+            
+            # Create new table with corrected schema
+            cursor.execute("""
+                CREATE TABLE access_logs_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    board_name TEXT,
+                    door_id INTEGER,
+                    door_name TEXT,
+                    user_id INTEGER,
+                    user_name TEXT,
+                    credential TEXT,
+                    credential_type TEXT,
+                    access_granted BOOLEAN,
+                    reason TEXT,
+                    temp_code_id INTEGER,
+                    temp_code_name TEXT,
+                    temp_code_usage_count INTEGER,
+                    temp_code_remaining TEXT
+                )
+            """)
+            
+            # Copy data from old table
+            cursor.execute("""
+                INSERT INTO access_logs_new 
+                SELECT * FROM access_logs
+            """)
+            
+            # Drop old table and rename
+            cursor.execute("DROP TABLE access_logs")
+            cursor.execute("ALTER TABLE access_logs_new RENAME TO access_logs")
+            
+            print("  ✅ door_id constraint fixed")
         
         conn.commit()
         print("  ✅ Migration completed")
