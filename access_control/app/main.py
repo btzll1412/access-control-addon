@@ -3083,7 +3083,7 @@ def save_door_settings(door_id):
             
             if board:
                 try:
-                    sync_board(board_id, board['ip_address'])
+                    sync_board(board_id)  # ✅ Just board_id
                     logger.info(f"✅ Board {board_id} synced with new door settings")
                 except Exception as e:
                     logger.error(f"⚠️ Failed to sync board after settings update: {e}")
