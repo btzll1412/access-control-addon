@@ -2811,6 +2811,23 @@ def sync_board_full(board_id):
         for row in cursor.fetchall():
             door_key = f"door{row['door_number']}"
             unlock_durations[door_key] = row['unlock_duration'] or 3000
+
+        # ✅ ADD THIS SECTION - Get door emergency overrides
+        cursor.execute('''
+            SELECT door_number, emergency_override
+            FROM doors
+            WHERE board_id = ? AND emergency_override IS NOT NULL
+        ''', (board_id,))
+        
+        door_overrides = []
+        for row in cursor.fetchall():
+            door_overrides.append({
+                'door_number': row['door_number'],
+                'mode': row['emergency_override']
+            })
+        
+        logger.info(f"  📤 Emergency mode: {board['emergency_mode']}")
+        logger.info(f"  📤 Door overrides: {len(door_overrides)}")
         
         sync_data = {
             'users': users,
@@ -2818,7 +2835,9 @@ def sync_board_full(board_id):
             'door_names': door_names,
             'temp_codes': temp_codes,
             'user_schedules': user_schedules,
-            'unlock_durations': unlock_durations  # ✅ NEW
+            'unlock_durations': unlock_durations,
+            'emergency_mode': board['emergency_mode'],  # ✅ ADD THIS
+            'door_overrides': door_overrides  # ✅ ADD THIS
         }
         
         # Send to board
