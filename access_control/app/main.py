@@ -2642,13 +2642,25 @@ def sync_board_full(board_id):
                 'end': row['end_time']
             })
         
-        # Build sync payload
+        # ✅ Get unlock durations for this board's doors
+        cursor.execute('''
+            SELECT door_number, unlock_duration
+            FROM doors
+            WHERE board_id = ?
+        ''', (board_id,))
+        
+        unlock_durations = {}
+        for row in cursor.fetchall():
+            door_key = f"door{row['door_number']}"
+            unlock_durations[door_key] = row['unlock_duration'] or 3000
+        
         sync_data = {
             'users': users,
             'door_schedules': door_schedules,
             'door_names': door_names,
-            'temp_codes': temp_codes,   # ✅ NEW: Include temp codes
-            'user_schedules': user_schedules
+            'temp_codes': temp_codes,
+            'user_schedules': user_schedules,
+            'unlock_durations': unlock_durations  # ✅ NEW
         }
         
         # Send to board
