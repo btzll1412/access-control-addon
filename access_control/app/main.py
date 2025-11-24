@@ -3200,7 +3200,6 @@ def copy_door_schedule(target_door_id):
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ FIX: Door schedules don't have priority - they use schedule_times.priority instead
         # Create new access_schedule (just name and active)
         cursor.execute('''
             INSERT INTO access_schedules (name, active)
@@ -3209,10 +3208,11 @@ def copy_door_schedule(target_door_id):
         
         new_schedule_id = cursor.lastrowid
         
+        # ✅ FIX: Column is 'type' not 'schedule_type'
         # Copy schedule_times for each day WITH priority
         for day in schedule.get('days', []):
             cursor.execute('''
-                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, schedule_type, priority)
+                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time, type, priority)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (new_schedule_id, day, schedule['start_time'], schedule['end_time'], schedule['type'], schedule.get('priority', 0)))
         
