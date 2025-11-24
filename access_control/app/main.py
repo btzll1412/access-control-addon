@@ -1447,6 +1447,8 @@ def get_timezone_info():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== EMERGENCY API ====================
+# ==================== BOARD-LEVEL EMERGENCY CONTROLS ====================
+
 @app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
 @login_required
 def emergency_lock_board(board_id):
@@ -1472,7 +1474,7 @@ def emergency_lock_board(board_id):
         cursor.execute('SELECT name, ip_address FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
-        # ✅ FIX: Log without door_id (emergency board-wide event)
+        # Log without door_id (board-wide event)
         cursor.execute('''
             INSERT INTO access_logs 
             (board_name, credential_type, access_granted, reason, user_name)
@@ -1535,7 +1537,7 @@ def emergency_unlock_board(board_id):
         cursor.execute('SELECT name, ip_address FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
         
-        # ✅ FIX: Log without door_id
+        # Log without door_id
         cursor.execute('''
             INSERT INTO access_logs 
             (board_name, credential_type, access_granted, reason, user_name)
@@ -1591,7 +1593,7 @@ def emergency_reset_board(board_id):
             WHERE id = ?
         ''', (board_id,))
         
-        # ✅ FIX: Log without door_id
+        # Log without door_id
         cursor.execute('''
             INSERT INTO access_logs 
             (board_name, credential_type, access_granted, reason, user_name)
@@ -1619,152 +1621,9 @@ def emergency_reset_board(board_id):
     finally:
         if conn:
             conn.close()
-        
-        # Send emergency unlock to ESP32
-        try:
-            url = f"http://{board['ip_address']}/api/emergency-unlock"
-            requests.post(url, json={'mode': 'unlock', 'duration': auto_reset_minutes * 60}, timeout=3)
-        except:
-            pass
-        
-        return jsonify({
-            'success': True,
-            'message': f'Emergency unlock activated on {board["name"]} (auto-reset in {auto_reset_minutes} min)'
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error activating emergency unlock: {e}")
-        if conn:
-            conn.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-@app.route('/api/boards/<int:board_id>/emergency-reset', methods=['POST'])
-@login_required
-def emergency_reset_board(board_id):
-    """Reset emergency mode on a board"""
-    conn = None
-    try:
-        data = request.json
-        reset_by = data.get('reset_by', get_current_user())
-        
-        logger.info(f"✅ EMERGENCY RESET on board {board_id} by {reset_by}")
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
-        board = cursor.fetchone()
-        
-        if not board:
-            return jsonify({'success': False, 'message': 'Board not found'}), 404
-        
-        previous_mode = board['emergency_mode']
-        
-        cursor.execute('''
-            UPDATE boards 
-            SET emergency_mode = NULL,
-                emergency_activated_at = NULL,
-                emergency_activated_by = NULL,
-                emergency_auto_reset_at = NULL
-            WHERE id = ?
-        ''', (board_id,))
-        
-        if previous_mode:
-            cursor.execute('''
-                INSERT INTO access_logs 
-                (board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-                VALUES (?, 'ALL DOORS', 'RESET', 'emergency', 1, ?, ?)
-            ''', (board['name'], f'Emergency mode reset by {reset_by} (was: {previous_mode})', format_timestamp_for_db()))
-        
-        conn.commit()
-        
-        # Send reset to ESP32
-        try:
-            url = f"http://{board['ip_address']}/api/emergency-reset"
-            requests.post(url, json={'mode': 'normal'}, timeout=3)
-        except:
-            pass
-        
-        return jsonify({
-            'success': True,
-            'message': f'Emergency mode reset on {board["name"]}'
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error resetting emergency mode: {e}")
-        if conn:
-            conn.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
-
-@app.route('/api/doors/<int:door_id>/emergency-override', methods=['POST'])
-@login_required
-def emergency_override_door(door_id):
-    """Set emergency override on a specific door"""
-    conn = None
-    try:
-        data = request.json
-        override_mode = data.get('mode')
-        
-        if override_mode not in ['lock', 'unlock', None]:
-            return jsonify({'success': False, 'message': 'Invalid override mode'}), 400
-        
-        logger.info(f"🚨 Door {door_id} emergency override: {override_mode}")
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT d.*, b.ip_address, b.name as board_name
-            FROM doors d
-            JOIN boards b ON d.board_id = b.id
-            WHERE d.id = ?
-        ''', (door_id,))
-        
-        door = cursor.fetchone()
-        
-        if not door:
-            return jsonify({'success': False, 'message': 'Door not found'}), 404
-        
-        if override_mode:
-            cursor.execute('''
-                UPDATE doors 
-                SET emergency_override = ?,
-                    emergency_override_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (override_mode, door_id))
-            
-            cursor.execute('''
-                INSERT INTO access_logs 
-                (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-                VALUES (?, ?, ?, 'EMERGENCY', 'emergency', ?, ?, ?)
-            ''', (door_id, door['board_name'], door['name'], 
-                  1 if override_mode == 'unlock' else 0,
-                  f'Emergency {override_mode} override activated',
-                  format_timestamp_for_db()))
-        else:
-            cursor.execute('''
-                UPDATE doors 
-                SET emergency_override = NULL,
-                    emergency_override_at = NULL
-                WHERE id = ?
-            ''', (door_id,))
-            
-            cursor.execute('''
-                INSERT INTO access_logs 
-                (door_id, board_name, door_name, credential, credential_type, access_granted, reason, timestamp)
-                VALUES (?, ?, ?, 'RESET', 'emergency', 1, ?, ?)
-            ''', (door_id, door['board_name'], door['name'], 'Emergency override reset', format_timestamp_for_db()))
-        
-        conn.commit()
 
 
-        # ==================== SYSTEM-WIDE EMERGENCY CONTROLS ====================
+# ==================== SYSTEM-WIDE EMERGENCY CONTROLS ====================
 
 @app.route('/api/emergency/system-lock', methods=['POST'])
 @login_required
