@@ -3115,17 +3115,28 @@ function emergencyReset(boardId, boardName) {
 
         async function confirmEmergencyAction() {
             if (!emergencyAction) return;
-
+        
             const activatedBy = document.getElementById('emergencyActivatedBy').value.trim();
             if (!activatedBy) {
                 showToast('Please enter your name for the audit log', 'warning');
                 return;
             }
-
+        
             try {
                 let url, method = 'POST', body = { activated_by: activatedBy };
-
-                if (emergencyAction.type === 'lock') {
+        
+                // ✅ Handle system-wide actions FIRST
+                if (emergencyAction.type === 'system-lock') {
+                    url = `/api/emergency/system-lock`;
+                } else if (emergencyAction.type === 'system-unlock') {
+                    url = `/api/emergency/system-unlock`;
+                    body.auto_reset_minutes = parseInt(document.getElementById('emergencyAutoReset').value);
+                } else if (emergencyAction.type === 'system-reset') {
+                    url = `/api/emergency/system-reset`;
+                    body.reset_by = activatedBy;
+                }
+                // Per-board actions
+                else if (emergencyAction.type === 'lock') {
                     url = `/api/boards/${emergencyAction.boardId}/emergency-lock`;
                 } else if (emergencyAction.type === 'unlock') {
                     url = `/api/boards/${emergencyAction.boardId}/emergency-unlock`;
@@ -3133,7 +3144,9 @@ function emergencyReset(boardId, boardName) {
                 } else if (emergencyAction.type === 'reset') {
                     url = `/api/boards/${emergencyAction.boardId}/emergency-reset`;
                     body.reset_by = activatedBy;
-                } else if (emergencyAction.type === 'door-lock') {
+                }
+                // Per-door actions
+                else if (emergencyAction.type === 'door-lock') {
                     url = `/api/doors/${emergencyAction.doorId}/emergency-override`;
                     body.mode = 'lock';
                 } else if (emergencyAction.type === 'door-unlock') {
@@ -3143,15 +3156,15 @@ function emergencyReset(boardId, boardName) {
                     url = `/api/doors/${emergencyAction.doorId}/emergency-override`;
                     body.mode = null;
                 }
-
+        
                 const response = await fetch(url, {
                     method: method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-
+        
                 const data = await response.json();
-
+        
                 if (data.success) {
                     showToast(data.message, 'success');
                     closeEmergencyConfirmModal();
@@ -3167,7 +3180,6 @@ function emergencyReset(boardId, boardName) {
                 showToast('Error executing emergency action', 'error');
             }
         }
-
         // ==================== DOOR SCHEDULES ====================
         async function openDoorScheduleModal(doorId, doorName) {
             currentDoorId = doorId;
