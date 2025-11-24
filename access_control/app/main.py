@@ -3049,57 +3049,58 @@ def unlock_door(door_id):
 
 @app.route('/api/doors/<int:door_id>/settings', methods=['POST'])
 @login_required
-def update_door_settings(door_id):
-    """Update door settings (unlock duration, etc.)"""
+def save_door_settings(door_id):
+    """Save door settings (unlock duration)"""
     conn = None
     try:
         data = request.json
         unlock_duration = data.get('unlock_duration', 3000)
         
-        if unlock_duration < 500 or unlock_duration > 30000:
-            return jsonify({'success': False, 'message': 'Duration must be between 500-30000ms'}), 400
-        
         conn = get_db()
         cursor = conn.cursor()
         
-        try:
-            cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
-            conn.commit()
-        except:
-            pass
-        
+        # Update door settings
         cursor.execute('''
             UPDATE doors 
             SET unlock_duration = ?
             WHERE id = ?
         ''', (unlock_duration, door_id))
         
-        if cursor.rowcount == 0:
-            return jsonify({'success': False, 'message': 'Door not found'}), 404
-        
         conn.commit()
         
-        cursor.execute('''
-            SELECT b.ip_address 
-            FROM doors d
-            JOIN boards b ON d.board_id = b.id
-            WHERE d.id = ?
-        ''', (door_id,))
+        logger.info(f"✅ Door settings saved for door {door_id}: unlock_duration={unlock_duration}ms")
         
-        board = cursor.fetchone()
+        # ✅ Get the board for this door and sync it
+        cursor.execute('SELECT board_id FROM doors WHERE id = ?', (door_id,))
+        result = cursor.fetchone()
         
-        logger.info(f"✅ Door {door_id} settings updated: unlock_duration={unlock_duration}ms")
-        return jsonify({'success': True, 'message': 'Door settings updated'})
+        if result:
+            board_id = result['board_id']
+            
+            # Trigger board sync
+            cursor.execute('SELECT ip_address FROM boards WHERE id = ?', (board_id,))
+            board = cursor.fetchone()
+            
+            if board:
+                try:
+                    sync_board(board_id, board['ip_address'])
+                    logger.info(f"✅ Board {board_id} synced with new door settings")
+                except Exception as e:
+                    logger.error(f"⚠️ Failed to sync board after settings update: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Door settings saved and synced to board'
+        })
         
     except Exception as e:
-        logger.error(f"❌ Error updating door settings: {e}")
+        logger.error(f"❌ Error saving door settings: {e}")
         if conn:
             conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         if conn:
             conn.close()
-
 # ==================== DOOR SCHEDULES API ====================
 
 @app.route('/api/door-schedules/<int:door_id>', methods=['GET'])
