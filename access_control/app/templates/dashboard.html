@@ -2818,166 +2818,250 @@ async function handleLogout() {
 
         // ==================== Continue in next message... ====================
         // ==================== EMERGENCY CONTROLS ====================
-        async function loadEmergencyControls() {
-            try {
-                const [boardsResponse, doorsResponse] = await Promise.all([
-                    fetch('/api/boards'),
-                    fetch('/api/doors')
-                ]);
+async function loadEmergencyControls() {
+    try {
+        const [boardsResponse, doorsResponse] = await Promise.all([
+            fetch('/api/boards'),
+            fetch('/api/doors')
+        ]);
 
-                const boardsData = await boardsResponse.json();
-                const doorsData = await doorsResponse.json();
+        const boardsData = await boardsResponse.json();
+        const doorsData = await doorsResponse.json();
 
-                if (boardsData.success && doorsData.success) {
-                    const container = document.getElementById('emergencyControlsList');
+        if (boardsData.success && doorsData.success) {
+            const container = document.getElementById('emergencyControlsList');
+            
+            if (boardsData.boards.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #64748b;">No boards configured</p>';
+                return;
+            }
+
+            // ✅ Check if any board has emergency active
+            const hasAnyEmergency = boardsData.boards.some(b => b.emergency_mode !== null);
+            
+            // ✅ Build HTML with system-wide controls FIRST, then individual boards
+            container.innerHTML = `
+                <!-- SYSTEM-WIDE CONTROLS -->
+                <div class="emergency-panel" style="background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border: 3px solid #dc2626;">
+                    <div class="emergency-panel-header">
+                        <h2 style="color: #991b1b;">🚨🚨 SYSTEM-WIDE EMERGENCY CONTROLS</h2>
+                    </div>
                     
-                    if (boardsData.boards.length === 0) {
-                        container.innerHTML = '<p style="text-align: center; color: #64748b;">No boards configured</p>';
-                        return;
-                    }
-
-                    container.innerHTML = boardsData.boards.map(board => {
-                        const boardDoors = doorsData.doors.filter(d => d.board_id === board.id);
-                        const isEmergency = board.emergency_mode !== null;
+                    <div class="emergency-board-controls">
+                        <div class="emergency-board-info">
+                            <div class="emergency-board-name" style="font-size: 20px;">ALL LOCATIONS</div>
+                            <div class="emergency-status ${hasAnyEmergency ? 'locked' : 'normal'}">
+                                ${hasAnyEmergency ? '🚨 EMERGENCY ACTIVE' : '🟢 Normal Operation'}
+                            </div>
+                        </div>
                         
-                        return `
-                            <div class="emergency-panel">
-                                <div class="emergency-panel-header">
-                                    <h2>🚨 ${board.name}</h2>
-                                </div>
+                        <p style="color: #78350f; margin: 15px 0; font-weight: 600;">
+                            ⚠️ These controls affect ALL boards and doors simultaneously
+                        </p>
+                        
+                        <div class="emergency-actions">
+                            ${hasAnyEmergency ? `
+                                <button class="btn btn-success" onclick="systemEmergencyReset()" style="font-size: 16px; padding: 15px 30px;">
+                                    ✅ RESET ALL TO NORMAL
+                                </button>
+                            ` : `
+                                <button class="btn btn-emergency" onclick="systemEmergencyLock()" style="font-size: 16px; padding: 15px 30px;">
+                                    🔒 LOCK ENTIRE SYSTEM
+                                </button>
+                                <button class="btn btn-warning" onclick="systemEmergencyUnlock()" style="font-size: 16px; padding: 15px 30px;">
+                                    🔓 UNLOCK ENTIRE SYSTEM
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                </div>
+                
+                <h3 style="margin: 30px 0 20px 0; color: #64748b;">Individual Board Controls:</h3>
+            ` + boardsData.boards.map(board => {
+                const boardDoors = doorsData.doors.filter(d => d.board_id === board.id);
+                const isEmergency = board.emergency_mode !== null;
+                
+                return `
+                    <div class="emergency-panel">
+                        <div class="emergency-panel-header">
+                            <h2>🚨 ${board.name}</h2>
+                        </div>
 
-                                <div class="emergency-board-controls">
-                                    <div class="emergency-board-info">
-                                        <div class="emergency-board-name">${board.name}</div>
-                                        <div class="emergency-status ${isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal'}">
-                                            ${isEmergency 
-                                                ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
-                                                : '🟢 Normal Operation'
-                                            }
-                                        </div>
-                                    </div>
-
-                                    ${isEmergency ? `
-                                        <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                                            <strong>Active Since:</strong> ${new Date(board.emergency_activated_at).toLocaleString()}<br>
-                                            <strong>Activated By:</strong> ${board.emergency_activated_by || 'Unknown'}<br>
-                                            ${board.emergency_auto_reset_at ? `
-                                                <strong>Auto-Reset:</strong> ${new Date(board.emergency_auto_reset_at).toLocaleString()}
-                                            ` : ''}
-                                        </div>
-                                    ` : ''}
-
-                                    <div class="emergency-actions">
-                                        ${isEmergency ? `
-                                            <button class="btn btn-success" 
-                                                    onclick="emergencyReset(${board.id}, '${board.name}')"
-                                                    ${!board.online ? 'disabled' : ''}>
-                                                ✅ Reset to Normal
-                                            </button>
-                                        ` : `
-                                            <button class="btn btn-emergency" 
-                                                    onclick="emergencyLock(${board.id}, '${board.name}')"
-                                                    ${!board.online ? 'disabled' : ''}>
-                                                🔒 EMERGENCY LOCK ALL
-                                            </button>
-                                            <button class="btn btn-warning" 
-                                                    onclick="emergencyUnlock(${board.id}, '${board.name}')"
-                                                    ${!board.online ? 'disabled' : ''}>
-                                                🔓 EMERGENCY UNLOCK ALL
-                                            </button>
-                                        `}
-                                    </div>
-
-                                    <div class="emergency-door-overrides">
-                                        <h4>Individual Door Controls:</h4>
-                                        ${boardDoors.map(door => `
-                                            <div class="emergency-door-item">
-                                                <div>
-                                                    <div class="emergency-door-name">🚪 ${door.name}</div>
-                                                    ${door.emergency_override ? `
-                                                        <span class="badge badge-emergency" style="margin-left: 10px;">
-                                                            Override: ${door.emergency_override.toUpperCase()}
-                                                        </span>
-                                                    ` : ''}
-                                                </div>
-                                                <div class="emergency-door-actions">
-                                                    ${door.emergency_override ? `
-                                                        <button class="btn btn-success btn-small" 
-                                                                onclick="doorOverrideReset(${door.id}, '${door.name}')"
-                                                                ${!board.online ? 'disabled' : ''}>
-                                                            Reset
-                                                        </button>
-                                                    ` : `
-                                                        <button class="btn btn-danger btn-small" 
-                                                                onclick="doorOverrideLock(${door.id}, '${door.name}')"
-                                                                ${!board.online ? 'disabled' : ''}>
-                                                            🔒 Lock
-                                                        </button>
-                                                        <button class="btn btn-warning btn-small" 
-                                                                onclick="doorOverrideUnlock(${door.id}, '${door.name}')"
-                                                                ${!board.online ? 'disabled' : ''}>
-                                                            🔓 Unlock
-                                                        </button>
-                                                    `}
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
+                        <div class="emergency-board-controls">
+                            <div class="emergency-board-info">
+                                <div class="emergency-board-name">${board.name}</div>
+                                <div class="emergency-status ${isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal'}">
+                                    ${isEmergency 
+                                        ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
+                                        : '🟢 Normal Operation'
+                                    }
                                 </div>
                             </div>
-                        `;
-                    }).join('');
-                }
-            } catch (error) {
-                console.error('Error loading emergency controls:', error);
-                showToast('Error loading emergency controls', 'error');
-            }
+
+                            ${isEmergency ? `
+                                <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                                    <strong>Active Since:</strong> ${new Date(board.emergency_activated_at).toLocaleString()}<br>
+                                    <strong>Activated By:</strong> ${board.emergency_activated_by || 'Unknown'}<br>
+                                    ${board.emergency_auto_reset_at ? `
+                                        <strong>Auto-Reset:</strong> ${new Date(board.emergency_auto_reset_at).toLocaleString()}
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+
+                            <div class="emergency-actions">
+                                ${isEmergency ? `
+                                    <button class="btn btn-success" 
+                                            onclick="emergencyReset(${board.id}, '${board.name}')"
+                                            ${!board.online ? 'disabled' : ''}>
+                                        ✅ Reset to Normal
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-emergency" 
+                                            onclick="emergencyLock(${board.id}, '${board.name}')"
+                                            ${!board.online ? 'disabled' : ''}>
+                                        🔒 EMERGENCY LOCK ALL
+                                    </button>
+                                    <button class="btn btn-warning" 
+                                            onclick="emergencyUnlock(${board.id}, '${board.name}')"
+                                            ${!board.online ? 'disabled' : ''}>
+                                        🔓 EMERGENCY UNLOCK ALL
+                                    </button>
+                                `}
+                            </div>
+
+                            <div class="emergency-door-overrides">
+                                <h4>Individual Door Controls:</h4>
+                                ${boardDoors.map(door => `
+                                    <div class="emergency-door-item">
+                                        <div>
+                                            <div class="emergency-door-name">🚪 ${door.name}</div>
+                                            ${door.emergency_override ? `
+                                                <span class="badge badge-emergency" style="margin-left: 10px;">
+                                                    Override: ${door.emergency_override.toUpperCase()}
+                                                </span>
+                                            ` : ''}
+                                        </div>
+                                        <div class="emergency-door-actions">
+                                            ${door.emergency_override ? `
+                                                <button class="btn btn-success btn-small" 
+                                                        onclick="doorOverrideReset(${door.id}, '${door.name}')"
+                                                        ${!board.online ? 'disabled' : ''}>
+                                                    Reset
+                                                </button>
+                                            ` : `
+                                                <button class="btn btn-danger btn-small" 
+                                                        onclick="doorOverrideLock(${door.id}, '${door.name}')"
+                                                        ${!board.online ? 'disabled' : ''}>
+                                                    🔒 Lock
+                                                </button>
+                                                <button class="btn btn-warning btn-small" 
+                                                        onclick="doorOverrideUnlock(${door.id}, '${door.name}')"
+                                                        ${!board.online ? 'disabled' : ''}>
+                                                    🔓 Unlock
+                                                </button>
+                                            `}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
+    } catch (error) {
+        console.error('Error loading emergency controls:', error);
+        showToast('Error loading emergency controls', 'error');
+    }
+}
 
-        function emergencyLock(boardId, boardName) {
-            emergencyAction = {
-                type: 'lock',
-                boardId: boardId,
-                boardName: boardName
-            };
+// ✅ System-wide emergency functions
+function systemEmergencyLock() {
+    emergencyAction = {
+        type: 'system-lock'
+    };
 
-            document.getElementById('emergencyConfirmText').textContent = 
-                `Are you sure you want to EMERGENCY LOCK all doors on "${boardName}"? This will override all schedules and prevent ALL access.`;
-            document.getElementById('emergencyAutoResetContainer').style.display = 'none';
-            document.getElementById('emergencyConfirmButton').textContent = '🔒 LOCK ALL DOORS';
-            document.getElementById('emergencyActivatedBy').value = '';
-            document.getElementById('emergencyConfirmModal').classList.add('active');
-        }
+    document.getElementById('emergencyConfirmText').textContent = 
+        `🚨🚨 LOCK ENTIRE SYSTEM? This will LOCK ALL DOORS on ALL BOARDS immediately. This should only be used in critical security situations.`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'none';
+    document.getElementById('emergencyConfirmButton').textContent = '🔒 LOCK ENTIRE SYSTEM';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
 
-        function emergencyUnlock(boardId, boardName) {
-            emergencyAction = {
-                type: 'unlock',
-                boardId: boardId,
-                boardName: boardName
-            };
+function systemEmergencyUnlock() {
+    emergencyAction = {
+        type: 'system-unlock'
+    };
 
-            document.getElementById('emergencyConfirmText').textContent = 
-                `Are you sure you want to EMERGENCY UNLOCK all doors on "${boardName}"? This will grant FREE ACCESS to all doors for evacuation purposes.`;
-            document.getElementById('emergencyAutoResetContainer').style.display = 'block';
-            document.getElementById('emergencyConfirmButton').textContent = '🔓 UNLOCK ALL DOORS';
-            document.getElementById('emergencyActivatedBy').value = '';
-            document.getElementById('emergencyConfirmModal').classList.add('active');
-        }
+    document.getElementById('emergencyConfirmText').textContent = 
+        `🚨🚨 UNLOCK ENTIRE SYSTEM? This will UNLOCK ALL DOORS on ALL BOARDS for evacuation. All doors will allow free passage.`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'block';
+    document.getElementById('emergencyConfirmButton').textContent = '🔓 UNLOCK ENTIRE SYSTEM';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
 
-        function emergencyReset(boardId, boardName) {
-            emergencyAction = {
-                type: 'reset',
-                boardId: boardId,
-                boardName: boardName
-            };
+function systemEmergencyReset() {
+    emergencyAction = {
+        type: 'system-reset'
+    };
 
-            document.getElementById('emergencyConfirmText').textContent = 
-                `Reset emergency mode on "${boardName}" and return to normal operation?`;
-            document.getElementById('emergencyAutoResetContainer').style.display = 'none';
-            document.getElementById('emergencyConfirmButton').textContent = '✅ Reset to Normal';
-            document.getElementById('emergencyActivatedBy').value = '';
-            document.getElementById('emergencyConfirmModal').classList.add('active');
-        }
+    document.getElementById('emergencyConfirmText').textContent = 
+        `Reset emergency mode on ALL BOARDS and return entire system to normal operation?`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'none';
+    document.getElementById('emergencyConfirmButton').textContent = '✅ Reset Entire System';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
+
+// ✅ Per-board emergency functions
+function emergencyLock(boardId, boardName) {
+    emergencyAction = {
+        type: 'lock',
+        boardId: boardId,
+        boardName: boardName
+    };
+
+    document.getElementById('emergencyConfirmText').textContent = 
+        `Are you sure you want to EMERGENCY LOCK all doors on "${boardName}"? This will override all schedules and prevent ALL access.`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'none';
+    document.getElementById('emergencyConfirmButton').textContent = '🔒 LOCK ALL DOORS';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
+
+function emergencyUnlock(boardId, boardName) {
+    emergencyAction = {
+        type: 'unlock',
+        boardId: boardId,
+        boardName: boardName
+    };
+
+    document.getElementById('emergencyConfirmText').textContent = 
+        `Are you sure you want to EMERGENCY UNLOCK all doors on "${boardName}"? This will grant FREE ACCESS to all doors for evacuation purposes.`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'block';
+    document.getElementById('emergencyConfirmButton').textContent = '🔓 UNLOCK ALL DOORS';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
+
+function emergencyReset(boardId, boardName) {
+    emergencyAction = {
+        type: 'reset',
+        boardId: boardId,
+        boardName: boardName
+    };
+
+    document.getElementById('emergencyConfirmText').textContent = 
+        `Reset emergency mode on "${boardName}" and return to normal operation?`;
+    document.getElementById('emergencyAutoResetContainer').style.display = 'none';
+    document.getElementById('emergencyConfirmButton').textContent = '✅ Reset to Normal';
+    document.getElementById('emergencyActivatedBy').value = '';
+    document.getElementById('emergencyConfirmModal').classList.add('active');
+}
+
+// Keep your existing confirmEmergencyAction() function but add system-wide handling at the beginning...
 
         function doorOverrideLock(doorId, doorName) {
             emergencyAction = {
