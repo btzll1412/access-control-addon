@@ -11,7 +11,7 @@
     "8100/tcp": 8100
   },
   "ports_description": {
-    "8100/tcp": "Web UI"
+    "8100/tcp": "Web UI (Direct Access)"
   },
   "options": {
     "log_level": "info",
@@ -30,6 +30,7 @@
     "remember_days": "int"
   },
   "ingress": true,
+  "ingress_port": 8100,
   "panel_icon": "mdi:door",
   "panel_title": "Access Control",
   "webui": "http://[HOST]:[PORT:8100]"
