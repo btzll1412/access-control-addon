@@ -740,8 +740,8 @@ def login():
     conn = None
     try:
         data = request.json
-        username = data.get('username')
-        password = data.get('password')
+        username = data.get('username', '').strip()  # ✅ Added .strip()
+        password = data.get('password', '').strip()  # ✅ Added .strip()
         remember = data.get('remember', False)
         
         logger.info(f"🔐 Login attempt: username='{username}'")
