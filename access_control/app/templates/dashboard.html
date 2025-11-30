@@ -1331,6 +1331,49 @@
                 </button>
             </div>
 
+            <!-- Controller Settings Section -->
+            <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #7dd3fc;">
+                <div class="card-header" style="border-bottom: 1px solid #7dd3fc;">
+                    <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">⚙️</span>
+                        <span>Default Controller Settings</span>
+                    </div>
+                    <button class="btn btn-small" id="controllerSettingsToggle" onclick="toggleControllerSettings()" style="background: #0284c7; color: white;">
+                        ▼ Show Settings
+                    </button>
+                </div>
+                <div id="controllerSettingsBody" style="display: none; padding: 20px;">
+                    <p style="color: #64748b; margin-bottom: 15px; font-size: 14px;">
+                        Set the default controller address that boards will use to communicate back. This is useful when boards are on different networks or when using a domain name.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 120px 1fr 120px; gap: 15px; align-items: end;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Protocol</label>
+                            <select class="form-input" id="defaultControllerProtocol">
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Controller IP / Domain</label>
+                            <input type="text" class="form-input" id="defaultControllerAddress"
+                                   placeholder="e.g., 192.168.1.100 or controller.example.com">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-input" id="defaultControllerPort"
+                                   value="8100" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="controllerSettingsPreview" style="color: #64748b; font-size: 13px;"></span>
+                        <button class="btn btn-primary" onclick="saveControllerSettings()">
+                            💾 Save Default Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>Boards</h2>
                 <div style="display: flex; gap: 10px;">
@@ -1961,6 +2004,70 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closePendingBoardsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Adopt Board Configuration Modal -->
+    <div id="adoptBoardModal" class="modal">
+        <div class="modal-content" style="max-width: 550px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-bottom-color: #86efac;">
+                <h3 class="modal-title" style="color: #166534;">✅ Adopt Board</h3>
+                <button class="modal-close" onclick="closeAdoptBoardModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="margin: 0; font-size: 14px; color: #64748b;">
+                        <strong>Board:</strong> <span id="adoptBoardName" style="color: #1e293b;"></span><br>
+                        <strong>IP Address:</strong> <span id="adoptBoardIP" style="color: #1e293b;"></span>
+                    </p>
+                </div>
+
+                <input type="hidden" id="adoptPendingId">
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="adoptUseDefault" checked onchange="toggleAdoptControllerFields()">
+                        <span class="form-label" style="margin: 0;">Use default controller settings</span>
+                    </label>
+                </div>
+
+                <div id="adoptControllerFields">
+                    <div style="display: grid; grid-template-columns: 100px 1fr 100px; gap: 10px; margin-top: 15px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Protocol</label>
+                            <select class="form-input" id="adoptControllerProtocol" disabled>
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Controller Address</label>
+                            <input type="text" class="form-input" id="adoptControllerAddress"
+                                   placeholder="IP or domain" disabled>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-input" id="adoptControllerPort"
+                                   value="8100" min="1" max="65535" disabled>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <span id="adoptControllerPreview" style="color: #64748b; font-size: 13px;"></span>
+                    </div>
+                </div>
+
+                <div style="background: #fef3c7; padding: 12px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #f59e0b;">
+                    <p style="margin: 0; font-size: 13px; color: #92400e;">
+                        <strong>Note:</strong> The board will be configured to send heartbeats and access logs to this controller address. Make sure the address is reachable from the board's network.
+                    </p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAdoptBoardModal()">Cancel</button>
+                <button class="btn btn-success" onclick="confirmAdoptBoard()">
+                    ✅ Adopt Board
+                </button>
             </div>
         </div>
     </div>
@@ -2790,7 +2897,7 @@ async function handleLogout() {
 
                 if (data.success) {
                     const container = document.getElementById('pendingBoardsList');
-                    
+
                     if (data.pending_boards.length === 0) {
                         container.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b;">No pending boards</td></tr>';
                     } else {
@@ -2801,11 +2908,11 @@ async function handleLogout() {
                                 <td>${board.mac_address}</td>
                                 <td>${board.first_seen}</td>
                                 <td>
-                                    <button class="btn btn-success btn-small" 
-                                            onclick="adoptBoard(${board.id})">
+                                    <button class="btn btn-success btn-small"
+                                            onclick="showAdoptBoardModal(${board.id}, '${board.board_name.replace(/'/g, "\\'")}', '${board.ip_address}')">
                                         ✅ Adopt
                                     </button>
-                                    <button class="btn btn-danger btn-small" 
+                                    <button class="btn btn-danger btn-small"
                                             onclick="rejectBoard(${board.id})">
                                         ❌ Reject
                                     </button>
@@ -2826,11 +2933,203 @@ async function handleLogout() {
             document.getElementById('pendingBoardsModal').classList.remove('active');
         }
 
-        async function adoptBoard(pendingId) {
+        // ==================== CONTROLLER SETTINGS ====================
+        let defaultControllerSettings = {
+            protocol: 'http',
+            address: '',
+            port: 8100
+        };
+
+        async function loadControllerSettings() {
+            try {
+                const response = await fetch('/api/controller-settings');
+                const data = await response.json();
+
+                if (data.success) {
+                    defaultControllerSettings = {
+                        protocol: data.settings.default_protocol,
+                        address: data.settings.default_controller_address,
+                        port: data.settings.default_controller_port
+                    };
+
+                    document.getElementById('defaultControllerProtocol').value = data.settings.default_protocol;
+                    document.getElementById('defaultControllerAddress').value = data.settings.default_controller_address;
+                    document.getElementById('defaultControllerPort').value = data.settings.default_controller_port;
+
+                    updateControllerPreview();
+                }
+            } catch (error) {
+                console.error('Error loading controller settings:', error);
+            }
+        }
+
+        function toggleControllerSettings() {
+            const body = document.getElementById('controllerSettingsBody');
+            const btn = document.getElementById('controllerSettingsToggle');
+
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                btn.innerHTML = '▲ Hide Settings';
+                loadControllerSettings();
+            } else {
+                body.style.display = 'none';
+                btn.innerHTML = '▼ Show Settings';
+            }
+        }
+
+        function updateControllerPreview() {
+            const protocol = document.getElementById('defaultControllerProtocol').value;
+            const address = document.getElementById('defaultControllerAddress').value;
+            const port = document.getElementById('defaultControllerPort').value;
+
+            const preview = document.getElementById('controllerSettingsPreview');
+            if (address) {
+                preview.textContent = `Preview: ${protocol}://${address}:${port}`;
+            } else {
+                preview.textContent = 'No default set - will use current browser address';
+            }
+        }
+
+        // Add event listeners for preview updates
+        document.getElementById('defaultControllerProtocol')?.addEventListener('change', updateControllerPreview);
+        document.getElementById('defaultControllerAddress')?.addEventListener('input', updateControllerPreview);
+        document.getElementById('defaultControllerPort')?.addEventListener('input', updateControllerPreview);
+
+        async function saveControllerSettings() {
+            const protocol = document.getElementById('defaultControllerProtocol').value;
+            const address = document.getElementById('defaultControllerAddress').value.trim();
+            const port = document.getElementById('defaultControllerPort').value;
+
+            try {
+                const response = await fetch('/api/controller-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        default_protocol: protocol,
+                        default_controller_address: address,
+                        default_controller_port: parseInt(port)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Controller settings saved successfully', 'success');
+                    defaultControllerSettings = { protocol, address, port: parseInt(port) };
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving controller settings:', error);
+                showToast('Error saving controller settings', 'error');
+            }
+        }
+
+        // ==================== ADOPT BOARD MODAL ====================
+        async function showAdoptBoardModal(pendingId, boardName, boardIP) {
+            // Load controller settings first
+            await loadControllerSettings();
+
+            document.getElementById('adoptPendingId').value = pendingId;
+            document.getElementById('adoptBoardName').textContent = boardName;
+            document.getElementById('adoptBoardIP').textContent = boardIP;
+
+            // Reset to use default
+            document.getElementById('adoptUseDefault').checked = true;
+            toggleAdoptControllerFields();
+
+            // Pre-populate with default settings
+            document.getElementById('adoptControllerProtocol').value = defaultControllerSettings.protocol;
+            document.getElementById('adoptControllerAddress').value = defaultControllerSettings.address;
+            document.getElementById('adoptControllerPort').value = defaultControllerSettings.port;
+
+            updateAdoptControllerPreview();
+
+            document.getElementById('adoptBoardModal').classList.add('active');
+        }
+
+        function closeAdoptBoardModal() {
+            document.getElementById('adoptBoardModal').classList.remove('active');
+        }
+
+        function toggleAdoptControllerFields() {
+            const useDefault = document.getElementById('adoptUseDefault').checked;
+            const protocolField = document.getElementById('adoptControllerProtocol');
+            const addressField = document.getElementById('adoptControllerAddress');
+            const portField = document.getElementById('adoptControllerPort');
+
+            protocolField.disabled = useDefault;
+            addressField.disabled = useDefault;
+            portField.disabled = useDefault;
+
+            if (useDefault) {
+                // Show default values
+                protocolField.value = defaultControllerSettings.protocol;
+                addressField.value = defaultControllerSettings.address;
+                portField.value = defaultControllerSettings.port;
+            }
+
+            updateAdoptControllerPreview();
+        }
+
+        function updateAdoptControllerPreview() {
+            const useDefault = document.getElementById('adoptUseDefault').checked;
+            const protocol = document.getElementById('adoptControllerProtocol').value;
+            const address = document.getElementById('adoptControllerAddress').value;
+            const port = document.getElementById('adoptControllerPort').value;
+
+            const preview = document.getElementById('adoptControllerPreview');
+
+            if (useDefault) {
+                if (defaultControllerSettings.address) {
+                    preview.innerHTML = `<strong>Using default:</strong> ${defaultControllerSettings.protocol}://${defaultControllerSettings.address}:${defaultControllerSettings.port}`;
+                } else {
+                    preview.innerHTML = `<strong>Using default:</strong> Current browser address (auto-detected)`;
+                }
+            } else {
+                if (address) {
+                    preview.innerHTML = `<strong>Custom:</strong> ${protocol}://${address}:${port}`;
+                } else {
+                    preview.innerHTML = `<strong>Custom:</strong> Please enter an address`;
+                }
+            }
+        }
+
+        // Add event listeners for adopt modal preview updates
+        document.getElementById('adoptControllerProtocol')?.addEventListener('change', updateAdoptControllerPreview);
+        document.getElementById('adoptControllerAddress')?.addEventListener('input', updateAdoptControllerPreview);
+        document.getElementById('adoptControllerPort')?.addEventListener('input', updateAdoptControllerPreview);
+
+        async function confirmAdoptBoard() {
+            const pendingId = document.getElementById('adoptPendingId').value;
+            const useDefault = document.getElementById('adoptUseDefault').checked;
+
+            let adoptData = { use_default: useDefault };
+
+            if (!useDefault) {
+                const protocol = document.getElementById('adoptControllerProtocol').value;
+                const address = document.getElementById('adoptControllerAddress').value.trim();
+                const port = document.getElementById('adoptControllerPort').value;
+
+                if (!address) {
+                    showToast('Please enter a controller address', 'error');
+                    return;
+                }
+
+                adoptData = {
+                    use_default: false,
+                    controller_protocol: protocol,
+                    controller_address: address,
+                    controller_port: parseInt(port)
+                };
+            }
+
             try {
                 showToast('Adopting board...', 'info');
                 const response = await fetch(`/api/pending-boards/${pendingId}/adopt`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(adoptData)
                 });
                 const data = await response.json();
 
@@ -2838,6 +3137,7 @@ async function handleLogout() {
                     showToast(data.message, 'success');
                     loadPendingBoards();
                     loadBoards();
+                    closeAdoptBoardModal();
                     closePendingBoardsModal();
                 } else {
                     showToast(data.message, 'error');
