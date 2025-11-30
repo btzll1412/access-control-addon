@@ -1305,11 +1305,11 @@
         <!-- Tabs Navigation -->
         <div class="tabs">
             <button class="tab active" onclick="showTab('doors')">🚪 Doors</button>
+            <button class="tab" onclick="showTab('scheduleTemplates')">📋 Templates</button>
             <button class="tab" onclick="showTab('boards')">📡 Boards</button>
             <button class="tab" onclick="showTab('users')">👥 Users</button>
             <button class="tab" onclick="showTab('groups')">🏢 Groups</button>
             <button class="tab" onclick="showTab('schedules')">📅 Schedules</button>
-            <button class="tab" onclick="showTab('scheduleTemplates')">📋 Templates</button>
             <button class="tab" onclick="showTab('emergency')">🚨 Emergency</button>
             <button class="tab" onclick="showTab('tempcodes')">🎫 Temp Codes</button>
             <button class="tab" onclick="showTab('logs')">📋 Logs</button>
@@ -2429,10 +2429,10 @@ async function handleLogout() {
             // Load data for tab
             if (tabName === 'boards') loadBoards();
             if (tabName === 'doors') loadDoors();
+            if (tabName === 'scheduleTemplates') loadScheduleTemplates();
             if (tabName === 'users') loadUsers();
             if (tabName === 'groups') loadGroups();
             if (tabName === 'schedules') loadSchedules();
-            if (tabName === 'scheduleTemplates') loadScheduleTemplates();
             if (tabName === 'emergency') loadEmergencyControls();
             if (tabName === 'tempcodes') loadTempCodes();
             if (tabName === 'logs') {
