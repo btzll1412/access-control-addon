@@ -2464,6 +2464,9 @@ async function handleLogout() {
                 tab.classList.remove('active');
             });
         
+            // Show selected tab content
+            document.getElementById('tab-' + tabName).classList.add('active');
+            
             // Find and activate the correct tab button using onclick attribute matching
             const allTabs = document.querySelectorAll('.tab');
             allTabs.forEach(tab => {
@@ -2472,7 +2475,6 @@ async function handleLogout() {
                     tab.classList.add('active');
                 }
             });
-            
         
             // Load data for tab
             if (tabName === 'boards') loadBoards();
