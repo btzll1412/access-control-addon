@@ -2999,7 +2999,9 @@ async function handleLogout() {
             const protocol = document.getElementById('defaultControllerProtocol').value;
             const address = document.getElementById('defaultControllerAddress').value.trim();
             const portValue = document.getElementById('defaultControllerPort').value;
-            const port = parseInt(portValue) || 8100; // Default to 8100 if empty or NaN
+            // Default port: 443 for HTTPS, 8100 for HTTP
+            const defaultPort = protocol === 'https' ? 443 : 8100;
+            const port = parseInt(portValue) || defaultPort;
 
             try {
                 const response = await fetch('/api/controller-settings', {
@@ -3111,7 +3113,9 @@ async function handleLogout() {
                 const protocol = document.getElementById('adoptControllerProtocol').value;
                 const address = document.getElementById('adoptControllerAddress').value.trim();
                 const portValue = document.getElementById('adoptControllerPort').value;
-                const port = parseInt(portValue) || 8100; // Default to 8100 if empty or NaN
+                // Default port: 443 for HTTPS, 8100 for HTTP
+                const defaultPort = protocol === 'https' ? 443 : 8100;
+                const port = parseInt(portValue) || defaultPort;
 
                 if (!address) {
                     showToast('Please enter a controller address', 'error');
