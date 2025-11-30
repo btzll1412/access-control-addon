@@ -2464,15 +2464,14 @@ async function handleLogout() {
                 tab.classList.remove('active');
             });
         
-            // Show selected tab
-            document.getElementById('tab-' + tabName).classList.add('active');
-            
-            // Find and activate the clicked tab button
-            const clickedTab = Array.from(document.querySelectorAll('.tab'))
-                .find(tab => tab.textContent.toLowerCase().includes(tabName.substring(0, 4)));
-            if (clickedTab) {
-                clickedTab.classList.add('active');
-            }
+            // Find and activate the correct tab button using onclick attribute matching
+            const allTabs = document.querySelectorAll('.tab');
+            allTabs.forEach(tab => {
+                const onclickAttr = tab.getAttribute('onclick') || '';
+                if (onclickAttr.includes(`'${tabName}'`)) {
+                    tab.classList.add('active');
+                }
+            });
         
             // Load data for tab
             if (tabName === 'boards') loadBoards();
