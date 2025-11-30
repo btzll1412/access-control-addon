@@ -2465,11 +2465,11 @@ async function handleLogout() {
             });
         
             // Find and activate the clicked tab button
-            const clickedTab = Array.from(document.querySelectorAll('.tab'))
-                .find(tab => tab.textContent.toLowerCase().includes(tabName.substring(0, 4)));
-            if (clickedTab) {
-                clickedTab.classList.add('active');
-            }
+                const clickedTab = Array.from(document.querySelectorAll('.tab'))
+                    .find(tab => tab.textContent.toLowerCase().includes(tabName.substring(0, 4)));
+                if (clickedTab) {
+                    clickedTab.classList.add('active');
+                }
             
         
             // Load data for tab
