@@ -429,6 +429,52 @@ def migrate_database():
             cursor.execute("ALTER TABLE access_logs_new RENAME TO access_logs")
             
             print("  ✅ door_id constraint fixed")
+
+        # ==================== SCHEDULE TEMPLATES MIGRATION ====================
+        # Schedule templates table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='schedule_templates'")
+        if not cursor.fetchone():
+            print("  ➕ Creating schedule_templates table...")
+            cursor.execute("""
+                CREATE TABLE schedule_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        
+        # Schedule template slots table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='schedule_template_slots'")
+        if not cursor.fetchone():
+            print("  ➕ Creating schedule_template_slots table...")
+            cursor.execute("""
+                CREATE TABLE schedule_template_slots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    template_id INTEGER NOT NULL,
+                    day_of_week INTEGER NOT NULL,
+                    start_time TIME NOT NULL,
+                    end_time TIME NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('unlock', 'controlled', 'locked')),
+                    priority INTEGER DEFAULT 0,
+                    FOREIGN KEY (template_id) REFERENCES schedule_templates(id) ON DELETE CASCADE
+                )
+            """)
+        
+        # Door template assignments table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='door_template_assignments'")
+        if not cursor.fetchone():
+            print("  ➕ Creating door_template_assignments table...")
+            cursor.execute("""
+                CREATE TABLE door_template_assignments (
+                    door_id INTEGER NOT NULL,
+                    template_id INTEGER NOT NULL,
+                    FOREIGN KEY (door_id) REFERENCES doors(id) ON DELETE CASCADE,
+                    FOREIGN KEY (template_id) REFERENCES schedule_templates(id) ON DELETE CASCADE,
+                    PRIMARY KEY (door_id, template_id)
+                )
+            """)
         
         conn.commit()
         print("  ✅ Migration completed")
@@ -4952,6 +4998,562 @@ def validate_access():
     finally:
         if conn:
             conn.close()
+
+# ==================== SCHEDULE TEMPLATES API ====================
+
+@app.route('/api/schedule-templates', methods=['GET'])
+@login_required
+def get_schedule_templates():
+    """Get all schedule templates with their slots and assigned doors"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM schedule_templates ORDER BY name')
+        templates_data = cursor.fetchall()
+        
+        templates = []
+        for template in templates_data:
+            template_dict = dict(template)
+            
+            # Get slots grouped by day
+            cursor.execute('''
+                SELECT * FROM schedule_template_slots
+                WHERE template_id = ?
+                ORDER BY day_of_week, start_time
+            ''', (template['id'],))
+            template_dict['slots'] = [dict(slot) for slot in cursor.fetchall()]
+            
+            # Get assigned doors
+            cursor.execute('''
+                SELECT d.id, d.name, b.name as board_name
+                FROM doors d
+                JOIN door_template_assignments dta ON d.id = dta.door_id
+                JOIN boards b ON d.board_id = b.id
+                WHERE dta.template_id = ?
+                ORDER BY b.name, d.name
+            ''', (template['id'],))
+            template_dict['doors'] = [dict(door) for door in cursor.fetchall()]
+            
+            templates.append(template_dict)
+        
+        return jsonify({'success': True, 'templates': templates})
+    except Exception as e:
+        logger.error(f"❌ Error getting schedule templates: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates', methods=['POST'])
+@login_required
+def create_schedule_template():
+    """Create a new schedule template"""
+    conn = None
+    try:
+        data = request.json
+        logger.info(f"📅 Creating schedule template: {data.get('name')}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Create template
+        cursor.execute('''
+            INSERT INTO schedule_templates (name, description)
+            VALUES (?, ?)
+        ''', (data['name'], data.get('description', '')))
+        
+        template_id = cursor.lastrowid
+        
+        # Add slots
+        if 'slots' in data:
+            for slot in data['slots']:
+                cursor.execute('''
+                    INSERT INTO schedule_template_slots 
+                    (template_id, day_of_week, start_time, end_time, mode, priority)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    template_id,
+                    slot['day_of_week'],
+                    slot['start_time'],
+                    slot['end_time'],
+                    slot.get('mode', 'controlled'),
+                    slot.get('priority', 0)
+                ))
+        
+        # Assign doors
+        if 'door_ids' in data:
+            for door_id in data['door_ids']:
+                cursor.execute('''
+                    INSERT INTO door_template_assignments (door_id, template_id)
+                    VALUES (?, ?)
+                ''', (door_id, template_id))
+                
+                # Also sync to door_schedules table for ESP32 compatibility
+                sync_template_to_door_schedules(cursor, template_id, door_id)
+        
+        conn.commit()
+        
+        # Sync affected boards
+        sync_boards_for_doors(data.get('door_ids', []))
+        
+        logger.info(f"✅ Schedule template created: {data['name']} (ID: {template_id})")
+        return jsonify({
+            'success': True, 
+            'message': 'Schedule template created',
+            'template_id': template_id
+        })
+        
+    except sqlite3.IntegrityError:
+        return jsonify({'success': False, 'message': 'Template with this name already exists'}), 400
+    except Exception as e:
+        logger.error(f"❌ Error creating schedule template: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/<int:template_id>', methods=['GET'])
+@login_required
+def get_schedule_template(template_id):
+    """Get a single schedule template"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM schedule_templates WHERE id = ?', (template_id,))
+        template = cursor.fetchone()
+        
+        if not template:
+            return jsonify({'success': False, 'message': 'Template not found'}), 404
+        
+        template_dict = dict(template)
+        
+        # Get slots
+        cursor.execute('''
+            SELECT * FROM schedule_template_slots
+            WHERE template_id = ?
+            ORDER BY day_of_week, start_time
+        ''', (template_id,))
+        template_dict['slots'] = [dict(slot) for slot in cursor.fetchall()]
+        
+        # Get assigned doors
+        cursor.execute('''
+            SELECT d.id, d.name, b.name as board_name
+            FROM doors d
+            JOIN door_template_assignments dta ON d.id = dta.door_id
+            JOIN boards b ON d.board_id = b.id
+            WHERE dta.template_id = ?
+        ''', (template_id,))
+        template_dict['doors'] = [dict(door) for door in cursor.fetchall()]
+        
+        return jsonify({'success': True, 'template': template_dict})
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting template: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/<int:template_id>', methods=['PUT'])
+@login_required
+def update_schedule_template(template_id):
+    """Update a schedule template"""
+    conn = None
+    try:
+        data = request.json
+        logger.info(f"✏️ Updating schedule template ID {template_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get old door assignments for syncing
+        cursor.execute('''
+            SELECT door_id FROM door_template_assignments WHERE template_id = ?
+        ''', (template_id,))
+        old_door_ids = [row['door_id'] for row in cursor.fetchall()]
+        
+        # Update template
+        cursor.execute('''
+            UPDATE schedule_templates 
+            SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (data['name'], data.get('description', ''), template_id))
+        
+        # Replace slots
+        cursor.execute('DELETE FROM schedule_template_slots WHERE template_id = ?', (template_id,))
+        if 'slots' in data:
+            for slot in data['slots']:
+                cursor.execute('''
+                    INSERT INTO schedule_template_slots 
+                    (template_id, day_of_week, start_time, end_time, mode, priority)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    template_id,
+                    slot['day_of_week'],
+                    slot['start_time'],
+                    slot['end_time'],
+                    slot.get('mode', 'controlled'),
+                    slot.get('priority', 0)
+                ))
+        
+        # Replace door assignments
+        cursor.execute('DELETE FROM door_template_assignments WHERE template_id = ?', (template_id,))
+        new_door_ids = data.get('door_ids', [])
+        
+        for door_id in new_door_ids:
+            cursor.execute('''
+                INSERT INTO door_template_assignments (door_id, template_id)
+                VALUES (?, ?)
+            ''', (door_id, template_id))
+            
+            # Sync to door_schedules
+            sync_template_to_door_schedules(cursor, template_id, door_id)
+        
+        # Clear door_schedules for doors that were removed from this template
+        removed_doors = set(old_door_ids) - set(new_door_ids)
+        for door_id in removed_doors:
+            cursor.execute('''
+                DELETE FROM door_schedules 
+                WHERE door_id = ? AND name LIKE ?
+            ''', (door_id, f'[T:{template_id}]%'))
+        
+        conn.commit()
+        
+        # Sync all affected boards
+        all_affected_doors = list(set(old_door_ids + new_door_ids))
+        sync_boards_for_doors(all_affected_doors)
+        
+        logger.info(f"✅ Schedule template {template_id} updated")
+        return jsonify({'success': True, 'message': 'Template updated'})
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating template: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_schedule_template(template_id):
+    """Delete a schedule template"""
+    conn = None
+    try:
+        logger.info(f"🗑️ Deleting schedule template ID {template_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get affected doors before deleting
+        cursor.execute('''
+            SELECT door_id FROM door_template_assignments WHERE template_id = ?
+        ''', (template_id,))
+        affected_door_ids = [row['door_id'] for row in cursor.fetchall()]
+        
+        # Clean up door_schedules entries from this template
+        for door_id in affected_door_ids:
+            cursor.execute('''
+                DELETE FROM door_schedules 
+                WHERE door_id = ? AND name LIKE ?
+            ''', (door_id, f'[T:{template_id}]%'))
+        
+        # Delete template (CASCADE will handle slots and assignments)
+        cursor.execute('DELETE FROM schedule_templates WHERE id = ?', (template_id,))
+        
+        conn.commit()
+        
+        # Sync affected boards
+        sync_boards_for_doors(affected_door_ids)
+        
+        logger.info(f"✅ Schedule template {template_id} deleted")
+        return jsonify({'success': True, 'message': 'Template deleted'})
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting template: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/<int:template_id>/copy-day', methods=['POST'])
+@login_required
+def copy_template_day(template_id):
+    """Copy slots from one day to other days"""
+    conn = None
+    try:
+        data = request.json
+        source_day = data.get('source_day')  # 0-6
+        target_days = data.get('target_days', [])  # list of 0-6
+        
+        logger.info(f"📋 Copying day {source_day} to days {target_days} for template {template_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get source day slots
+        cursor.execute('''
+            SELECT start_time, end_time, mode, priority
+            FROM schedule_template_slots
+            WHERE template_id = ? AND day_of_week = ?
+        ''', (template_id, source_day))
+        
+        source_slots = cursor.fetchall()
+        
+        if not source_slots:
+            return jsonify({'success': False, 'message': 'No slots on source day'}), 400
+        
+        # Delete existing slots on target days
+        for target_day in target_days:
+            cursor.execute('''
+                DELETE FROM schedule_template_slots
+                WHERE template_id = ? AND day_of_week = ?
+            ''', (template_id, target_day))
+        
+        # Copy slots to target days
+        for target_day in target_days:
+            for slot in source_slots:
+                cursor.execute('''
+                    INSERT INTO schedule_template_slots 
+                    (template_id, day_of_week, start_time, end_time, mode, priority)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (template_id, target_day, slot['start_time'], slot['end_time'], 
+                      slot['mode'], slot['priority']))
+        
+        # Update affected door_schedules
+        cursor.execute('''
+            SELECT door_id FROM door_template_assignments WHERE template_id = ?
+        ''', (template_id,))
+        door_ids = [row['door_id'] for row in cursor.fetchall()]
+        
+        for door_id in door_ids:
+            sync_template_to_door_schedules(cursor, template_id, door_id)
+        
+        conn.commit()
+        
+        # Sync boards
+        sync_boards_for_doors(door_ids)
+        
+        logger.info(f"✅ Copied {len(source_slots)} slots to {len(target_days)} days")
+        return jsonify({
+            'success': True, 
+            'message': f'Copied {len(source_slots)} slots to {len(target_days)} days'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error copying day: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/<int:template_id>/assign-doors', methods=['POST'])
+@login_required
+def assign_template_doors(template_id):
+    """Assign or update doors for a template"""
+    conn = None
+    try:
+        data = request.json
+        door_ids = data.get('door_ids', [])
+        
+        logger.info(f"🚪 Assigning {len(door_ids)} doors to template {template_id}")
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get old assignments
+        cursor.execute('''
+            SELECT door_id FROM door_template_assignments WHERE template_id = ?
+        ''', (template_id,))
+        old_door_ids = [row['door_id'] for row in cursor.fetchall()]
+        
+        # Clear old assignments
+        cursor.execute('DELETE FROM door_template_assignments WHERE template_id = ?', (template_id,))
+        
+        # Add new assignments
+        for door_id in door_ids:
+            cursor.execute('''
+                INSERT INTO door_template_assignments (door_id, template_id)
+                VALUES (?, ?)
+            ''', (door_id, template_id))
+            
+            # Sync to door_schedules
+            sync_template_to_door_schedules(cursor, template_id, door_id)
+        
+        # Clear door_schedules for removed doors
+        removed_doors = set(old_door_ids) - set(door_ids)
+        for door_id in removed_doors:
+            cursor.execute('''
+                DELETE FROM door_schedules 
+                WHERE door_id = ? AND name LIKE ?
+            ''', (door_id, f'[T:{template_id}]%'))
+        
+        conn.commit()
+        
+        # Sync all affected boards
+        all_affected_doors = list(set(old_door_ids + door_ids))
+        sync_boards_for_doors(all_affected_doors)
+        
+        logger.info(f"✅ Template {template_id} now assigned to {len(door_ids)} doors")
+        return jsonify({
+            'success': True, 
+            'message': f'Template assigned to {len(door_ids)} doors'
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error assigning doors: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# ==================== HELPER FUNCTIONS FOR TEMPLATES ====================
+
+def sync_template_to_door_schedules(cursor, template_id, door_id):
+    """Sync a template's slots to the door_schedules table for ESP32 compatibility"""
+    
+    # Get template info
+    cursor.execute('SELECT name FROM schedule_templates WHERE id = ?', (template_id,))
+    template = cursor.fetchone()
+    if not template:
+        return
+    
+    template_name = template['name']
+    
+    # Delete old entries from this template for this door
+    cursor.execute('''
+        DELETE FROM door_schedules 
+        WHERE door_id = ? AND name LIKE ?
+    ''', (door_id, f'[T:{template_id}]%'))
+    
+    # Get all slots for this template
+    cursor.execute('''
+        SELECT * FROM schedule_template_slots
+        WHERE template_id = ?
+    ''', (template_id,))
+    
+    slots = cursor.fetchall()
+    
+    # Insert into door_schedules
+    for slot in slots:
+        cursor.execute('''
+            INSERT INTO door_schedules 
+            (door_id, name, schedule_type, day_of_week, start_time, end_time, priority, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        ''', (
+            door_id,
+            f"[T:{template_id}] {template_name}",  # Prefix to identify template-based schedules
+            slot['mode'],
+            slot['day_of_week'],
+            slot['start_time'],
+            slot['end_time'],
+            slot['priority']
+        ))
+
+
+def sync_boards_for_doors(door_ids):
+    """Sync all boards that have the specified doors"""
+    if not door_ids:
+        return
+    
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get unique board IDs for these doors
+        placeholders = ','.join('?' * len(door_ids))
+        cursor.execute(f'''
+            SELECT DISTINCT board_id 
+            FROM doors 
+            WHERE id IN ({placeholders})
+        ''', door_ids)
+        
+        board_ids = [row['board_id'] for row in cursor.fetchall()]
+        
+        # Sync each board
+        for board_id in board_ids:
+            try:
+                sync_board_full(board_id)
+                logger.info(f"✅ Board {board_id} synced after template change")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not sync board {board_id}: {e}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error syncing boards for doors: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/schedule-templates/presets', methods=['GET'])
+@login_required
+def get_template_presets():
+    """Get preset templates for quick creation"""
+    presets = [
+        {
+            'name': 'Business Hours (M-F 9-5)',
+            'description': 'Standard business hours - unlocked Monday through Friday 9 AM to 5 PM',
+            'slots': [
+                {'day_of_week': d, 'start_time': '09:00:00', 'end_time': '17:00:00', 'mode': 'unlock'}
+                for d in range(5)  # Mon-Fri
+            ]
+        },
+        {
+            'name': '24/7 Unlocked',
+            'description': 'Door always unlocked',
+            'slots': [
+                {'day_of_week': d, 'start_time': '00:00:00', 'end_time': '23:59:59', 'mode': 'unlock'}
+                for d in range(7)
+            ]
+        },
+        {
+            'name': '24/7 Controlled',
+            'description': 'Always require credentials',
+            'slots': [
+                {'day_of_week': d, 'start_time': '00:00:00', 'end_time': '23:59:59', 'mode': 'controlled'}
+                for d in range(7)
+            ]
+        },
+        {
+            'name': 'Extended Hours (M-F 7am-9pm)',
+            'description': 'Extended business hours with evening access',
+            'slots': [
+                {'day_of_week': d, 'start_time': '07:00:00', 'end_time': '21:00:00', 'mode': 'unlock'}
+                for d in range(5)
+            ]
+        },
+        {
+            'name': 'Weekdays Controlled + Weekends Locked',
+            'description': 'Controlled access weekdays, locked on weekends',
+            'slots': [
+                *[{'day_of_week': d, 'start_time': '00:00:00', 'end_time': '23:59:59', 'mode': 'controlled'} for d in range(5)],
+                *[{'day_of_week': d, 'start_time': '00:00:00', 'end_time': '23:59:59', 'mode': 'locked'} for d in range(5, 7)]
+            ]
+        }
+    ]
+    
+    return jsonify({'success': True, 'presets': presets})
 
 # ==================== SERVER START ====================
 if __name__ == '__main__':
