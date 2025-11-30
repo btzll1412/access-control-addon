@@ -1309,6 +1309,7 @@
             <button class="tab" onclick="showTab('users')">👥 Users</button>
             <button class="tab" onclick="showTab('groups')">🏢 Groups</button>
             <button class="tab" onclick="showTab('schedules')">📅 Schedules</button>
+            <button class="tab" onclick="showTab('scheduleTemplates')">📋 Templates</button>
             <button class="tab" onclick="showTab('emergency')">🚨 Emergency</button>
             <button class="tab" onclick="showTab('tempcodes')">🎫 Temp Codes</button>
             <button class="tab" onclick="showTab('logs')">📋 Logs</button>
@@ -1427,6 +1428,30 @@
                 Users without an assigned schedule have 24/7 access (subject to group permissions).
             </div>
             <div class="cards-grid" id="schedulesList"></div>
+        </div>
+
+        <!-- Tab: Schedule Templates -->
+        <div id="tab-scheduleTemplates" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                <h2>📋 Schedule Templates</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="showPresetTemplates()">⚡ Quick Presets</button>
+                    <button class="btn btn-primary" onclick="openScheduleTemplateModal()">➕ Create Template</button>
+                </div>
+            </div>
+
+            <!-- Help Section -->
+            <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; color: #1e40af;">📘 What are Schedule Templates?</h4>
+                <p style="margin: 0; color: #1e3a8a;">
+                    Templates let you create a schedule ONCE and apply it to MULTIPLE doors.<br>
+                    <strong>Example:</strong> Create "Business Hours" template → Apply to all office doors instantly!<br>
+                    When you update a template, ALL assigned doors update automatically.
+                </p>
+            </div>
+
+            <!-- Templates Grid -->
+            <div class="cards-grid" id="scheduleTemplatesList"></div>
         </div>
 
         <!-- Tab: Emergency Controls -->
@@ -1927,6 +1952,90 @@
     </div>
 
 
+<!-- Schedule Template Modal -->
+    <div id="scheduleTemplateModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="scheduleTemplateModalTitle">Create Schedule Template</h3>
+                <button class="modal-close" onclick="closeScheduleTemplateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="scheduleTemplateForm" onsubmit="saveScheduleTemplate(event)">
+                    <input type="hidden" id="templateId">
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="form-group">
+                            <label class="form-label">Template Name *</label>
+                            <input type="text" class="form-input" id="templateName" required
+                                   placeholder="e.g., Business Hours, Night Shift, Weekend Access">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input type="text" class="form-input" id="templateDescription"
+                                   placeholder="e.g., Mon-Fri 9am-5pm unlocked">
+                        </div>
+                    </div>
+
+                    <!-- Visual Week Grid -->
+                    <div class="form-group">
+                        <label class="form-label">Weekly Schedule</label>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin-top: 10px;">
+                            <div id="templateWeekGrid"></div>
+                            
+                            <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #e2e8f0;">
+                                <button type="button" class="btn btn-secondary btn-small" onclick="addTemplateSlot()">
+                                    ➕ Add Time Slot
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-small" onclick="copyMondayToWeekdays()">
+                                    📋 Copy Monday → Weekdays
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-small" onclick="clearAllSlots()">
+                                    🗑️ Clear All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Door Assignment -->
+                    <div class="form-group">
+                        <label class="form-label">Assign to Doors</label>
+                        <div class="form-help">Select which doors should use this template</div>
+                        <div id="templateDoorsCheckboxes" class="checkbox-group" 
+                             style="max-height: 200px; overflow-y: auto; background: #f8fafc; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeScheduleTemplateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="document.getElementById('scheduleTemplateForm').requestSubmit()">
+                    💾 Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preset Templates Modal -->
+    <div id="presetTemplatesModal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3 class="modal-title">⚡ Quick Preset Templates</h3>
+                <button class="modal-close" onclick="closePresetTemplatesModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: #64748b; margin-bottom: 20px;">
+                    Choose a preset to quickly create a new template. You can customize it after creation.
+                </p>
+                <div id="presetTemplatesList"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePresetTemplatesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- Temp Code Modal -->
 <div id="tempCodeModal" class="modal">
     <div class="modal-content" style="max-width: 700px;">
@@ -2323,6 +2432,7 @@ async function handleLogout() {
             if (tabName === 'users') loadUsers();
             if (tabName === 'groups') loadGroups();
             if (tabName === 'schedules') loadSchedules();
+            if (tabName === 'scheduleTemplates') loadScheduleTemplates();
             if (tabName === 'emergency') loadEmergencyControls();
             if (tabName === 'tempcodes') loadTempCodes();
             if (tabName === 'logs') {
@@ -4910,6 +5020,496 @@ async function saveDoorSettings(event) {
                 console.error('Error copying schedule:', error);
                 showToast('Error copying schedule', 'error');
             }
+        }
+        // ==================== SCHEDULE TEMPLATES ====================
+        let currentTemplateId = null;
+        let templateSlots = [];
+        const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+        async function loadScheduleTemplates() {
+            try {
+                const response = await fetch('/api/schedule-templates');
+                const data = await response.json();
+
+                if (data.success) {
+                    const container = document.getElementById('scheduleTemplatesList');
+                    
+                    if (data.templates.length === 0) {
+                        container.innerHTML = `
+                            <div style="text-align: center; padding: 60px 20px; color: #64748b;">
+                                <div style="font-size: 48px; margin-bottom: 20px;">📋</div>
+                                <h3 style="margin-bottom: 10px; color: #1e293b;">No Templates Yet</h3>
+                                <p style="margin-bottom: 20px;">Create a template to easily manage schedules across multiple doors.</p>
+                                <button class="btn btn-primary" onclick="openScheduleTemplateModal()">
+                                    ➕ Create Your First Template
+                                </button>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    container.innerHTML = data.templates.map(template => {
+                        // Build schedule preview
+                        let schedulePreview = buildSchedulePreview(template.slots);
+                        
+                        return `
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-title">📋 ${template.name}</div>
+                                    <span class="badge badge-info">${template.doors.length} door(s)</span>
+                                </div>
+                                <div class="card-body">
+                                    ${template.description ? `<p style="color: #64748b; margin-bottom: 15px;">${template.description}</p>` : ''}
+                                    
+                                    <!-- Schedule Preview -->
+                                    <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                                        <div style="font-size: 12px; color: #64748b; margin-bottom: 8px; font-weight: 600;">SCHEDULE:</div>
+                                        ${schedulePreview}
+                                    </div>
+                                    
+                                    <!-- Assigned Doors -->
+                                    <div style="font-size: 12px; color: #64748b; margin-bottom: 5px; font-weight: 600;">ASSIGNED DOORS:</div>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                                        ${template.doors.length > 0 
+                                            ? template.doors.map(door => `
+                                                <span style="background: #e0e7ff; color: #3730a3; padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+                                                    🚪 ${door.name}
+                                                </span>
+                                            `).join('')
+                                            : '<span style="color: #94a3b8; font-size: 13px;">No doors assigned</span>'
+                                        }
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-secondary btn-small" onclick="editScheduleTemplate(${template.id})">
+                                        ✏️ Edit
+                                    </button>
+                                    <button class="btn btn-danger btn-small" onclick="deleteScheduleTemplate(${template.id})">
+                                        🗑️ Delete
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } catch (error) {
+                console.error('Error loading schedule templates:', error);
+                showToast('Error loading templates', 'error');
+            }
+        }
+
+        function buildSchedulePreview(slots) {
+            if (!slots || slots.length === 0) {
+                return '<div style="color: #94a3b8; font-size: 13px;">No schedule configured</div>';
+            }
+
+            // Group by day
+            const byDay = {};
+            slots.forEach(slot => {
+                if (!byDay[slot.day_of_week]) byDay[slot.day_of_week] = [];
+                byDay[slot.day_of_week].push(slot);
+            });
+
+            const modeColors = {
+                'unlock': '#10b981',
+                'controlled': '#3b82f6',
+                'locked': '#ef4444'
+            };
+
+            const modeIcons = {
+                'unlock': '🔓',
+                'controlled': '🔐',
+                'locked': '🔒'
+            };
+
+            let html = '<div style="display: grid; gap: 4px;">';
+            
+            for (let day = 0; day < 7; day++) {
+                const daySlots = byDay[day] || [];
+                const dayAbbrev = dayNames[day].substring(0, 3);
+                
+                html += `<div style="display: flex; align-items: center; gap: 8px;">`;
+                html += `<span style="width: 35px; font-size: 11px; color: #64748b; font-weight: 600;">${dayAbbrev}</span>`;
+                
+                if (daySlots.length === 0) {
+                    html += `<span style="color: #cbd5e1; font-size: 12px;">—</span>`;
+                } else {
+                    daySlots.forEach(slot => {
+                        const startTime = slot.start_time.substring(0, 5);
+                        const endTime = slot.end_time.substring(0, 5);
+                        html += `
+                            <span style="background: ${modeColors[slot.mode]}20; color: ${modeColors[slot.mode]}; 
+                                         padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500;">
+                                ${modeIcons[slot.mode]} ${startTime}-${endTime}
+                            </span>
+                        `;
+                    });
+                }
+                
+                html += `</div>`;
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
+        async function openScheduleTemplateModal(templateId = null) {
+            currentTemplateId = templateId;
+            templateSlots = [];
+
+            // Load doors
+            await loadDoorsForTemplate();
+
+            if (templateId) {
+                document.getElementById('scheduleTemplateModalTitle').textContent = 'Edit Template';
+                
+                try {
+                    const response = await fetch(`/api/schedule-templates/${templateId}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.template) {
+                        const template = data.template;
+                        document.getElementById('templateId').value = template.id;
+                        document.getElementById('templateName').value = template.name;
+                        document.getElementById('templateDescription').value = template.description || '';
+                        
+                        // Load slots
+                        templateSlots = template.slots.map(s => ({
+                            day_of_week: s.day_of_week,
+                            start_time: s.start_time,
+                            end_time: s.end_time,
+                            mode: s.mode,
+                            priority: s.priority || 0
+                        }));
+                        
+                        // Check assigned doors
+                        template.doors.forEach(door => {
+                            const checkbox = document.getElementById(`template-door-${door.id}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading template:', error);
+                    showToast('Error loading template', 'error');
+                    return;
+                }
+            } else {
+                document.getElementById('scheduleTemplateModalTitle').textContent = 'Create Template';
+                document.getElementById('scheduleTemplateForm').reset();
+                document.getElementById('templateId').value = '';
+                templateSlots = [];
+            }
+
+            renderTemplateWeekGrid();
+            document.getElementById('scheduleTemplateModal').classList.add('active');
+        }
+
+        function closeScheduleTemplateModal() {
+            document.getElementById('scheduleTemplateModal').classList.remove('active');
+            currentTemplateId = null;
+            templateSlots = [];
+        }
+
+        async function loadDoorsForTemplate() {
+            try {
+                const response = await fetch('/api/doors');
+                const data = await response.json();
+
+                if (data.success) {
+                    const container = document.getElementById('templateDoorsCheckboxes');
+                    
+                    if (data.doors.length === 0) {
+                        container.innerHTML = '<p style="color: #64748b;">No doors available. Add boards first.</p>';
+                    } else {
+                        container.innerHTML = data.doors.map(door => `
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="template-door-${door.id}" value="${door.id}">
+                                <label for="template-door-${door.id}">
+                                    🚪 ${door.board_name} - ${door.name}
+                                </label>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading doors:', error);
+            }
+        }
+
+        function renderTemplateWeekGrid() {
+            const container = document.getElementById('templateWeekGrid');
+            
+            const modeColors = {
+                'unlock': { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
+                'controlled': { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
+                'locked': { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' }
+            };
+
+            let html = '';
+            
+            for (let day = 0; day < 7; day++) {
+                const daySlots = templateSlots.filter(s => s.day_of_week === day);
+                
+                html += `
+                    <div style="background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; border: 1px solid #e2e8f0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-weight: 600; color: #1e293b;">${dayNames[day]}</span>
+                            <button type="button" class="btn btn-secondary btn-small" onclick="addSlotForDay(${day})" style="padding: 4px 10px; font-size: 11px;">
+                                + Add
+                            </button>
+                        </div>
+                `;
+                
+                if (daySlots.length === 0) {
+                    html += `<div style="color: #94a3b8; font-size: 13px; font-style: italic;">No schedule (default: controlled)</div>`;
+                } else {
+                    daySlots.forEach((slot, slotIndex) => {
+                        const actualIndex = templateSlots.findIndex(s => 
+                            s.day_of_week === day && 
+                            s.start_time === slot.start_time && 
+                            s.end_time === slot.end_time
+                        );
+                        const colors = modeColors[slot.mode];
+                        
+                        html += `
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding: 10px; 
+                                        background: ${colors.bg}; border-left: 4px solid ${colors.border}; border-radius: 6px;">
+                                <select class="form-select" style="width: 130px; padding: 6px; font-size: 13px;"
+                                        onchange="updateSlotMode(${actualIndex}, this.value)">
+                                    <option value="unlock" ${slot.mode === 'unlock' ? 'selected' : ''}>🔓 Unlock</option>
+                                    <option value="controlled" ${slot.mode === 'controlled' ? 'selected' : ''}>🔐 Controlled</option>
+                                    <option value="locked" ${slot.mode === 'locked' ? 'selected' : ''}>🔒 Locked</option>
+                                </select>
+                                <input type="time" class="form-input" style="width: 110px; padding: 6px; font-size: 13px;"
+                                       value="${slot.start_time.substring(0, 5)}"
+                                       onchange="updateSlotTime(${actualIndex}, 'start', this.value)">
+                                <span style="color: #64748b;">to</span>
+                                <input type="time" class="form-input" style="width: 110px; padding: 6px; font-size: 13px;"
+                                       value="${slot.end_time.substring(0, 5)}"
+                                       onchange="updateSlotTime(${actualIndex}, 'end', this.value)">
+                                <button type="button" onclick="removeSlot(${actualIndex})" 
+                                        style="background: #ef4444; color: white; border: none; border-radius: 50%; 
+                                               width: 24px; height: 24px; cursor: pointer; font-size: 14px;">×</button>
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += `</div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function addTemplateSlot() {
+            // Add slot for Monday by default
+            addSlotForDay(0);
+        }
+
+        function addSlotForDay(day) {
+            templateSlots.push({
+                day_of_week: day,
+                start_time: '09:00:00',
+                end_time: '17:00:00',
+                mode: 'unlock',
+                priority: 0
+            });
+            renderTemplateWeekGrid();
+        }
+
+        function updateSlotMode(index, mode) {
+            if (templateSlots[index]) {
+                templateSlots[index].mode = mode;
+                renderTemplateWeekGrid();
+            }
+        }
+
+        function updateSlotTime(index, type, value) {
+            if (templateSlots[index]) {
+                if (type === 'start') {
+                    templateSlots[index].start_time = value + ':00';
+                } else {
+                    templateSlots[index].end_time = value + ':00';
+                }
+            }
+        }
+
+        function removeSlot(index) {
+            templateSlots.splice(index, 1);
+            renderTemplateWeekGrid();
+        }
+
+        function copyMondayToWeekdays() {
+            const mondaySlots = templateSlots.filter(s => s.day_of_week === 0);
+            
+            if (mondaySlots.length === 0) {
+                showToast('Add slots to Monday first', 'warning');
+                return;
+            }
+
+            // Remove existing weekday slots (Tue-Fri)
+            templateSlots = templateSlots.filter(s => s.day_of_week === 0 || s.day_of_week > 4);
+            
+            // Copy Monday to Tue-Fri
+            for (let day = 1; day <= 4; day++) {
+                mondaySlots.forEach(slot => {
+                    templateSlots.push({
+                        ...slot,
+                        day_of_week: day
+                    });
+                });
+            }
+
+            renderTemplateWeekGrid();
+            showToast('Monday schedule copied to Tue-Fri', 'success');
+        }
+
+        function clearAllSlots() {
+            if (confirm('Clear all time slots?')) {
+                templateSlots = [];
+                renderTemplateWeekGrid();
+            }
+        }
+
+        async function saveScheduleTemplate(event) {
+            event.preventDefault();
+
+            const templateId = document.getElementById('templateId').value;
+            const name = document.getElementById('templateName').value.trim();
+            
+            if (!name) {
+                showToast('Please enter a template name', 'warning');
+                return;
+            }
+
+            // Get selected doors
+            const door_ids = Array.from(document.querySelectorAll('#templateDoorsCheckboxes input:checked'))
+                .map(input => parseInt(input.value));
+
+            const templateData = {
+                name: name,
+                description: document.getElementById('templateDescription').value.trim(),
+                slots: templateSlots,
+                door_ids: door_ids
+            };
+
+            try {
+                const url = templateId ? `/api/schedule-templates/${templateId}` : '/api/schedule-templates';
+                const method = templateId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(templateData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'Template saved!', 'success');
+                    closeScheduleTemplateModal();
+                    loadScheduleTemplates();
+                } else {
+                    showToast(data.message || 'Error saving template', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving template:', error);
+                showToast('Error saving template', 'error');
+            }
+        }
+
+        function editScheduleTemplate(templateId) {
+            openScheduleTemplateModal(templateId);
+        }
+
+        async function deleteScheduleTemplate(templateId) {
+            if (!confirm('Delete this template? This will remove the schedule from all assigned doors.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/schedule-templates/${templateId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Template deleted', 'success');
+                    loadScheduleTemplates();
+                } else {
+                    showToast(data.message || 'Error deleting template', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting template:', error);
+                showToast('Error deleting template', 'error');
+            }
+        }
+
+        // ==================== PRESET TEMPLATES ====================
+        async function showPresetTemplates() {
+            try {
+                const response = await fetch('/api/schedule-templates/presets');
+                const data = await response.json();
+
+                if (data.success) {
+                    const container = document.getElementById('presetTemplatesList');
+                    
+                    container.innerHTML = data.presets.map((preset, index) => `
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin-bottom: 15px; 
+                                    border: 2px solid #e2e8f0; cursor: pointer; transition: all 0.2s;"
+                             onmouseover="this.style.borderColor='#667eea'; this.style.background='#f0f4ff';"
+                             onmouseout="this.style.borderColor='#e2e8f0'; this.style.background='#f8fafc';"
+                             onclick="applyPresetTemplate(${index})">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <h4 style="margin: 0 0 5px 0; color: #1e293b;">📋 ${preset.name}</h4>
+                                    <p style="margin: 0; color: #64748b; font-size: 14px;">${preset.description}</p>
+                                </div>
+                                <button class="btn btn-primary btn-small">Use This</button>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    // Store presets for later use
+                    window.presetTemplatesData = data.presets;
+                }
+
+                document.getElementById('presetTemplatesModal').classList.add('active');
+            } catch (error) {
+                console.error('Error loading presets:', error);
+                showToast('Error loading presets', 'error');
+            }
+        }
+
+        function closePresetTemplatesModal() {
+            document.getElementById('presetTemplatesModal').classList.remove('active');
+        }
+
+        function applyPresetTemplate(presetIndex) {
+            const preset = window.presetTemplatesData[presetIndex];
+            
+            if (!preset) {
+                showToast('Preset not found', 'error');
+                return;
+            }
+
+            closePresetTemplatesModal();
+            
+            // Open template modal with preset data
+            currentTemplateId = null;
+            templateSlots = preset.slots.map(s => ({...s}));
+            
+            document.getElementById('scheduleTemplateModalTitle').textContent = 'Create Template from Preset';
+            document.getElementById('scheduleTemplateForm').reset();
+            document.getElementById('templateId').value = '';
+            document.getElementById('templateName').value = preset.name;
+            document.getElementById('templateDescription').value = preset.description;
+            
+            loadDoorsForTemplate().then(() => {
+                renderTemplateWeekGrid();
+                document.getElementById('scheduleTemplateModal').classList.add('active');
+            });
         }
     </script>
 </body>
