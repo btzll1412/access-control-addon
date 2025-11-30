@@ -1834,20 +1834,68 @@
             <div class="modal-body">
                 <input type="hidden" id="doorScheduleDoorId">
                 
-                <div class="form-help" style="margin-bottom: 20px;">
-                    Configure when this door is unlocked, requires credentials, or is locked completely.
+                <!-- Schedule Source Selector -->
+                <div class="form-group">
+                    <label class="form-label">Schedule Source</label>
+                    <select class="form-select" id="doorScheduleSource" onchange="onScheduleSourceChange()">
+                        <option value="">-- Select Schedule --</option>
+                        <option value="none">❌ No Schedule (Default Controlled)</option>
+                        <!-- Templates will be populated here -->
+                        <optgroup label="📋 Templates" id="doorScheduleTemplateOptions">
+                        </optgroup>
+                        <option value="custom">✏️ Custom (Per-Door Schedule)</option>
+                    </select>
+                    <div class="form-help" id="scheduleSourceHelp">
+                        Choose a template to apply, or select "Custom" for per-door settings.
+                    </div>
                 </div>
 
-                <div id="doorSchedulesList"></div>
+                <!-- Template Info Banner (shown when template selected) -->
+                <div id="templateInfoBanner" style="display: none; background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: #1e40af;">📋 Using Template: <span id="templateInfoName"></span></strong>
+                            <p style="margin: 5px 0 0 0; color: #3b82f6; font-size: 13px;">
+                                To modify this schedule, edit the template. Changes will apply to all doors using it.
+                            </p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-small" onclick="goToTemplates()">
+                            Edit Template
+                        </button>
+                    </div>
+                </div>
 
-                <button type="button" class="btn btn-primary" onclick="addDoorSchedule()" 
-                        style="margin-top: 20px;">
-                    ➕ Add Schedule
-                </button>
+                <!-- Schedule Preview (read-only when template, editable when custom) -->
+                <div class="form-group">
+                    <label class="form-label">Schedule Preview</label>
+                    <div id="doorSchedulePreview" style="background: #f8fafc; border-radius: 12px; padding: 20px;">
+                        <p style="color: #94a3b8; text-align: center;">Select a schedule source above</p>
+                    </div>
+                </div>
+
+                <!-- Custom Schedule Editor (hidden by default) -->
+                <div id="customScheduleEditor" style="display: none;">
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <label class="form-label" style="margin: 0;">Custom Time Slots</label>
+                            <div>
+                                <button type="button" class="btn btn-secondary btn-small" onclick="addDoorScheduleSlot()">
+                                    ➕ Add Slot
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-small" onclick="copyMondayToWeekdaysDoor()">
+                                    📋 Copy Mon→Weekdays
+                                </button>
+                            </div>
+                        </div>
+                        <div id="doorScheduleSlotsList"></div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeDoorScheduleModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveDoorSchedules()">💾 Save All</button>
+                <button class="btn btn-primary" id="saveDoorScheduleBtn" onclick="saveDoorScheduleNew()">
+                    💾 Apply Schedule
+                </button>
             </div>
         </div>
     </div>
@@ -3290,24 +3338,78 @@ function emergencyReset(boardId, boardName) {
                 showToast('Error executing emergency action', 'error');
             }
         }
-        // ==================== DOOR SCHEDULES ====================
+        // ==================== DOOR SCHEDULE (NEW UNIFIED SYSTEM) ====================
+        let currentDoorScheduleData = {
+            doorId: null,
+            doorName: '',
+            currentTemplateId: null,
+            customSlots: [],
+            allTemplates: []
+        };
+
         async function openDoorScheduleModal(doorId, doorName) {
-            currentDoorId = doorId;
-            document.getElementById('doorScheduleModalTitle').textContent = `Schedule: ${doorName}`;
+            currentDoorScheduleData = {
+                doorId: doorId,
+                doorName: doorName,
+                currentTemplateId: null,
+                customSlots: [],
+                allTemplates: []
+            };
+
+            document.getElementById('doorScheduleModalTitle').textContent = `📅 Schedule: ${doorName}`;
             document.getElementById('doorScheduleDoorId').value = doorId;
 
-            try {
-                const response = await fetch(`/api/door-schedules/${doorId}`);
-                const data = await response.json();
+            // Reset UI
+            document.getElementById('doorScheduleSource').value = '';
+            document.getElementById('templateInfoBanner').style.display = 'none';
+            document.getElementById('customScheduleEditor').style.display = 'none';
+            document.getElementById('doorSchedulePreview').innerHTML = '<p style="color: #94a3b8; text-align: center;">Loading...</p>';
 
-                if (data.success) {
-                    doorSchedules = data.schedules.length > 0 ? convertSchedulesToUI(data.schedules) : [];
-                    renderDoorSchedules();
+            try {
+                // Load all templates
+                const templatesResponse = await fetch('/api/schedule-templates');
+                const templatesData = await templatesResponse.json();
+
+                if (templatesData.success) {
+                    currentDoorScheduleData.allTemplates = templatesData.templates;
+
+                    // Populate template dropdown
+                    const optgroup = document.getElementById('doorScheduleTemplateOptions');
+                    optgroup.innerHTML = templatesData.templates.map(t => 
+                        `<option value="template-${t.id}">📋 ${t.name}</option>`
+                    ).join('');
                 }
+
+                // Load current door schedules
+                const schedulesResponse = await fetch(`/api/door-schedules/${doorId}`);
+                const schedulesData = await schedulesResponse.json();
+
+                if (schedulesData.success && schedulesData.schedules.length > 0) {
+                    // Check if using a template (name starts with [T:X])
+                    const firstSchedule = schedulesData.schedules[0];
+                    const templateMatch = firstSchedule.name.match(/^\[T:(\d+)\]/);
+
+                    if (templateMatch) {
+                        // Using a template
+                        const templateId = parseInt(templateMatch[1]);
+                        currentDoorScheduleData.currentTemplateId = templateId;
+                        document.getElementById('doorScheduleSource').value = `template-${templateId}`;
+                        onScheduleSourceChange();
+                    } else {
+                        // Custom per-door schedule
+                        currentDoorScheduleData.customSlots = convertSchedulesToSlots(schedulesData.schedules);
+                        document.getElementById('doorScheduleSource').value = 'custom';
+                        onScheduleSourceChange();
+                    }
+                } else {
+                    // No schedule
+                    document.getElementById('doorScheduleSource').value = 'none';
+                    onScheduleSourceChange();
+                }
+
             } catch (error) {
-                console.error('Error loading door schedules:', error);
-                doorSchedules = [];
-                renderDoorSchedules();
+                console.error('Error loading door schedule:', error);
+                showToast('Error loading schedule', 'error');
             }
 
             document.getElementById('doorScheduleModal').classList.add('active');
@@ -3315,188 +3417,356 @@ function emergencyReset(boardId, boardName) {
 
         function closeDoorScheduleModal() {
             document.getElementById('doorScheduleModal').classList.remove('active');
-            doorSchedules = [];
+            currentDoorScheduleData = {
+                doorId: null,
+                doorName: '',
+                currentTemplateId: null,
+                customSlots: [],
+                allTemplates: []
+            };
         }
 
-        function convertSchedulesToUI(schedules) {
-            // Group schedules by name
-            const grouped = {};
-            schedules.forEach(s => {
-                if (!grouped[s.name]) {
-                    grouped[s.name] = {
-                        name: s.name,
-                        type: s.schedule_type,
-                        days: [],
-                        start_time: s.start_time,
-                        end_time: s.end_time,
-                        priority: s.priority
-                    };
+        function convertSchedulesToSlots(schedules) {
+            // Convert door_schedules format to slots format
+            return schedules.map(s => ({
+                day_of_week: s.day_of_week,
+                start_time: s.start_time,
+                end_time: s.end_time,
+                mode: s.schedule_type,
+                priority: s.priority || 0,
+                name: s.name
+            }));
+        }
+
+        function onScheduleSourceChange() {
+            const source = document.getElementById('doorScheduleSource').value;
+            const templateBanner = document.getElementById('templateInfoBanner');
+            const customEditor = document.getElementById('customScheduleEditor');
+            const preview = document.getElementById('doorSchedulePreview');
+            const saveBtn = document.getElementById('saveDoorScheduleBtn');
+
+            // Hide all first
+            templateBanner.style.display = 'none';
+            customEditor.style.display = 'none';
+
+            if (source === '' || source === 'none') {
+                // No schedule
+                preview.innerHTML = `
+                    <div style="text-align: center; padding: 30px; color: #64748b;">
+                        <div style="font-size: 32px; margin-bottom: 10px;">🔐</div>
+                        <p>No schedule applied. Door will operate in <strong>Controlled</strong> mode 24/7.</p>
+                        <p style="font-size: 13px;">(Requires credentials for access)</p>
+                    </div>
+                `;
+                saveBtn.disabled = false;
+
+            } else if (source === 'custom') {
+                // Custom per-door schedule
+                customEditor.style.display = 'block';
+                renderCustomScheduleSlots();
+                renderSchedulePreview(currentDoorScheduleData.customSlots);
+                saveBtn.disabled = false;
+
+            } else if (source.startsWith('template-')) {
+                // Template selected
+                const templateId = parseInt(source.replace('template-', ''));
+                const template = currentDoorScheduleData.allTemplates.find(t => t.id === templateId);
+
+                if (template) {
+                    templateBanner.style.display = 'block';
+                    document.getElementById('templateInfoName').textContent = template.name;
+                    renderSchedulePreview(template.slots);
                 }
-                grouped[s.name].days.push(s.day_of_week);
-            });
-            return Object.values(grouped);
-        }
-
-        function addDoorSchedule() {
-            doorSchedules.push({
-                name: 'New Schedule',
-                type: 'controlled',
-                days: [0, 1, 2, 3, 4],
-                start_time: '09:00:00',
-                end_time: '17:00:00',
-                priority: 0
-            });
-            renderDoorSchedules();
-        }
-
-        function removeDoorSchedule(index) {
-            if (confirm('Remove this schedule?')) {
-                doorSchedules.splice(index, 1);
-                renderDoorSchedules();
+                saveBtn.disabled = false;
             }
         }
 
-        function renderDoorSchedules() {
-            const container = document.getElementById('doorSchedulesList');
+        function renderSchedulePreview(slots) {
+            const preview = document.getElementById('doorSchedulePreview');
             const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-            if (doorSchedules.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 40px; color: #64748b;">
-                        <p>No schedules configured. Door will operate in controlled mode (require credentials).</p>
+            if (!slots || slots.length === 0) {
+                preview.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #94a3b8;">
+                        <p>No time slots configured</p>
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = doorSchedules.map((schedule, index) => {
-                const typeColors = {
-                    'unlock': '#10b981',
-                    'controlled': '#3b82f6',
-                    'locked': '#ef4444'
-                };
+            const modeColors = {
+                'unlock': { bg: '#d1fae5', border: '#10b981', text: '#065f46', icon: '🔓' },
+                'controlled': { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af', icon: '🔐' },
+                'locked': { bg: '#fee2e2', border: '#ef4444', text: '#991b1b', icon: '🔒' }
+            };
+
+            let html = '<div style="display: grid; gap: 8px;">';
+
+            for (let day = 0; day < 7; day++) {
+                const daySlots = slots.filter(s => s.day_of_week === day);
+
+                html += `
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 8px; 
+                                background: white; border-radius: 6px; border: 1px solid #e2e8f0;">
+                        <span style="width: 80px; font-weight: 600; color: #374151; font-size: 13px;">
+                            ${dayNames[day]}
+                        </span>
+                        <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 6px;">
+                `;
+
+                if (daySlots.length === 0) {
+                    html += `<span style="color: #9ca3af; font-size: 13px;">Default (Controlled)</span>`;
+                } else {
+                    daySlots.forEach(slot => {
+                        const mode = slot.mode || slot.schedule_type || 'controlled';
+                        const colors = modeColors[mode] || modeColors['controlled'];
+                        const startTime = (slot.start_time || '').substring(0, 5);
+                        const endTime = (slot.end_time || '').substring(0, 5);
+
+                        html += `
+                            <span style="background: ${colors.bg}; color: ${colors.text}; 
+                                         padding: 4px 10px; border-radius: 6px; font-size: 12px;
+                                         border-left: 3px solid ${colors.border}; font-weight: 500;">
+                                ${colors.icon} ${startTime} - ${endTime}
+                            </span>
+                        `;
+                    });
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            preview.innerHTML = html;
+        }
+
+        function renderCustomScheduleSlots() {
+            const container = document.getElementById('doorScheduleSlotsList');
+            const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+            if (currentDoorScheduleData.customSlots.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #94a3b8; background: #f8fafc; border-radius: 8px;">
+                        <p>No custom slots. Click "➕ Add Slot" to create one.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const modeColors = {
+                'unlock': { bg: '#d1fae5', border: '#10b981' },
+                'controlled': { bg: '#dbeafe', border: '#3b82f6' },
+                'locked': { bg: '#fee2e2', border: '#ef4444' }
+            };
+
+            container.innerHTML = currentDoorScheduleData.customSlots.map((slot, index) => {
+                const colors = modeColors[slot.mode] || modeColors['controlled'];
 
                 return `
-            <div style="border: 2px solid ${typeColors[schedule.type]}; border-radius: 12px; padding: 20px; margin-bottom: 15px; position: relative;">
-                <!-- ✅ NEW: Copy button -->
-                <button onclick="copyScheduleToOtherDoors(${index})" 
-                        class="btn btn-secondary btn-small"
-                        style="position: absolute; top: 15px; right: 55px;">
-                    📋 Copy
-                </button>
-                
-                <button onclick="removeDoorSchedule(${index})" 
-                        style="position: absolute; top: 15px; right: 15px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 18px;">
-                    ×
-                </button>
-
-                        <div class="form-group">
-                            <label class="form-label">Schedule Name</label>
-                            <input type="text" class="form-input" value="${schedule.name}" 
-                                   onchange="doorSchedules[${index}].name = this.value">
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Mode</label>
-                            <select class="form-select" onchange="doorSchedules[${index}].type = this.value; renderDoorSchedules();">
-                                <option value="unlock" ${schedule.type === 'unlock' ? 'selected' : ''}>
-                                    🔓 Unlock (Free access - door unlocked)
-                                </option>
-                                <option value="controlled" ${schedule.type === 'controlled' ? 'selected' : ''}>
-                                    🔐 Controlled (Require card/PIN)
-                                </option>
-                                <option value="locked" ${schedule.type === 'locked' ? 'selected' : ''}>
-                                    🔒 Locked (Deny all access)
-                                </option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Days</label>
-                            <div class="checkbox-group">
-                                ${dayNames.map((day, dayIndex) => `
-                                    <div class="checkbox-item">
-                                        <input type="checkbox" 
-                                               id="schedule-${index}-day-${dayIndex}"
-                                               ${schedule.days.includes(dayIndex) ? 'checked' : ''}
-                                               onchange="toggleScheduleDay(${index}, ${dayIndex})">
-                                        <label for="schedule-${index}-day-${dayIndex}">${day}</label>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="form-group">
-                                <label class="form-label">Start Time</label>
-                                <input type="time" class="form-input" value="${schedule.start_time.substring(0, 5)}" 
-                                       onchange="doorSchedules[${index}].start_time = this.value + ':00'">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">End Time</label>
-                                <input type="time" class="form-input" value="${schedule.end_time.substring(0, 5)}" 
-                                       onchange="doorSchedules[${index}].end_time = this.value + ':00'">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Priority (higher = takes precedence)</label>
-                            <input type="number" class="form-input" value="${schedule.priority}" 
-                                   onchange="doorSchedules[${index}].priority = parseInt(this.value)">
-                        </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 12px;
+                                background: ${colors.bg}; border-left: 4px solid ${colors.border}; border-radius: 8px;">
+                        <select class="form-select" style="width: 120px;" 
+                                onchange="updateCustomSlot(${index}, 'day_of_week', parseInt(this.value))">
+                            ${dayNames.map((day, i) => `
+                                <option value="${i}" ${slot.day_of_week === i ? 'selected' : ''}>${day}</option>
+                            `).join('')}
+                        </select>
+                        <select class="form-select" style="width: 130px;"
+                                onchange="updateCustomSlot(${index}, 'mode', this.value)">
+                            <option value="unlock" ${slot.mode === 'unlock' ? 'selected' : ''}>🔓 Unlock</option>
+                            <option value="controlled" ${slot.mode === 'controlled' ? 'selected' : ''}>🔐 Controlled</option>
+                            <option value="locked" ${slot.mode === 'locked' ? 'selected' : ''}>🔒 Locked</option>
+                        </select>
+                        <input type="time" class="form-input" style="width: 110px;"
+                               value="${(slot.start_time || '09:00:00').substring(0, 5)}"
+                               onchange="updateCustomSlot(${index}, 'start_time', this.value + ':00')">
+                        <span style="color: #64748b;">to</span>
+                        <input type="time" class="form-input" style="width: 110px;"
+                               value="${(slot.end_time || '17:00:00').substring(0, 5)}"
+                               onchange="updateCustomSlot(${index}, 'end_time', this.value + ':00')">
+                        <button type="button" onclick="removeCustomSlot(${index})"
+                                style="background: #ef4444; color: white; border: none; border-radius: 50%;
+                                       width: 28px; height: 28px; cursor: pointer; font-size: 16px;">×</button>
                     </div>
                 `;
             }).join('');
         }
 
-        function toggleScheduleDay(scheduleIndex, dayIndex) {
-            const days = doorSchedules[scheduleIndex].days;
-            const index = days.indexOf(dayIndex);
-
-            if (index > -1) {
-                days.splice(index, 1);
-            } else {
-                days.push(dayIndex);
-            }
-
-            renderDoorSchedules();
+        function addDoorScheduleSlot() {
+            currentDoorScheduleData.customSlots.push({
+                day_of_week: 0,
+                start_time: '09:00:00',
+                end_time: '17:00:00',
+                mode: 'unlock',
+                priority: 0
+            });
+            renderCustomScheduleSlots();
+            renderSchedulePreview(currentDoorScheduleData.customSlots);
         }
 
-        async function saveDoorSchedules() {
-            const doorId = document.getElementById('doorScheduleDoorId').value;
+        function updateCustomSlot(index, field, value) {
+            if (currentDoorScheduleData.customSlots[index]) {
+                currentDoorScheduleData.customSlots[index][field] = value;
+                renderCustomScheduleSlots();
+                renderSchedulePreview(currentDoorScheduleData.customSlots);
+            }
+        }
+
+        function removeCustomSlot(index) {
+            currentDoorScheduleData.customSlots.splice(index, 1);
+            renderCustomScheduleSlots();
+            renderSchedulePreview(currentDoorScheduleData.customSlots);
+        }
+
+        function copyMondayToWeekdaysDoor() {
+            const mondaySlots = currentDoorScheduleData.customSlots.filter(s => s.day_of_week === 0);
+
+            if (mondaySlots.length === 0) {
+                showToast('Add slots for Monday first', 'warning');
+                return;
+            }
+
+            // Remove Tue-Fri slots
+            currentDoorScheduleData.customSlots = currentDoorScheduleData.customSlots.filter(
+                s => s.day_of_week === 0 || s.day_of_week > 4
+            );
+
+            // Copy Monday to Tue-Fri
+            for (let day = 1; day <= 4; day++) {
+                mondaySlots.forEach(slot => {
+                    currentDoorScheduleData.customSlots.push({
+                        ...slot,
+                        day_of_week: day
+                    });
+                });
+            }
+
+            renderCustomScheduleSlots();
+            renderSchedulePreview(currentDoorScheduleData.customSlots);
+            showToast('Copied Monday to Tue-Fri', 'success');
+        }
+
+        function goToTemplates() {
+            closeDoorScheduleModal();
+            showTab('scheduleTemplates');
+        }
+
+        async function saveDoorScheduleNew() {
+            const doorId = currentDoorScheduleData.doorId;
+            const source = document.getElementById('doorScheduleSource').value;
 
             try {
-                const response = await fetch(`/api/door-schedules/${doorId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ schedules: doorSchedules })
-                });
+                if (source === '' || source === 'none') {
+                    // Clear all schedules for this door
+                    await fetch(`/api/door-schedules/${doorId}`, {
+                        method: 'DELETE'
+                    });
 
-                const data = await response.json();
-
-                if (data.success) {
-                    showToast('Door schedules saved', 'success');
-                    closeDoorScheduleModal();
-
-                    // Sync the board
-                    const door = allDoors.find(d => d.id == doorId);
-                    if (door) {
-                        const boardsResponse = await fetch('/api/boards');
-                        const boardsData = await boardsResponse.json();
-                        if (boardsData.success) {
-                            const board = boardsData.boards.find(b => b.ip_address === door.ip_address);
-                            if (board) {
-                                await fetch(`/api/boards/${board.id}/sync`, { method: 'POST' });
-                                showToast('Board synced with new schedules', 'success');
-                            }
+                    // Remove from any template assignments
+                    for (const template of currentDoorScheduleData.allTemplates) {
+                        if (template.doors.some(d => d.id === doorId)) {
+                            const newDoorIds = template.doors.filter(d => d.id !== doorId).map(d => d.id);
+                            await fetch(`/api/schedule-templates/${template.id}/assign-doors`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ door_ids: newDoorIds })
+                            });
                         }
                     }
-                } else {
-                    showToast(data.message || 'Error saving schedules', 'error');
+
+                    showToast('Schedule cleared - door in default controlled mode', 'success');
+
+                } else if (source === 'custom') {
+                    // Remove from any template first
+                    for (const template of currentDoorScheduleData.allTemplates) {
+                        if (template.doors.some(d => d.id === doorId)) {
+                            const newDoorIds = template.doors.filter(d => d.id !== doorId).map(d => d.id);
+                            await fetch(`/api/schedule-templates/${template.id}/assign-doors`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ door_ids: newDoorIds })
+                            });
+                        }
+                    }
+
+                    // Save custom schedules
+                    const schedules = [];
+                    const slotsByDay = {};
+
+                    // Group slots by day for naming
+                    currentDoorScheduleData.customSlots.forEach(slot => {
+                        if (!slotsByDay[slot.day_of_week]) {
+                            slotsByDay[slot.day_of_week] = [];
+                        }
+                        slotsByDay[slot.day_of_week].push(slot);
+                    });
+
+                    // Convert to the format expected by saveDoorSchedules
+                    currentDoorScheduleData.customSlots.forEach(slot => {
+                        schedules.push({
+                            name: 'Custom Schedule',
+                            type: slot.mode,
+                            days: [slot.day_of_week],
+                            start_time: slot.start_time,
+                            end_time: slot.end_time,
+                            priority: slot.priority || 0
+                        });
+                    });
+
+                    await fetch(`/api/door-schedules/${doorId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ schedules: schedules })
+                    });
+
+                    showToast('Custom schedule saved', 'success');
+
+                } else if (source.startsWith('template-')) {
+                    // Assign to template
+                    const templateId = parseInt(source.replace('template-', ''));
+
+                    // First remove from any other templates
+                    for (const template of currentDoorScheduleData.allTemplates) {
+                        if (template.id !== templateId && template.doors.some(d => d.id === doorId)) {
+                            const newDoorIds = template.doors.filter(d => d.id !== doorId).map(d => d.id);
+                            await fetch(`/api/schedule-templates/${template.id}/assign-doors`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ door_ids: newDoorIds })
+                            });
+                        }
+                    }
+
+                    // Add to selected template
+                    const selectedTemplate = currentDoorScheduleData.allTemplates.find(t => t.id === templateId);
+                    if (selectedTemplate) {
+                        const existingDoorIds = selectedTemplate.doors.map(d => d.id);
+                        if (!existingDoorIds.includes(doorId)) {
+                            existingDoorIds.push(doorId);
+                        }
+
+                        await fetch(`/api/schedule-templates/${templateId}/assign-doors`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ door_ids: existingDoorIds })
+                        });
+                    }
+
+                    showToast(`Template "${selectedTemplate?.name}" applied to door`, 'success');
                 }
+
+                closeDoorScheduleModal();
+                loadDoors();
+
+                // Sync boards
+                await fetch('/api/boards/sync-all', { method: 'POST' });
+
             } catch (error) {
-                console.error('Error saving door schedules:', error);
-                showToast('Error saving schedules', 'error');
+                console.error('Error saving door schedule:', error);
+                showToast('Error saving schedule', 'error');
             }
         }
 
