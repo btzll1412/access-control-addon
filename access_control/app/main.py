@@ -737,7 +737,26 @@ def init_db():
     except sqlite3.OperationalError:
         # Column already exists
         pass
-    
+
+    # Controller settings table - stores default controller IP/domain for board adoption
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS controller_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            default_protocol TEXT DEFAULT 'http',
+            default_controller_address TEXT DEFAULT '',
+            default_controller_port INTEGER DEFAULT 8100,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    print("  ✅ Controller settings table created")
+
+    # Insert default settings row if not exists
+    cursor.execute('''
+        INSERT OR IGNORE INTO controller_settings (id, default_protocol, default_controller_address, default_controller_port)
+        VALUES (1, 'http', '', 8100)
+    ''')
+
     conn.commit()
     conn.close()
     logger.info("✅ Database initialized successfully")
@@ -2955,89 +2974,115 @@ def adopt_pending_board(pending_id):
     try:
         conn = get_db()
         cursor = conn.cursor()
-        
+
         cursor.execute('SELECT * FROM pending_boards WHERE id = ?', (pending_id,))
         pending = cursor.fetchone()
-        
+
         if not pending:
             return jsonify({'success': False, 'message': 'Pending board not found'}), 404
-        
+
         cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
         if cursor.fetchone():
             return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
-        
+
+        # Get controller settings from request body or use defaults
+        data = request.json or {}
+        use_default = data.get('use_default', True)
+
+        if use_default:
+            # Get default settings from database
+            cursor.execute('SELECT * FROM controller_settings WHERE id = 1')
+            settings = cursor.fetchone()
+            if settings and settings['default_controller_address']:
+                controller_protocol = settings['default_protocol']
+                controller_address = settings['default_controller_address']
+                controller_port = settings['default_controller_port']
+            else:
+                # Fallback to request host if no default is configured
+                controller_protocol = 'http'
+                controller_address = request.host.split(':')[0]
+                controller_port = 8100
+        else:
+            # Use custom settings from request
+            controller_protocol = data.get('controller_protocol', 'http')
+            controller_address = data.get('controller_address', '')
+            controller_port = data.get('controller_port', 8100)
+
+            if not controller_address:
+                # Fallback to request host if no address provided
+                controller_address = request.host.split(':')[0]
+
         cursor.execute('''
             INSERT INTO boards (name, ip_address, door1_name, door2_name)
             VALUES (?, ?, ?, ?)
         ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
-        
+
         board_id = cursor.lastrowid
-        
+
         cursor.execute('''
             INSERT INTO doors (board_id, door_number, name, relay_endpoint)
             VALUES (?, 1, ?, ?)
         ''', (board_id, pending['door1_name'], '/unlock_door1'))
-        
+
         cursor.execute('''
             INSERT INTO doors (board_id, door_number, name, relay_endpoint)
             VALUES (?, 2, ?, ?)
         ''', (board_id, pending['door2_name'], '/unlock_door2'))
-        
+
         cursor.execute('DELETE FROM pending_boards WHERE id = ?', (pending_id,))
-        
+
         conn.commit()
-        
+
         logger.info(f"✅ Board adopted: {pending['board_name']} ({pending['ip_address']}) - ID: {board_id}")
-        
+
         try:
-            controller_ip = request.host.split(':')[0]
-            controller_port = 8100
-            
             board_url = f"http://{pending['ip_address']}/api/set-controller"
-            
+
+            # Build the controller URL that the board will use to communicate back
             config_data = {
-                'controller_ip': controller_ip,
-                'controller_port': controller_port
+                'controller_ip': controller_address,
+                'controller_port': controller_port,
+                'controller_protocol': controller_protocol
             }
-            
-            logger.info(f"🔧 Configuring board to use controller at {controller_ip}:{controller_port}")
-            
+
+            logger.info(f"🔧 Configuring board to use controller at {controller_protocol}://{controller_address}:{controller_port}")
+
             response = requests.post(board_url, json=config_data, timeout=5)
-            
+
             if response.status_code == 200:
                 logger.info(f"✅ Board configured successfully!")
-                
+
                 time.sleep(2)
-                
+
                 logger.info(f"🔄 Syncing user database to board...")
                 sync_result = sync_board_full(board_id)
-                
+
                 if hasattr(sync_result, 'json'):
                     sync_data = sync_result.json
                     if sync_data and sync_data.get('success'):
                         logger.info(f"✅ Board synced with user database!")
-                
+
                 return jsonify({
-                    'success': True, 
-                    'message': 'Board adopted, configured, and synced successfully',
+                    'success': True,
+                    'message': f'Board adopted and configured to use {controller_protocol}://{controller_address}:{controller_port}',
                     'board_id': board_id
                 })
             else:
                 logger.warning(f"⚠️ Board adopted but configuration failed: HTTP {response.status_code}")
                 return jsonify({
-                    'success': True, 
+                    'success': True,
                     'message': 'Board adopted but auto-configuration failed - please sync manually',
                     'board_id': board_id
                 })
-                
+
         except Exception as config_error:
             logger.warning(f"⚠️ Board adopted but configuration failed: {config_error}")
             return jsonify({
-                'success': True, 
+                'success': True,
                 'message': 'Board adopted but auto-configuration failed - please sync manually',
                 'board_id': board_id
             })
-        
+
     except Exception as e:
         logger.error(f"❌ Error adopting board: {e}")
         if conn:
@@ -3064,6 +3109,95 @@ def delete_pending_board(pending_id):
         return jsonify({'success': True, 'message': 'Pending board removed'})
     except Exception as e:
         logger.error(f"❌ Error deleting pending board: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# ==================== CONTROLLER SETTINGS API ====================
+
+@app.route('/api/controller-settings', methods=['GET'])
+@login_required
+def get_controller_settings():
+    """Get default controller settings for board adoption"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT * FROM controller_settings WHERE id = 1')
+        settings = cursor.fetchone()
+
+        if settings:
+            return jsonify({
+                'success': True,
+                'settings': {
+                    'default_protocol': settings['default_protocol'],
+                    'default_controller_address': settings['default_controller_address'],
+                    'default_controller_port': settings['default_controller_port']
+                }
+            })
+        else:
+            # Return defaults if no settings exist
+            return jsonify({
+                'success': True,
+                'settings': {
+                    'default_protocol': 'http',
+                    'default_controller_address': '',
+                    'default_controller_port': 8100
+                }
+            })
+    except Exception as e:
+        logger.error(f"❌ Error getting controller settings: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/controller-settings', methods=['POST'])
+@login_required
+def save_controller_settings():
+    """Save default controller settings for board adoption"""
+    conn = None
+    try:
+        data = request.json
+        default_protocol = data.get('default_protocol', 'http')
+        default_controller_address = data.get('default_controller_address', '')
+        default_controller_port = data.get('default_controller_port', 8100)
+
+        # Validate protocol
+        if default_protocol not in ['http', 'https']:
+            return jsonify({'success': False, 'message': 'Protocol must be http or https'}), 400
+
+        # Validate port
+        try:
+            default_controller_port = int(default_controller_port)
+            if default_controller_port < 1 or default_controller_port > 65535:
+                raise ValueError("Port out of range")
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'message': 'Port must be a number between 1 and 65535'}), 400
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO controller_settings
+            (id, default_protocol, default_controller_address, default_controller_port, updated_at)
+            VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (default_protocol, default_controller_address, default_controller_port))
+
+        conn.commit()
+
+        logger.info(f"✅ Controller settings saved: {default_protocol}://{default_controller_address}:{default_controller_port}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Controller settings saved successfully'
+        })
+    except Exception as e:
+        logger.error(f"❌ Error saving controller settings: {e}")
         if conn:
             conn.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
