@@ -2998,7 +2998,8 @@ async function handleLogout() {
         async function saveControllerSettings() {
             const protocol = document.getElementById('defaultControllerProtocol').value;
             const address = document.getElementById('defaultControllerAddress').value.trim();
-            const port = document.getElementById('defaultControllerPort').value;
+            const portValue = document.getElementById('defaultControllerPort').value;
+            const port = parseInt(portValue) || 8100; // Default to 8100 if empty or NaN
 
             try {
                 const response = await fetch('/api/controller-settings', {
@@ -3007,7 +3008,7 @@ async function handleLogout() {
                     body: JSON.stringify({
                         default_protocol: protocol,
                         default_controller_address: address,
-                        default_controller_port: parseInt(port)
+                        default_controller_port: port
                     })
                 });
 
@@ -3015,7 +3016,7 @@ async function handleLogout() {
 
                 if (data.success) {
                     showToast('Controller settings saved successfully', 'success');
-                    defaultControllerSettings = { protocol, address, port: parseInt(port) };
+                    defaultControllerSettings = { protocol, address, port: port };
                 } else {
                     showToast(data.message, 'error');
                 }
@@ -3109,7 +3110,8 @@ async function handleLogout() {
             if (!useDefault) {
                 const protocol = document.getElementById('adoptControllerProtocol').value;
                 const address = document.getElementById('adoptControllerAddress').value.trim();
-                const port = document.getElementById('adoptControllerPort').value;
+                const portValue = document.getElementById('adoptControllerPort').value;
+                const port = parseInt(portValue) || 8100; // Default to 8100 if empty or NaN
 
                 if (!address) {
                     showToast('Please enter a controller address', 'error');
@@ -3120,7 +3122,7 @@ async function handleLogout() {
                     use_default: false,
                     controller_protocol: protocol,
                     controller_address: address,
-                    controller_port: parseInt(port)
+                    controller_port: port
                 };
             }
 

@@ -2994,9 +2994,9 @@ def adopt_pending_board(pending_id):
             cursor.execute('SELECT * FROM controller_settings WHERE id = 1')
             settings = cursor.fetchone()
             if settings and settings['default_controller_address']:
-                controller_protocol = settings['default_protocol']
+                controller_protocol = settings['default_protocol'] or 'http'
                 controller_address = settings['default_controller_address']
-                controller_port = settings['default_controller_port']
+                controller_port = settings['default_controller_port'] or 8100
             else:
                 # Fallback to request host if no default is configured
                 controller_protocol = 'http'
@@ -3004,13 +3004,16 @@ def adopt_pending_board(pending_id):
                 controller_port = 8100
         else:
             # Use custom settings from request
-            controller_protocol = data.get('controller_protocol', 'http')
+            controller_protocol = data.get('controller_protocol', 'http') or 'http'
             controller_address = data.get('controller_address', '')
-            controller_port = data.get('controller_port', 8100)
+            controller_port = data.get('controller_port', 8100) or 8100
 
             if not controller_address:
                 # Fallback to request host if no address provided
                 controller_address = request.host.split(':')[0]
+
+        # Ensure port is always an integer
+        controller_port = int(controller_port) if controller_port else 8100
 
         cursor.execute('''
             INSERT INTO boards (name, ip_address, door1_name, door2_name)
