@@ -829,165 +829,418 @@
         /* ========================================
            RESPONSIVE
            ======================================== */
+
+        /* Tablet and below */
+        @media (max-width: 1024px) {
+            .cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            }
+        }
+
+        /* Mobile devices */
         @media (max-width: 768px) {
             body {
                 padding: 10px;
             }
-        
+
             .container {
                 border-radius: 12px;
             }
-        
+
+            /* Header - stack on mobile */
             .header {
-                padding: 20px;
-            }
-        
-            .header h1 {
-                font-size: 20px;
-            }
-        
-            .header-actions {
-                width: 100%;
-                justify-content: stretch;
-            }
-        
-            .header-actions .btn {
-                flex: 1;
-            }
-        
-            .stats-bar {
-                grid-template-columns: 1fr;
-                padding: 20px;
+                padding: 15px 20px;
+                flex-direction: column;
                 gap: 15px;
             }
-        
+
+            .header h1 {
+                font-size: 20px;
+                text-align: center;
+            }
+
+            .header-actions {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .header-actions .btn {
+                flex: 1;
+                justify-content: center;
+            }
+
+            /* Stats bar */
+            .stats-bar {
+                grid-template-columns: repeat(2, 1fr);
+                padding: 15px;
+                gap: 10px;
+            }
+
+            .stat-card {
+                padding: 15px;
+            }
+
+            .stat-card h3 {
+                font-size: 12px;
+            }
+
+            .stat-card .stat-value {
+                font-size: 24px;
+            }
+
+            /* Tabs - horizontal scroll with touch */
             .tabs {
-                padding: 0 20px;
+                padding: 0 10px;
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
             }
-        
+
+            .tabs::-webkit-scrollbar {
+                display: none;
+            }
+
             .tab {
-                padding: 12px 20px;
-                font-size: 14px;
+                padding: 12px 16px;
+                font-size: 13px;
+                min-width: max-content;
             }
-        
+
+            /* Tab content */
             .tab-content {
-                padding: 20px;
+                padding: 15px;
             }
-        
+
+            .tab-content h2 {
+                font-size: 20px;
+            }
+
+            /* Notification banner - stack */
+            .notification-banner {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .notification-content {
+                flex-direction: column;
+            }
+
+            .notification-banner .btn {
+                width: 100%;
+            }
+
+            /* Controller settings section */
+            #controllerSettingsBody > div[style*="grid-template-columns"] {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 15px !important;
+            }
+
+            /* Cards grid */
             .cards-grid {
                 grid-template-columns: 1fr;
+                gap: 15px;
             }
-        
+
+            .card {
+                padding: 15px;
+            }
+
+            .card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .card-actions {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .card-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            /* Tables */
             .table-container {
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
+                margin: 0 -15px;
+                padding: 0 15px;
             }
-        
+
             table {
                 font-size: 13px;
+                min-width: 600px;
             }
-        
+
             th, td {
                 padding: 10px 8px;
                 white-space: nowrap;
             }
-        
+
+            /* Forms */
+            .form-group {
+                margin-bottom: 15px;
+            }
+
+            .form-input,
+            .form-select,
+            .form-textarea {
+                font-size: 16px; /* Prevents zoom on iOS */
+                padding: 12px 15px;
+            }
+
+            /* Form grids - stack on mobile */
+            div[style*="grid-template-columns: 1fr 1fr"],
+            div[style*="grid-template-columns: 120px 1fr 120px"],
+            div[style*="grid-template-columns: 100px 1fr 100px"] {
+                display: flex !important;
+                flex-direction: column !important;
+                gap: 15px !important;
+            }
+
+            /* Modal */
+            .modal {
+                padding: 0;
+                align-items: flex-end;
+            }
+
+            .modal-content {
+                max-width: 100%;
+                max-height: 95vh;
+                border-radius: 20px 20px 0 0;
+                margin: 0;
+            }
+
+            .modal-header {
+                padding: 20px;
+            }
+
+            .modal-body {
+                padding: 20px;
+            }
+
+            .modal-footer {
+                padding: 15px 20px;
+                flex-direction: column;
+            }
+
+            .modal-footer .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            /* Emergency panels */
             .emergency-board-info {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 10px;
             }
-        
+
             .emergency-actions {
                 width: 100%;
                 flex-direction: column;
             }
-        
+
             .emergency-actions .btn {
                 width: 100%;
                 justify-content: center;
             }
-        
-            .card-actions {
+
+            .emergency-door-item {
                 flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
             }
-        
-            .card-actions .btn {
+
+            .emergency-door-actions {
                 width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .emergency-door-actions .btn {
+                flex: 1;
+                min-width: 80px;
                 justify-content: center;
             }
-        
-            .modal-content {
-                margin: 10px;
-                max-height: calc(100vh - 20px);
-            }
-        
-            .modal-body {
-                padding: 20px;
-            }
-        
+
+            /* Buttons */
             .btn {
-                font-size: 13px;
-                padding: 10px 16px;
+                font-size: 14px;
+                padding: 12px 16px;
                 white-space: nowrap;
             }
-        
+
             .btn-small {
                 font-size: 12px;
-                padding: 8px 12px;
+                padding: 10px 14px;
             }
-        
-            /* Better button visibility on mobile */
+
+            /* Better touch targets */
+            .btn-primary,
+            .btn-success,
+            .btn-danger,
+            .btn-warning {
+                min-height: 44px;
+            }
+
+            /* Button shadows for visibility */
             .btn-primary {
                 box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
             }
-        
+
             .btn-success {
                 box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
             }
-        
+
             .btn-danger {
                 box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
             }
-        
+
             .btn-warning {
                 box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
             }
-        
-            /* Toast notifications on mobile */
+
+            /* Toast notifications */
             .toast {
                 bottom: 20px;
-                right: 20px;
-                left: 20px;
+                right: 15px;
+                left: 15px;
                 min-width: auto;
             }
+
+            /* Header row with buttons */
+            div[style*="justify-content: space-between"][style*="margin-bottom: 20px"] {
+                flex-direction: column !important;
+                gap: 15px !important;
+                align-items: stretch !important;
+            }
+
+            div[style*="justify-content: space-between"][style*="margin-bottom: 20px"] > div[style*="gap: 10px"] {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 10px !important;
+            }
+
+            div[style*="justify-content: space-between"][style*="margin-bottom: 20px"] > div[style*="gap: 10px"] .btn {
+                flex: 1 1 auto !important;
+                min-width: 120px !important;
+            }
+
+            /* Emergency alert banner */
+            .emergency-alert {
+                flex-direction: column;
+                padding: 15px 20px;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .emergency-alert-content {
+                flex-direction: column;
+            }
         }
-        
-        /* Extra small devices */
+
+        /* Extra small devices (phones in portrait) */
         @media (max-width: 480px) {
+            body {
+                padding: 5px;
+            }
+
+            .header {
+                padding: 12px 15px;
+            }
+
             .header h1 {
-                font-size: 18px;
+                font-size: 16px;
             }
-        
+
+            /* Stats - single column on very small screens */
+            .stats-bar {
+                grid-template-columns: 1fr;
+                padding: 10px;
+            }
+
+            .stat-card {
+                padding: 12px;
+            }
+
             .stat-card .stat-value {
-                font-size: 24px;
+                font-size: 22px;
             }
-        
+
+            .tab {
+                padding: 10px 14px;
+                font-size: 12px;
+            }
+
+            .tab-content {
+                padding: 12px;
+            }
+
+            .card {
+                padding: 12px;
+            }
+
+            /* Full screen modals on small phones */
             .modal-content {
-                max-width: 100%;
                 border-radius: 0;
                 height: 100vh;
                 max-height: 100vh;
             }
-        
+
             table {
-                font-size: 12px;
+                font-size: 11px;
             }
-        
+
             th, td {
                 padding: 8px 6px;
+            }
+
+            .btn {
+                font-size: 13px;
+                padding: 10px 12px;
+            }
+
+            .btn-small {
+                font-size: 11px;
+                padding: 8px 10px;
+            }
+        }
+
+        /* Landscape mode on mobile */
+        @media (max-width: 768px) and (orientation: landscape) {
+            .modal-content {
+                max-height: 100vh;
+                border-radius: 0;
+            }
+
+            .stats-bar {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        /* Touch-friendly hover states */
+        @media (hover: none) and (pointer: coarse) {
+            .btn:hover:not(:disabled) {
+                transform: none;
+            }
+
+            .card:hover {
+                transform: none;
+            }
+
+            /* Add active states for touch */
+            .btn:active:not(:disabled) {
+                transform: scale(0.98);
+                opacity: 0.9;
+            }
+
+            .card:active {
+                transform: scale(0.99);
             }
         }
 
