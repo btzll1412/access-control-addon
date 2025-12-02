@@ -486,24 +486,32 @@ def migrate_database():
 
 
 def upgrade_database():
-    """Add missing columns for temp code support"""
+    """Add missing columns for temp code support and other migrations"""
     conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
-        
+
         # Check if columns exist in access_logs
         cursor.execute("PRAGMA table_info(access_logs)")
         columns = [col[1] for col in cursor.fetchall()]
-        
+
         if 'user_id' not in columns:
             logger.info("🔧 Adding user_id column to access_logs")
             cursor.execute("ALTER TABLE access_logs ADD COLUMN user_id INTEGER")
-        
+
         if 'credential_type' not in columns:
             logger.info("🔧 Adding credential_type column to access_logs")
             cursor.execute("ALTER TABLE access_logs ADD COLUMN credential_type TEXT")
-        
+
+        # Check if unlock_duration column exists in doors table
+        cursor.execute("PRAGMA table_info(doors)")
+        door_columns = [col[1] for col in cursor.fetchall()]
+
+        if 'unlock_duration' not in door_columns:
+            logger.info("🔧 Adding unlock_duration column to doors")
+            cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
+
         conn.commit()
         logger.info("✅ Database upgrade complete")
     except Exception as e:
@@ -562,6 +570,7 @@ def init_db():
             door_number INTEGER NOT NULL,
             name TEXT NOT NULL,
             relay_endpoint TEXT NOT NULL,
+            unlock_duration INTEGER DEFAULT 3000,
             emergency_override TEXT DEFAULT NULL,
             emergency_override_at TIMESTAMP,
             FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
