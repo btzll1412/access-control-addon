@@ -4908,12 +4908,30 @@ def validate_access():
         
         # STEP 3: Find user
         if credential_type == 'card':
+            # First try exact match (e.g., "173 37764")
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
                 FROM users u
                 JOIN user_cards uc ON u.id = uc.user_id
                 WHERE uc.card_number = ? AND uc.active = 1
             ''', (credential,))
+
+            user = cursor.fetchone()
+
+            # If no exact match and credential contains space, try matching just the card code
+            # This supports cards stored as just the card code (last 5 digits)
+            if not user and ' ' in credential:
+                card_code_only = credential.split(' ', 1)[1]  # Get everything after first space
+                logger.info(f"  🔍 No exact match, trying card code only: {card_code_only}")
+                cursor.execute('''
+                    SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
+                    FROM users u
+                    JOIN user_cards uc ON u.id = uc.user_id
+                    WHERE uc.card_number = ? AND uc.active = 1
+                ''', (card_code_only,))
+                user = cursor.fetchone()
+                if user:
+                    logger.info(f"  ✅ Found user by card code only: {user['name']}")
         elif credential_type == 'pin':
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
@@ -4921,14 +4939,13 @@ def validate_access():
                 JOIN user_pins up ON u.id = up.user_id
                 WHERE up.pin = ? AND up.active = 1
             ''', (credential,))
+            user = cursor.fetchone()
         else:
             return jsonify({
                 'success': False,
                 'access_granted': False,
                 'reason': 'Invalid credential type'
             }), 400
-        
-        user = cursor.fetchone()
         
         if not user:
             cursor.execute('''

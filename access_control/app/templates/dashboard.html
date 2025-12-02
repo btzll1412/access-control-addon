@@ -1986,8 +1986,11 @@
 
                     <div class="form-group">
                         <label class="form-label">Card Numbers</label>
+                        <div class="form-help" style="margin-bottom: 10px;">
+                            Enter cards as "Facility Code + Card Code" (e.g., 173 37764) or just the "Card Code" (last 5 digits printed on card)
+                        </div>
                         <div id="userCards"></div>
-                        <button type="button" class="btn btn-secondary btn-small" 
+                        <button type="button" class="btn btn-secondary btn-small"
                                 onclick="addCardInput()" style="margin-top: 10px;">
                             ➕ Add Card
                         </button>
@@ -4443,16 +4446,37 @@ async function saveDoorSettings(event) {
                     document.getElementById('userValidUntil').value = user.valid_until || '';
                     document.getElementById('userNotes').value = user.notes || '';
 
-                    // Load cards
+                    // Load cards with new format
                     const cardsContainer = document.getElementById('userCards');
-                    cardsContainer.innerHTML = user.cards.map((card, index) => `
-                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                            <input type="text" class="form-input" value="${card.card_number}" 
-                                   placeholder="Card number" data-card-index="${index}">
-                            <button type="button" class="btn btn-danger btn-small" 
-                                    onclick="this.parentElement.remove()">×</button>
+                    cardsContainer.innerHTML = user.cards.map((card, index) => {
+                        const cardNumber = card.card_number || '';
+                        const parts = cardNumber.split(' ');
+                        const hasSpace = parts.length >= 2;
+                        const facility = hasSpace ? parts[0] : '';
+                        const cardCode = hasSpace ? parts.slice(1).join(' ') : cardNumber;
+                        const isCodeOnly = !hasSpace;
+                        const radioName = `cardFormat_edit_${index}_${Date.now()}`;
+
+                        return `
+                        <div class="card-entry" style="margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div style="display: flex; gap: 10px; margin-bottom: 8px; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                                    <input type="radio" name="${radioName}" value="full" ${!isCodeOnly ? 'checked' : ''} onchange="toggleCardFormat(this)">
+                                    Full (Facility + Card)
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                                    <input type="radio" name="${radioName}" value="code_only" ${isCodeOnly ? 'checked' : ''} onchange="toggleCardFormat(this)">
+                                    Card Code Only
+                                </label>
+                                <button type="button" class="btn btn-danger btn-small" onclick="this.closest('.card-entry').remove()" style="margin-left: auto;">×</button>
+                            </div>
+                            <div class="card-inputs" style="display: flex; gap: 10px;">
+                                <input type="text" class="form-input facility-input" placeholder="Facility (e.g., 173)" style="width: 120px; ${isCodeOnly ? 'display: none;' : ''}" value="${facility}">
+                                <input type="text" class="form-input card-code-input" placeholder="${isCodeOnly ? 'Card Code - last 5 digits (e.g., 37764)' : 'Card Code (e.g., 37764)'}" style="flex: 1;" value="${cardCode}">
+                            </div>
                         </div>
-                    `).join('');
+                        `;
+                    }).join('');
 
                     // Load PINs
                     const pinsContainer = document.getElementById('userPins');
@@ -4542,12 +4566,41 @@ async function saveDoorSettings(event) {
         function addCardInput() {
             const container = document.getElementById('userCards');
             const div = document.createElement('div');
-            div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            div.className = 'card-entry';
+            div.style.cssText = 'margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;';
             div.innerHTML = `
-                <input type="text" class="form-input" placeholder="Card number (e.g., 173 37764)">
-                <button type="button" class="btn btn-danger btn-small" onclick="this.parentElement.remove()">×</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 8px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                        <input type="radio" name="cardFormat_${Date.now()}" value="full" checked onchange="toggleCardFormat(this)">
+                        Full (Facility + Card)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                        <input type="radio" name="cardFormat_${Date.now()}" value="code_only" onchange="toggleCardFormat(this)">
+                        Card Code Only
+                    </label>
+                    <button type="button" class="btn btn-danger btn-small" onclick="this.closest('.card-entry').remove()" style="margin-left: auto;">×</button>
+                </div>
+                <div class="card-inputs" style="display: flex; gap: 10px;">
+                    <input type="text" class="form-input facility-input" placeholder="Facility (e.g., 173)" style="width: 120px;">
+                    <input type="text" class="form-input card-code-input" placeholder="Card Code (e.g., 37764)" style="flex: 1;">
+                </div>
             `;
             container.appendChild(div);
+        }
+
+        function toggleCardFormat(radio) {
+            const cardEntry = radio.closest('.card-entry');
+            const facilityInput = cardEntry.querySelector('.facility-input');
+            const cardCodeInput = cardEntry.querySelector('.card-code-input');
+
+            if (radio.value === 'code_only') {
+                facilityInput.style.display = 'none';
+                facilityInput.value = '';
+                cardCodeInput.placeholder = 'Card Code - last 5 digits (e.g., 37764)';
+            } else {
+                facilityInput.style.display = 'block';
+                cardCodeInput.placeholder = 'Card Code (e.g., 37764)';
+            }
         }
 
         function addPinInput() {
@@ -4566,10 +4619,23 @@ async function saveDoorSettings(event) {
 
             const userId = document.getElementById('userId').value;
 
-            // Collect cards
-            const cards = Array.from(document.querySelectorAll('#userCards input[type="text"]'))
-                .map(input => ({ number: input.value.trim() }))
-                .filter(card => card.number);
+            // Collect cards from new format
+            const cards = [];
+            document.querySelectorAll('#userCards .card-entry').forEach(entry => {
+                const facilityInput = entry.querySelector('.facility-input');
+                const cardCodeInput = entry.querySelector('.card-code-input');
+                const isCodeOnly = entry.querySelector('input[value="code_only"]')?.checked;
+
+                const facility = facilityInput?.value?.trim() || '';
+                const cardCode = cardCodeInput?.value?.trim() || '';
+
+                if (cardCode) {
+                    // If code_only mode or no facility entered, store just the card code
+                    // Otherwise store as "facility cardcode"
+                    const cardNumber = (isCodeOnly || !facility) ? cardCode : `${facility} ${cardCode}`;
+                    cards.push({ number: cardNumber });
+                }
+            });
 
             // Collect PINs
             const pins = Array.from(document.querySelectorAll('#userPins input[type="text"]'))
