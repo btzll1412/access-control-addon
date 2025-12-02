@@ -512,6 +512,14 @@ def upgrade_database():
             logger.info("🔧 Adding unlock_duration column to doors")
             cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
 
+        # Check if mac_address column exists in boards table
+        cursor.execute("PRAGMA table_info(boards)")
+        board_columns = [col[1] for col in cursor.fetchall()]
+
+        if 'mac_address' not in board_columns:
+            logger.info("🔧 Adding mac_address column to boards")
+            cursor.execute("ALTER TABLE boards ADD COLUMN mac_address TEXT UNIQUE")
+
         conn.commit()
         logger.info("✅ Database upgrade complete")
     except Exception as e:
@@ -532,7 +540,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            ip_address TEXT NOT NULL UNIQUE,
+            ip_address TEXT NOT NULL,
+            mac_address TEXT UNIQUE,
             door1_name TEXT NOT NULL,
             door2_name TEXT NOT NULL,
             online BOOLEAN DEFAULT 0,
@@ -2369,7 +2378,7 @@ def heartbeat():
 
 @app.route('/api/board-announce', methods=['POST'])
 def board_announce():
-    """Board announces itself - stores in pending_boards table"""
+    """Board announces itself - identifies by MAC address to handle IP changes"""
     conn = None
     try:
         data = request.json
@@ -2378,46 +2387,85 @@ def board_announce():
         board_name = data.get('board_name', 'Unknown Board')
         door1_name = data.get('door1_name', 'Door 1')
         door2_name = data.get('door2_name', 'Door 2')
-        
+
         logger.info(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
-        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
-        existing = cursor.fetchone()
-        
-        if existing:
-            logger.info(f"  ℹ️  Board already adopted: {board_ip}")
-            return jsonify({'success': True, 'message': 'Board already registered'})
-        
-        cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
-        pending = cursor.fetchone()
-        
-        if pending:
+
+        # STEP 1: Check if this MAC is already adopted (board with new IP)
+        cursor.execute('SELECT id, ip_address, name FROM boards WHERE mac_address = ?', (mac_address,))
+        existing_board = cursor.fetchone()
+
+        if existing_board:
+            old_ip = existing_board['ip_address']
+            if old_ip != board_ip:
+                # Board got a new IP - update it!
+                cursor.execute('''
+                    UPDATE boards
+                    SET ip_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
+                    WHERE mac_address = ?
+                ''', (board_ip, mac_address))
+                conn.commit()
+                logger.info(f"  🔄 Board '{existing_board['name']}' IP updated: {old_ip} → {board_ip}")
+                return jsonify({
+                    'success': True,
+                    'message': f'Board IP updated from {old_ip} to {board_ip}'
+                })
+            else:
+                logger.info(f"  ℹ️  Board already adopted: {board_ip} (MAC: {mac_address})")
+                return jsonify({'success': True, 'message': 'Board already registered'})
+
+        # STEP 1.5: Check if this is a legacy board (adopted before MAC tracking)
+        # Look for board by IP that doesn't have MAC set yet
+        cursor.execute('SELECT id, name FROM boards WHERE ip_address = ? AND (mac_address IS NULL OR mac_address = "")', (board_ip,))
+        legacy_board = cursor.fetchone()
+
+        if legacy_board:
+            # Update legacy board with its MAC address
             cursor.execute('''
-                UPDATE pending_boards 
-                SET last_seen = CURRENT_TIMESTAMP,
+                UPDATE boards
+                SET mac_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
+                WHERE id = ?
+            ''', (mac_address, legacy_board['id']))
+            conn.commit()
+            logger.info(f"  🔧 Legacy board '{legacy_board['name']}' updated with MAC: {mac_address}")
+            return jsonify({
+                'success': True,
+                'message': f'Board MAC address recorded: {mac_address}'
+            })
+
+        # STEP 2: Check if MAC is in pending_boards
+        cursor.execute('SELECT id FROM pending_boards WHERE mac_address = ?', (mac_address,))
+        pending = cursor.fetchone()
+
+        if pending:
+            # Update pending board with new IP and info
+            cursor.execute('''
+                UPDATE pending_boards
+                SET ip_address = ?,
+                    last_seen = CURRENT_TIMESTAMP,
                     board_name = ?,
                     door1_name = ?,
                     door2_name = ?
-                WHERE ip_address = ?
-            ''', (board_name, door1_name, door2_name, board_ip))
-            logger.info(f"  🔄 Updated pending board: {board_ip}")
+                WHERE mac_address = ?
+            ''', (board_ip, board_name, door1_name, door2_name, mac_address))
+            logger.info(f"  🔄 Updated pending board: {mac_address} (IP: {board_ip})")
         else:
+            # STEP 3: New board - add to pending
             cursor.execute('''
                 INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
                 VALUES (?, ?, ?, ?, ?)
             ''', (board_ip, mac_address, board_name, door1_name, door2_name))
-            logger.info(f"  ✅ New board added to pending: {board_ip}")
-        
+            logger.info(f"  ✅ New board added to pending: {mac_address} (IP: {board_ip})")
+
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'message': 'Board announcement received - pending adoption'
         })
-        
+
     except Exception as e:
         logger.error(f"❌ Error processing board announcement: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2990,9 +3038,11 @@ def adopt_pending_board(pending_id):
         if not pending:
             return jsonify({'success': False, 'message': 'Pending board not found'}), 404
 
-        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
-        if cursor.fetchone():
-            return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
+        # Check by MAC address (primary identifier) instead of IP
+        cursor.execute('SELECT id, name FROM boards WHERE mac_address = ?', (pending['mac_address'],))
+        existing = cursor.fetchone()
+        if existing:
+            return jsonify({'success': False, 'message': f"Board with this MAC already exists as '{existing['name']}'"}), 400
 
         # Get controller settings from request body or use defaults
         data = request.json or {}
@@ -3029,9 +3079,9 @@ def adopt_pending_board(pending_id):
             controller_port = int(controller_port)
 
         cursor.execute('''
-            INSERT INTO boards (name, ip_address, door1_name, door2_name)
-            VALUES (?, ?, ?, ?)
-        ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
+            INSERT INTO boards (name, ip_address, mac_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (pending['board_name'], pending['ip_address'], pending['mac_address'], pending['door1_name'], pending['door2_name']))
 
         board_id = cursor.lastrowid
 
