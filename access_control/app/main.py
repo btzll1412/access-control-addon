@@ -512,6 +512,14 @@ def upgrade_database():
             logger.info("🔧 Adding unlock_duration column to doors")
             cursor.execute("ALTER TABLE doors ADD COLUMN unlock_duration INTEGER DEFAULT 3000")
 
+        # Check if mac_address column exists in boards table
+        cursor.execute("PRAGMA table_info(boards)")
+        board_columns = [col[1] for col in cursor.fetchall()]
+
+        if 'mac_address' not in board_columns:
+            logger.info("🔧 Adding mac_address column to boards")
+            cursor.execute("ALTER TABLE boards ADD COLUMN mac_address TEXT UNIQUE")
+
         conn.commit()
         logger.info("✅ Database upgrade complete")
     except Exception as e:
@@ -532,7 +540,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            ip_address TEXT NOT NULL UNIQUE,
+            ip_address TEXT NOT NULL,
+            mac_address TEXT UNIQUE,
             door1_name TEXT NOT NULL,
             door2_name TEXT NOT NULL,
             online BOOLEAN DEFAULT 0,
@@ -2369,7 +2378,7 @@ def heartbeat():
 
 @app.route('/api/board-announce', methods=['POST'])
 def board_announce():
-    """Board announces itself - stores in pending_boards table"""
+    """Board announces itself - identifies by MAC address to handle IP changes"""
     conn = None
     try:
         data = request.json
@@ -2378,46 +2387,85 @@ def board_announce():
         board_name = data.get('board_name', 'Unknown Board')
         door1_name = data.get('door1_name', 'Door 1')
         door2_name = data.get('door2_name', 'Door 2')
-        
+
         logger.info(f"📢 Board announced: {board_name} at {board_ip} (MAC: {mac_address})")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
-        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (board_ip,))
-        existing = cursor.fetchone()
-        
-        if existing:
-            logger.info(f"  ℹ️  Board already adopted: {board_ip}")
-            return jsonify({'success': True, 'message': 'Board already registered'})
-        
-        cursor.execute('SELECT id FROM pending_boards WHERE ip_address = ?', (board_ip,))
-        pending = cursor.fetchone()
-        
-        if pending:
+
+        # STEP 1: Check if this MAC is already adopted (board with new IP)
+        cursor.execute('SELECT id, ip_address, name FROM boards WHERE mac_address = ?', (mac_address,))
+        existing_board = cursor.fetchone()
+
+        if existing_board:
+            old_ip = existing_board['ip_address']
+            if old_ip != board_ip:
+                # Board got a new IP - update it!
+                cursor.execute('''
+                    UPDATE boards
+                    SET ip_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
+                    WHERE mac_address = ?
+                ''', (board_ip, mac_address))
+                conn.commit()
+                logger.info(f"  🔄 Board '{existing_board['name']}' IP updated: {old_ip} → {board_ip}")
+                return jsonify({
+                    'success': True,
+                    'message': f'Board IP updated from {old_ip} to {board_ip}'
+                })
+            else:
+                logger.info(f"  ℹ️  Board already adopted: {board_ip} (MAC: {mac_address})")
+                return jsonify({'success': True, 'message': 'Board already registered'})
+
+        # STEP 1.5: Check if this is a legacy board (adopted before MAC tracking)
+        # Look for board by IP that doesn't have MAC set yet
+        cursor.execute('SELECT id, name FROM boards WHERE ip_address = ? AND (mac_address IS NULL OR mac_address = "")', (board_ip,))
+        legacy_board = cursor.fetchone()
+
+        if legacy_board:
+            # Update legacy board with its MAC address
             cursor.execute('''
-                UPDATE pending_boards 
-                SET last_seen = CURRENT_TIMESTAMP,
+                UPDATE boards
+                SET mac_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
+                WHERE id = ?
+            ''', (mac_address, legacy_board['id']))
+            conn.commit()
+            logger.info(f"  🔧 Legacy board '{legacy_board['name']}' updated with MAC: {mac_address}")
+            return jsonify({
+                'success': True,
+                'message': f'Board MAC address recorded: {mac_address}'
+            })
+
+        # STEP 2: Check if MAC is in pending_boards
+        cursor.execute('SELECT id FROM pending_boards WHERE mac_address = ?', (mac_address,))
+        pending = cursor.fetchone()
+
+        if pending:
+            # Update pending board with new IP and info
+            cursor.execute('''
+                UPDATE pending_boards
+                SET ip_address = ?,
+                    last_seen = CURRENT_TIMESTAMP,
                     board_name = ?,
                     door1_name = ?,
                     door2_name = ?
-                WHERE ip_address = ?
-            ''', (board_name, door1_name, door2_name, board_ip))
-            logger.info(f"  🔄 Updated pending board: {board_ip}")
+                WHERE mac_address = ?
+            ''', (board_ip, board_name, door1_name, door2_name, mac_address))
+            logger.info(f"  🔄 Updated pending board: {mac_address} (IP: {board_ip})")
         else:
+            # STEP 3: New board - add to pending
             cursor.execute('''
                 INSERT INTO pending_boards (ip_address, mac_address, board_name, door1_name, door2_name)
                 VALUES (?, ?, ?, ?, ?)
             ''', (board_ip, mac_address, board_name, door1_name, door2_name))
-            logger.info(f"  ✅ New board added to pending: {board_ip}")
-        
+            logger.info(f"  ✅ New board added to pending: {mac_address} (IP: {board_ip})")
+
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'message': 'Board announcement received - pending adoption'
         })
-        
+
     except Exception as e:
         logger.error(f"❌ Error processing board announcement: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2990,9 +3038,11 @@ def adopt_pending_board(pending_id):
         if not pending:
             return jsonify({'success': False, 'message': 'Pending board not found'}), 404
 
-        cursor.execute('SELECT id FROM boards WHERE ip_address = ?', (pending['ip_address'],))
-        if cursor.fetchone():
-            return jsonify({'success': False, 'message': 'Board with this IP already exists'}), 400
+        # Check by MAC address (primary identifier) instead of IP
+        cursor.execute('SELECT id, name FROM boards WHERE mac_address = ?', (pending['mac_address'],))
+        existing = cursor.fetchone()
+        if existing:
+            return jsonify({'success': False, 'message': f"Board with this MAC already exists as '{existing['name']}'"}), 400
 
         # Get controller settings from request body or use defaults
         data = request.json or {}
@@ -3029,9 +3079,9 @@ def adopt_pending_board(pending_id):
             controller_port = int(controller_port)
 
         cursor.execute('''
-            INSERT INTO boards (name, ip_address, door1_name, door2_name)
-            VALUES (?, ?, ?, ?)
-        ''', (pending['board_name'], pending['ip_address'], pending['door1_name'], pending['door2_name']))
+            INSERT INTO boards (name, ip_address, mac_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (pending['board_name'], pending['ip_address'], pending['mac_address'], pending['door1_name'], pending['door2_name']))
 
         board_id = cursor.lastrowid
 
@@ -4136,6 +4186,406 @@ def import_users_csv():
         if conn:
             conn.close()
 
+# ==================== SYSTEM BACKUP/RESTORE API ====================
+@app.route('/api/system/export', methods=['GET'])
+@login_required
+def export_system_backup():
+    """Export full system configuration to JSON file"""
+    logger.info("📦 Exporting full system backup")
+
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        backup_data = {
+            'version': '2.1',
+            'export_date': datetime.now().isoformat(),
+            'data': {}
+        }
+
+        # Export access groups
+        cursor.execute('SELECT * FROM access_groups')
+        backup_data['data']['access_groups'] = [dict(row) for row in cursor.fetchall()]
+
+        # Export users with their cards, pins, groups, and schedules
+        cursor.execute('SELECT * FROM users')
+        users = []
+        for user in cursor.fetchall():
+            user_dict = dict(user)
+
+            # Get user's cards
+            cursor.execute('SELECT card_number, card_format, active FROM user_cards WHERE user_id = ?', (user['id'],))
+            user_dict['cards'] = [dict(row) for row in cursor.fetchall()]
+
+            # Get user's pins
+            cursor.execute('SELECT pin, active FROM user_pins WHERE user_id = ?', (user['id'],))
+            user_dict['pins'] = [dict(row) for row in cursor.fetchall()]
+
+            # Get user's group memberships (by group name for portability)
+            cursor.execute('''
+                SELECT ag.name FROM access_groups ag
+                JOIN user_groups ug ON ag.id = ug.group_id
+                WHERE ug.user_id = ?
+            ''', (user['id'],))
+            user_dict['group_names'] = [row['name'] for row in cursor.fetchall()]
+
+            # Get user's schedule assignments (by schedule name for portability)
+            cursor.execute('''
+                SELECT s.name FROM access_schedules s
+                JOIN user_schedules us ON s.id = us.schedule_id
+                WHERE us.user_id = ?
+            ''', (user['id'],))
+            user_dict['schedule_names'] = [row['name'] for row in cursor.fetchall()]
+
+            users.append(user_dict)
+        backup_data['data']['users'] = users
+
+        # Export access schedules with their time slots
+        cursor.execute('SELECT * FROM access_schedules')
+        schedules = []
+        for schedule in cursor.fetchall():
+            schedule_dict = dict(schedule)
+
+            cursor.execute('SELECT day_of_week, start_time, end_time FROM schedule_times WHERE schedule_id = ?', (schedule['id'],))
+            schedule_dict['time_slots'] = [dict(row) for row in cursor.fetchall()]
+
+            schedules.append(schedule_dict)
+        backup_data['data']['access_schedules'] = schedules
+
+        # Export group-door assignments (by group name and door info for portability)
+        cursor.execute('''
+            SELECT ag.name as group_name, b.name as board_name, d.door_number, d.name as door_name
+            FROM group_doors gd
+            JOIN access_groups ag ON gd.group_id = ag.id
+            JOIN doors d ON gd.door_id = d.id
+            JOIN boards b ON d.board_id = b.id
+        ''')
+        backup_data['data']['group_door_assignments'] = [dict(row) for row in cursor.fetchall()]
+
+        # Export door schedules
+        cursor.execute('''
+            SELECT b.name as board_name, d.door_number, d.name as door_name,
+                   ds.day_of_week, ds.start_time, ds.end_time, ds.schedule_type, ds.priority, ds.active
+            FROM door_schedules ds
+            JOIN doors d ON ds.door_id = d.id
+            JOIN boards b ON d.board_id = b.id
+        ''')
+        backup_data['data']['door_schedules'] = [dict(row) for row in cursor.fetchall()]
+
+        # Export temp codes with their door/group assignments
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='temp_codes'")
+        if cursor.fetchone():
+            cursor.execute('SELECT * FROM temp_codes')
+            temp_codes = []
+            for tc in cursor.fetchall():
+                tc_dict = dict(tc)
+
+                # Get door assignments (by door name for portability)
+                cursor.execute('''
+                    SELECT b.name as board_name, d.door_number, d.name as door_name
+                    FROM temp_code_doors tcd
+                    JOIN doors d ON tcd.door_id = d.id
+                    JOIN boards b ON d.board_id = b.id
+                    WHERE tcd.temp_code_id = ?
+                ''', (tc['id'],))
+                tc_dict['door_assignments'] = [dict(row) for row in cursor.fetchall()]
+
+                # Get group assignments (by group name for portability)
+                cursor.execute('''
+                    SELECT ag.name FROM access_groups ag
+                    JOIN temp_code_groups tcg ON ag.id = tcg.group_id
+                    WHERE tcg.temp_code_id = ?
+                ''', (tc['id'],))
+                tc_dict['group_names'] = [row['name'] for row in cursor.fetchall()]
+
+                temp_codes.append(tc_dict)
+            backup_data['data']['temp_codes'] = temp_codes
+
+        # Export controller settings
+        cursor.execute('SELECT * FROM controller_settings WHERE id = 1')
+        settings = cursor.fetchone()
+        if settings:
+            backup_data['data']['controller_settings'] = dict(settings)
+
+        # Export boards configuration (for reference, IPs may change)
+        cursor.execute('SELECT name, door1_name, door2_name FROM boards')
+        backup_data['data']['boards_reference'] = [dict(row) for row in cursor.fetchall()]
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        from flask import Response
+        return Response(
+            json.dumps(backup_data, indent=2, default=str),
+            mimetype='application/json',
+            headers={'Content-Disposition': f'attachment; filename=system_backup_{timestamp}.json'}
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error exporting system backup: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/system/import', methods=['POST'])
+@login_required
+def import_system_backup():
+    """Import full system configuration from JSON file"""
+    logger.info("📦 Importing system backup")
+
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file provided'}), 400
+
+    file = request.files['file']
+    if not file.filename.endswith('.json'):
+        return jsonify({'success': False, 'message': 'File must be JSON format'}), 400
+
+    conn = None
+    try:
+        backup_data = json.load(file)
+
+        if 'data' not in backup_data:
+            return jsonify({'success': False, 'message': 'Invalid backup file format'}), 400
+
+        data = backup_data['data']
+        conn = get_db()
+        cursor = conn.cursor()
+
+        stats = {
+            'groups_imported': 0,
+            'users_imported': 0,
+            'schedules_imported': 0,
+            'temp_codes_imported': 0,
+            'door_schedules_imported': 0,
+            'errors': []
+        }
+
+        # Step 1: Import access groups
+        if 'access_groups' in data:
+            for group in data['access_groups']:
+                try:
+                    cursor.execute('SELECT id FROM access_groups WHERE name = ?', (group['name'],))
+                    existing = cursor.fetchone()
+                    if not existing:
+                        cursor.execute('''
+                            INSERT INTO access_groups (name, description, color)
+                            VALUES (?, ?, ?)
+                        ''', (group['name'], group.get('description', ''), group.get('color', '#6366f1')))
+                        stats['groups_imported'] += 1
+                except Exception as e:
+                    stats['errors'].append(f"Group '{group.get('name', 'unknown')}': {str(e)}")
+
+        # Step 2: Import access schedules
+        if 'access_schedules' in data:
+            for schedule in data['access_schedules']:
+                try:
+                    cursor.execute('SELECT id FROM access_schedules WHERE name = ?', (schedule['name'],))
+                    existing = cursor.fetchone()
+                    if not existing:
+                        cursor.execute('''
+                            INSERT INTO access_schedules (name, description, active)
+                            VALUES (?, ?, ?)
+                        ''', (schedule['name'], schedule.get('description', ''), schedule.get('active', 1)))
+                        schedule_id = cursor.lastrowid
+
+                        # Import time slots
+                        for slot in schedule.get('time_slots', []):
+                            cursor.execute('''
+                                INSERT INTO schedule_times (schedule_id, day_of_week, start_time, end_time)
+                                VALUES (?, ?, ?, ?)
+                            ''', (schedule_id, slot['day_of_week'], slot['start_time'], slot['end_time']))
+
+                        stats['schedules_imported'] += 1
+                except Exception as e:
+                    stats['errors'].append(f"Schedule '{schedule.get('name', 'unknown')}': {str(e)}")
+
+        # Step 3: Import users
+        if 'users' in data:
+            for user in data['users']:
+                try:
+                    cursor.execute('SELECT id FROM users WHERE name = ?', (user['name'],))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        user_id = existing['id']
+                        # Update existing user
+                        cursor.execute('''
+                            UPDATE users SET active = ?, valid_from = ?, valid_until = ?, notes = ?
+                            WHERE id = ?
+                        ''', (user.get('active', 1), user.get('valid_from'), user.get('valid_until'), user.get('notes', ''), user_id))
+                    else:
+                        # Create new user
+                        cursor.execute('''
+                            INSERT INTO users (name, active, valid_from, valid_until, notes)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (user['name'], user.get('active', 1), user.get('valid_from'), user.get('valid_until'), user.get('notes', '')))
+                        user_id = cursor.lastrowid
+                        stats['users_imported'] += 1
+
+                    # Clear and re-import cards
+                    cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
+                    for card in user.get('cards', []):
+                        card_num = card.get('card_number') or card  # Handle both dict and string formats
+                        if isinstance(card, dict):
+                            cursor.execute('''
+                                INSERT INTO user_cards (user_id, card_number, card_format, active)
+                                VALUES (?, ?, ?, ?)
+                            ''', (user_id, card['card_number'], card.get('card_format', 'wiegand26'), card.get('active', 1)))
+                        else:
+                            cursor.execute('''
+                                INSERT INTO user_cards (user_id, card_number, card_format, active)
+                                VALUES (?, ?, 'wiegand26', 1)
+                            ''', (user_id, card))
+
+                    # Clear and re-import pins
+                    cursor.execute('DELETE FROM user_pins WHERE user_id = ?', (user_id,))
+                    for pin in user.get('pins', []):
+                        if isinstance(pin, dict):
+                            cursor.execute('''
+                                INSERT INTO user_pins (user_id, pin, active)
+                                VALUES (?, ?, ?)
+                            ''', (user_id, pin['pin'], pin.get('active', 1)))
+                        else:
+                            cursor.execute('''
+                                INSERT INTO user_pins (user_id, pin, active)
+                                VALUES (?, ?, 1)
+                            ''', (user_id, pin))
+
+                    # Clear and re-import group memberships
+                    cursor.execute('DELETE FROM user_groups WHERE user_id = ?', (user_id,))
+                    for group_name in user.get('group_names', []):
+                        cursor.execute('SELECT id FROM access_groups WHERE name = ?', (group_name,))
+                        group = cursor.fetchone()
+                        if group:
+                            cursor.execute('INSERT INTO user_groups (user_id, group_id) VALUES (?, ?)', (user_id, group['id']))
+
+                    # Clear and re-import schedule assignments
+                    cursor.execute('DELETE FROM user_schedules WHERE user_id = ?', (user_id,))
+                    for schedule_name in user.get('schedule_names', []):
+                        cursor.execute('SELECT id FROM access_schedules WHERE name = ?', (schedule_name,))
+                        schedule = cursor.fetchone()
+                        if schedule:
+                            cursor.execute('INSERT INTO user_schedules (user_id, schedule_id) VALUES (?, ?)', (user_id, schedule['id']))
+
+                except Exception as e:
+                    stats['errors'].append(f"User '{user.get('name', 'unknown')}': {str(e)}")
+
+        # Step 4: Import group-door assignments (requires boards to be adopted first)
+        if 'group_door_assignments' in data:
+            for assignment in data['group_door_assignments']:
+                try:
+                    cursor.execute('SELECT id FROM access_groups WHERE name = ?', (assignment['group_name'],))
+                    group = cursor.fetchone()
+
+                    cursor.execute('''
+                        SELECT d.id FROM doors d
+                        JOIN boards b ON d.board_id = b.id
+                        WHERE b.name = ? AND d.door_number = ?
+                    ''', (assignment['board_name'], assignment['door_number']))
+                    door = cursor.fetchone()
+
+                    if group and door:
+                        cursor.execute('SELECT 1 FROM group_doors WHERE group_id = ? AND door_id = ?', (group['id'], door['id']))
+                        if not cursor.fetchone():
+                            cursor.execute('INSERT INTO group_doors (group_id, door_id) VALUES (?, ?)', (group['id'], door['id']))
+                except Exception as e:
+                    stats['errors'].append(f"Group-door assignment: {str(e)}")
+
+        # Step 5: Import door schedules (requires boards to be adopted first)
+        if 'door_schedules' in data:
+            for ds in data['door_schedules']:
+                try:
+                    cursor.execute('''
+                        SELECT d.id FROM doors d
+                        JOIN boards b ON d.board_id = b.id
+                        WHERE b.name = ? AND d.door_number = ?
+                    ''', (ds['board_name'], ds['door_number']))
+                    door = cursor.fetchone()
+
+                    if door:
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO door_schedules (door_id, day_of_week, start_time, end_time, schedule_type, priority, active)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (door['id'], ds['day_of_week'], ds['start_time'], ds['end_time'], ds['schedule_type'], ds.get('priority', 1), ds.get('active', 1)))
+                        stats['door_schedules_imported'] += 1
+                except Exception as e:
+                    stats['errors'].append(f"Door schedule: {str(e)}")
+
+        # Step 6: Import temp codes
+        if 'temp_codes' in data:
+            for tc in data['temp_codes']:
+                try:
+                    cursor.execute('SELECT id FROM temp_codes WHERE code = ?', (tc['code'],))
+                    existing = cursor.fetchone()
+
+                    if not existing:
+                        cursor.execute('''
+                            INSERT INTO temp_codes (name, code, active, usage_type, max_uses, current_uses,
+                                time_type, valid_hours, valid_from, valid_until, access_method, notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (tc['name'], tc['code'], tc.get('active', 1), tc.get('usage_type', 'unlimited'),
+                              tc.get('max_uses', 1), tc.get('current_uses', 0), tc.get('time_type', 'permanent'),
+                              tc.get('valid_hours'), tc.get('valid_from'), tc.get('valid_until'),
+                              tc.get('access_method', 'doors'), tc.get('notes', '')))
+                        tc_id = cursor.lastrowid
+
+                        # Import door assignments
+                        for door_assign in tc.get('door_assignments', []):
+                            cursor.execute('''
+                                SELECT d.id FROM doors d
+                                JOIN boards b ON d.board_id = b.id
+                                WHERE b.name = ? AND d.door_number = ?
+                            ''', (door_assign['board_name'], door_assign['door_number']))
+                            door = cursor.fetchone()
+                            if door:
+                                cursor.execute('INSERT INTO temp_code_doors (temp_code_id, door_id) VALUES (?, ?)', (tc_id, door['id']))
+
+                        # Import group assignments
+                        for group_name in tc.get('group_names', []):
+                            cursor.execute('SELECT id FROM access_groups WHERE name = ?', (group_name,))
+                            group = cursor.fetchone()
+                            if group:
+                                cursor.execute('INSERT INTO temp_code_groups (temp_code_id, group_id) VALUES (?, ?)', (tc_id, group['id']))
+
+                        stats['temp_codes_imported'] += 1
+                except Exception as e:
+                    stats['errors'].append(f"Temp code '{tc.get('name', 'unknown')}': {str(e)}")
+
+        # Step 7: Import controller settings
+        if 'controller_settings' in data:
+            settings = data['controller_settings']
+            cursor.execute('''
+                INSERT OR REPLACE INTO controller_settings (id, default_protocol, default_controller_address, default_controller_port)
+                VALUES (1, ?, ?, ?)
+            ''', (settings.get('default_protocol', 'http'), settings.get('default_controller_address', ''), settings.get('default_controller_port', 8100)))
+
+        conn.commit()
+
+        logger.info(f"✅ System import complete: {stats}")
+
+        return jsonify({
+            'success': True,
+            'message': 'System backup imported successfully',
+            'stats': stats
+        })
+
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON format: {e}")
+        return jsonify({'success': False, 'message': 'Invalid JSON format'}), 400
+    except Exception as e:
+        logger.error(f"❌ Error importing system backup: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # ==================== ACCESS GROUPS API ====================
 @app.route('/api/groups', methods=['GET'])
 @login_required
@@ -4908,12 +5358,52 @@ def validate_access():
         
         # STEP 3: Find user
         if credential_type == 'card':
+            # Helper function to normalize card number (strip leading zeros from facility code)
+            def normalize_card(card_num):
+                if ' ' not in card_num:
+                    return card_num
+                parts = card_num.split(' ', 1)
+                facility = parts[0].lstrip('0') or '0'  # Strip leading zeros, keep at least one digit
+                return f"{facility} {parts[1]}"
+
+            # First try exact match (e.g., "173 37764")
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
                 FROM users u
                 JOIN user_cards uc ON u.id = uc.user_id
                 WHERE uc.card_number = ? AND uc.active = 1
             ''', (credential,))
+
+            user = cursor.fetchone()
+
+            # If no exact match, try normalized match (handles leading zeros like "030" vs "30")
+            if not user and ' ' in credential:
+                normalized_credential = normalize_card(credential)
+                logger.info(f"  🔍 No exact match, trying normalized: {normalized_credential}")
+
+                # Get all active cards and compare normalized versions
+                cursor.execute('''
+                    SELECT u.id, u.name, u.active, u.valid_from, u.valid_until, uc.card_number
+                    FROM users u
+                    JOIN user_cards uc ON u.id = uc.user_id
+                    WHERE uc.active = 1
+                ''')
+                all_users = cursor.fetchall()
+
+                for potential_user in all_users:
+                    stored_card = potential_user['card_number']
+                    # Check normalized match (e.g., "030 33993" matches "30 33993")
+                    if normalize_card(stored_card) == normalized_credential:
+                        user = potential_user
+                        logger.info(f"  ✅ Found user by normalized match: {user['name']}")
+                        break
+                    # Also check card code only match (e.g., stored "33993" matches "30 33993")
+                    if ' ' not in stored_card:
+                        card_code_only = credential.split(' ', 1)[1]
+                        if stored_card == card_code_only:
+                            user = potential_user
+                            logger.info(f"  ✅ Found user by card code only: {user['name']}")
+                            break
         elif credential_type == 'pin':
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
@@ -4921,14 +5411,13 @@ def validate_access():
                 JOIN user_pins up ON u.id = up.user_id
                 WHERE up.pin = ? AND up.active = 1
             ''', (credential,))
+            user = cursor.fetchone()
         else:
             return jsonify({
                 'success': False,
                 'access_granted': False,
                 'reason': 'Invalid credential type'
             }), 400
-        
-        user = cursor.fetchone()
         
         if not user:
             cursor.execute('''

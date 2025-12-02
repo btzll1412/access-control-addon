@@ -1566,6 +1566,7 @@
             <button class="tab" onclick="showTab('emergency')">🚨 Emergency</button>
             <button class="tab" onclick="showTab('tempcodes')">🎫 Temp Codes</button>
             <button class="tab" onclick="showTab('logs')">📋 Logs</button>
+            <button class="tab" onclick="showTab('settings')">⚙️ Settings</button>
         </div>
 
         <!-- Tab: Boards -->
@@ -1906,6 +1907,98 @@
     </div>
 </div>
 
+        <!-- Tab: Settings -->
+        <div id="tab-settings" class="tab-content">
+            <div style="margin-bottom: 20px;">
+                <h2>System Settings</h2>
+            </div>
+
+            <!-- System Backup Section -->
+            <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #86efac;">
+                <div class="card-header" style="border-bottom: 1px solid #86efac;">
+                    <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">💾</span>
+                        <span>System Backup & Restore</span>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 20px;">
+                    <p style="color: #64748b; margin-bottom: 20px; font-size: 14px;">
+                        Export all system configuration (users, cards, PINs, groups, schedules, temp codes) to a JSON file.<br>
+                        Use this to backup your system before making changes, or to restore after rebuilding.
+                    </p>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <!-- Export Section -->
+                        <div style="padding: 20px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h4 style="margin-bottom: 15px; color: #059669;">📤 Export Backup</h4>
+                            <p style="font-size: 13px; color: #64748b; margin-bottom: 15px;">
+                                Download a complete backup of your system configuration.
+                            </p>
+                            <button class="btn btn-primary" onclick="exportSystemBackup()" style="width: 100%;">
+                                📦 Download System Backup
+                            </button>
+                        </div>
+
+                        <!-- Import Section -->
+                        <div style="padding: 20px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h4 style="margin-bottom: 15px; color: #0284c7;">📥 Restore Backup</h4>
+                            <p style="font-size: 13px; color: #64748b; margin-bottom: 15px;">
+                                Upload a backup file to restore your system configuration.
+                            </p>
+                            <input type="file" id="systemBackupFile" accept=".json" style="display: none;" onchange="importSystemBackup(this)">
+                            <button class="btn btn-secondary" onclick="document.getElementById('systemBackupFile').click()" style="width: 100%;">
+                                📂 Upload Backup File
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 20px; padding: 15px; background: #fef3c7; border-radius: 8px; border: 1px solid #fcd34d;">
+                        <strong style="color: #92400e;">⚠️ Important Notes:</strong>
+                        <ul style="margin: 10px 0 0 20px; color: #78350f; font-size: 13px;">
+                            <li>Door-specific settings (group assignments, door schedules) require boards to be adopted first with the <strong>same board names</strong></li>
+                            <li>Existing users with the same name will be updated with the imported data</li>
+                            <li>Access logs are NOT included in the backup (they are historical data)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backup Contents Info -->
+            <div class="card" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+                <div class="card-header">
+                    <div class="card-title">📋 What's Included in Backup</div>
+                </div>
+                <div class="card-body" style="padding: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>👥 Users</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Names, cards, PINs, validity dates, notes</p>
+                        </div>
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>🏢 Access Groups</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Group names, descriptions, door assignments</p>
+                        </div>
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>📅 Schedules</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">User time restrictions with all time slots</p>
+                        </div>
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>🚪 Door Schedules</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Auto-lock/unlock schedules per door</p>
+                        </div>
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>🎫 Temp Codes</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Temporary access codes with all settings</p>
+                        </div>
+                        <div style="padding: 10px; background: white; border-radius: 6px;">
+                            <strong>⚙️ Controller Settings</strong>
+                            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Default controller address configuration</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     <!-- ==================== MODALS ==================== -->
 
     <!-- Board Modal -->
@@ -1986,8 +2079,11 @@
 
                     <div class="form-group">
                         <label class="form-label">Card Numbers</label>
+                        <div class="form-help" style="margin-bottom: 10px;">
+                            Enter cards as "Facility Code + Card Code" (e.g., 173 37764) or just the "Card Code" (last 5 digits printed on card)
+                        </div>
                         <div id="userCards"></div>
-                        <button type="button" class="btn btn-secondary btn-small" 
+                        <button type="button" class="btn btn-secondary btn-small"
                                 onclick="addCardInput()" style="margin-top: 10px;">
                             ➕ Add Card
                         </button>
@@ -4443,16 +4539,37 @@ async function saveDoorSettings(event) {
                     document.getElementById('userValidUntil').value = user.valid_until || '';
                     document.getElementById('userNotes').value = user.notes || '';
 
-                    // Load cards
+                    // Load cards with new format
                     const cardsContainer = document.getElementById('userCards');
-                    cardsContainer.innerHTML = user.cards.map((card, index) => `
-                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                            <input type="text" class="form-input" value="${card.card_number}" 
-                                   placeholder="Card number" data-card-index="${index}">
-                            <button type="button" class="btn btn-danger btn-small" 
-                                    onclick="this.parentElement.remove()">×</button>
+                    cardsContainer.innerHTML = user.cards.map((card, index) => {
+                        const cardNumber = card.card_number || '';
+                        const parts = cardNumber.split(' ');
+                        const hasSpace = parts.length >= 2;
+                        const facility = hasSpace ? parts[0] : '';
+                        const cardCode = hasSpace ? parts.slice(1).join(' ') : cardNumber;
+                        const isCodeOnly = !hasSpace;
+                        const radioName = `cardFormat_edit_${index}_${Date.now()}`;
+
+                        return `
+                        <div class="card-entry" style="margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div style="display: flex; gap: 10px; margin-bottom: 8px; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                                    <input type="radio" name="${radioName}" value="full" ${!isCodeOnly ? 'checked' : ''} onchange="toggleCardFormat(this)">
+                                    Full (Facility + Card)
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                                    <input type="radio" name="${radioName}" value="code_only" ${isCodeOnly ? 'checked' : ''} onchange="toggleCardFormat(this)">
+                                    Card Code Only
+                                </label>
+                                <button type="button" class="btn btn-danger btn-small" onclick="this.closest('.card-entry').remove()" style="margin-left: auto;">×</button>
+                            </div>
+                            <div class="card-inputs" style="display: flex; gap: 10px;">
+                                <input type="text" class="form-input facility-input" placeholder="Facility (e.g., 173)" style="width: 120px; ${isCodeOnly ? 'display: none;' : ''}" value="${facility}">
+                                <input type="text" class="form-input card-code-input" placeholder="${isCodeOnly ? 'Card Code - last 5 digits (e.g., 37764)' : 'Card Code (e.g., 37764)'}" style="flex: 1;" value="${cardCode}">
+                            </div>
                         </div>
-                    `).join('');
+                        `;
+                    }).join('');
 
                     // Load PINs
                     const pinsContainer = document.getElementById('userPins');
@@ -4542,12 +4659,41 @@ async function saveDoorSettings(event) {
         function addCardInput() {
             const container = document.getElementById('userCards');
             const div = document.createElement('div');
-            div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            div.className = 'card-entry';
+            div.style.cssText = 'margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;';
             div.innerHTML = `
-                <input type="text" class="form-input" placeholder="Card number (e.g., 173 37764)">
-                <button type="button" class="btn btn-danger btn-small" onclick="this.parentElement.remove()">×</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 8px; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                        <input type="radio" name="cardFormat_${Date.now()}" value="full" checked onchange="toggleCardFormat(this)">
+                        Full (Facility + Card)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.9em;">
+                        <input type="radio" name="cardFormat_${Date.now()}" value="code_only" onchange="toggleCardFormat(this)">
+                        Card Code Only
+                    </label>
+                    <button type="button" class="btn btn-danger btn-small" onclick="this.closest('.card-entry').remove()" style="margin-left: auto;">×</button>
+                </div>
+                <div class="card-inputs" style="display: flex; gap: 10px;">
+                    <input type="text" class="form-input facility-input" placeholder="Facility (e.g., 173)" style="width: 120px;">
+                    <input type="text" class="form-input card-code-input" placeholder="Card Code (e.g., 37764)" style="flex: 1;">
+                </div>
             `;
             container.appendChild(div);
+        }
+
+        function toggleCardFormat(radio) {
+            const cardEntry = radio.closest('.card-entry');
+            const facilityInput = cardEntry.querySelector('.facility-input');
+            const cardCodeInput = cardEntry.querySelector('.card-code-input');
+
+            if (radio.value === 'code_only') {
+                facilityInput.style.display = 'none';
+                facilityInput.value = '';
+                cardCodeInput.placeholder = 'Card Code - last 5 digits (e.g., 37764)';
+            } else {
+                facilityInput.style.display = 'block';
+                cardCodeInput.placeholder = 'Card Code (e.g., 37764)';
+            }
         }
 
         function addPinInput() {
@@ -4566,10 +4712,23 @@ async function saveDoorSettings(event) {
 
             const userId = document.getElementById('userId').value;
 
-            // Collect cards
-            const cards = Array.from(document.querySelectorAll('#userCards input[type="text"]'))
-                .map(input => ({ number: input.value.trim() }))
-                .filter(card => card.number);
+            // Collect cards from new format
+            const cards = [];
+            document.querySelectorAll('#userCards .card-entry').forEach(entry => {
+                const facilityInput = entry.querySelector('.facility-input');
+                const cardCodeInput = entry.querySelector('.card-code-input');
+                const isCodeOnly = entry.querySelector('input[value="code_only"]')?.checked;
+
+                const facility = facilityInput?.value?.trim() || '';
+                const cardCode = cardCodeInput?.value?.trim() || '';
+
+                if (cardCode) {
+                    // If code_only mode or no facility entered, store just the card code
+                    // Otherwise store as "facility cardcode"
+                    const cardNumber = (isCodeOnly || !facility) ? cardCode : `${facility} ${cardCode}`;
+                    cards.push({ number: cardNumber });
+                }
+            });
 
             // Collect PINs
             const pins = Array.from(document.querySelectorAll('#userPins input[type="text"]'))
@@ -5225,6 +5384,68 @@ async function saveDoorSettings(event) {
             document.getElementById('filterSearch').value = '';
             document.getElementById('filterLimit').value = '100';
             loadLogs();
+        }
+
+        // ==================== SYSTEM BACKUP ====================
+        function exportSystemBackup() {
+            showToast('Preparing system backup...', 'info');
+            window.location.href = '/api/system/export';
+        }
+
+        async function importSystemBackup(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            if (!confirm('This will import the backup configuration.\n\nExisting users with the same name will be UPDATED.\nNew items will be ADDED.\n\nAre you sure you want to proceed?')) {
+                input.value = '';
+                return;
+            }
+
+            showToast('Importing system backup...', 'info');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/system/import', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    let message = 'Backup imported successfully!\\n\\n';
+                    message += `Groups: ${result.stats.groups_imported}\\n`;
+                    message += `Users: ${result.stats.users_imported}\\n`;
+                    message += `Schedules: ${result.stats.schedules_imported}\\n`;
+                    message += `Temp Codes: ${result.stats.temp_codes_imported}\\n`;
+                    message += `Door Schedules: ${result.stats.door_schedules_imported}`;
+
+                    if (result.stats.errors && result.stats.errors.length > 0) {
+                        message += `\\n\\nWarnings: ${result.stats.errors.length} items had issues`;
+                        console.log('Import warnings:', result.stats.errors);
+                    }
+
+                    alert(message);
+                    showToast('System backup imported successfully!', 'success');
+
+                    // Reload all data
+                    loadBoards();
+                    loadDoors();
+                    loadUsers();
+                    loadGroups();
+                    loadSchedules();
+                    loadTempCodes();
+                } else {
+                    showToast('Import failed: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Import error:', error);
+                showToast('Error importing backup: ' + error.message, 'error');
+            }
+
+            input.value = '';
         }
 
         // ==================== TOAST ====================
