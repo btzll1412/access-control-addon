@@ -4908,6 +4908,14 @@ def validate_access():
         
         # STEP 3: Find user
         if credential_type == 'card':
+            # Helper function to normalize card number (strip leading zeros from facility code)
+            def normalize_card(card_num):
+                if ' ' not in card_num:
+                    return card_num
+                parts = card_num.split(' ', 1)
+                facility = parts[0].lstrip('0') or '0'  # Strip leading zeros, keep at least one digit
+                return f"{facility} {parts[1]}"
+
             # First try exact match (e.g., "173 37764")
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
@@ -4918,20 +4926,34 @@ def validate_access():
 
             user = cursor.fetchone()
 
-            # If no exact match and credential contains space, try matching just the card code
-            # This supports cards stored as just the card code (last 5 digits)
+            # If no exact match, try normalized match (handles leading zeros like "030" vs "30")
             if not user and ' ' in credential:
-                card_code_only = credential.split(' ', 1)[1]  # Get everything after first space
-                logger.info(f"  🔍 No exact match, trying card code only: {card_code_only}")
+                normalized_credential = normalize_card(credential)
+                logger.info(f"  🔍 No exact match, trying normalized: {normalized_credential}")
+
+                # Get all active cards and compare normalized versions
                 cursor.execute('''
-                    SELECT u.id, u.name, u.active, u.valid_from, u.valid_until
+                    SELECT u.id, u.name, u.active, u.valid_from, u.valid_until, uc.card_number
                     FROM users u
                     JOIN user_cards uc ON u.id = uc.user_id
-                    WHERE uc.card_number = ? AND uc.active = 1
-                ''', (card_code_only,))
-                user = cursor.fetchone()
-                if user:
-                    logger.info(f"  ✅ Found user by card code only: {user['name']}")
+                    WHERE uc.active = 1
+                ''')
+                all_users = cursor.fetchall()
+
+                for potential_user in all_users:
+                    stored_card = potential_user['card_number']
+                    # Check normalized match (e.g., "030 33993" matches "30 33993")
+                    if normalize_card(stored_card) == normalized_credential:
+                        user = potential_user
+                        logger.info(f"  ✅ Found user by normalized match: {user['name']}")
+                        break
+                    # Also check card code only match (e.g., stored "33993" matches "30 33993")
+                    if ' ' not in stored_card:
+                        card_code_only = credential.split(' ', 1)[1]
+                        if stored_card == card_code_only:
+                            user = potential_user
+                            logger.info(f"  ✅ Found user by card code only: {user['name']}")
+                            break
         elif credential_type == 'pin':
             cursor.execute('''
                 SELECT u.id, u.name, u.active, u.valid_from, u.valid_until

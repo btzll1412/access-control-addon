@@ -1014,19 +1014,9 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
                 if (credType == "card") {
                     JsonArray cards = user["cards"];
                     for (JsonVariant card : cards) {
-                        String storedCard = card.as<String>();
-                        // Exact match first
-                        if (storedCard == credential) {
+                        if (cardNumbersMatch(card.as<String>(), credential)) {
                             credentialMatch = true;
                             break;
-                        }
-                        // If credential has space (facility + code), try matching just the card code
-                        if (credential.indexOf(' ') > 0) {
-                            String cardCodeOnly = credential.substring(credential.indexOf(' ') + 1);
-                            if (storedCard == cardCodeOnly) {
-                                credentialMatch = true;
-                                break;
-                            }
                         }
                     }
                 } else if (credType == "pin") {
@@ -1038,7 +1028,7 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
                         }
                     }
                 }
-                
+
                 if (credentialMatch) {
                     result.userName = user["name"].as<String>();
                     break;
@@ -1074,20 +1064,9 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
             if (credType == "card") {
                 JsonArray cards = user["cards"];
                 for (JsonVariant card : cards) {
-                    String storedCard = card.as<String>();
-                    // Exact match first
-                    if (storedCard == credential) {
+                    if (cardNumbersMatch(card.as<String>(), credential)) {
                         credentialMatch = true;
                         break;
-                    }
-                    // If credential has space (facility + code), try matching just the card code
-                    // This supports cards stored as just the card code (last 5 digits)
-                    if (credential.indexOf(' ') > 0) {
-                        String cardCodeOnly = credential.substring(credential.indexOf(' ') + 1);
-                        if (storedCard == cardCodeOnly) {
-                            credentialMatch = true;
-                            break;
-                        }
                     }
                 }
             } else if (credType == "pin") {
@@ -1099,7 +1078,7 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
                     }
                 }
             }
-            
+
             if (!credentialMatch) continue;
             
             result.userName = user["name"].as<String>();
@@ -1342,8 +1321,53 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
 String parseWiegand26(unsigned long value) {
     uint8_t facilityCode = (value >> 17) & 0xFF;
     uint16_t cardNumber = (value >> 1) & 0xFFFF;
-    
+
     return String(facilityCode) + " " + String(cardNumber);
+}
+
+// Normalize card number by stripping leading zeros from facility code
+// e.g., "030 33993" -> "30 33993", "007 12345" -> "7 12345"
+String normalizeCardNumber(const String& cardNum) {
+    int spaceIdx = cardNum.indexOf(' ');
+    if (spaceIdx <= 0) {
+        // No space found, return as-is (card code only)
+        return cardNum;
+    }
+
+    String facility = cardNum.substring(0, spaceIdx);
+    String cardCode = cardNum.substring(spaceIdx + 1);
+
+    // Strip leading zeros from facility code
+    while (facility.length() > 1 && facility.startsWith("0")) {
+        facility = facility.substring(1);
+    }
+
+    return facility + " " + cardCode;
+}
+
+// Check if two card numbers match (handles leading zeros in facility code)
+bool cardNumbersMatch(const String& stored, const String& credential) {
+    // Exact match first
+    if (stored == credential) {
+        return true;
+    }
+
+    // Try normalized match (strips leading zeros from facility code)
+    // e.g., stored "030 33993" matches credential "30 33993"
+    if (normalizeCardNumber(stored) == normalizeCardNumber(credential)) {
+        return true;
+    }
+
+    // If credential has space (facility + code), try matching just the card code
+    // This supports cards stored as just the card code (last 5 digits)
+    if (credential.indexOf(' ') > 0) {
+        String cardCodeOnly = credential.substring(credential.indexOf(' ') + 1);
+        if (stored == cardCodeOnly) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void processWiegandData(int doorNumber, WiegandData& wiegand) {
