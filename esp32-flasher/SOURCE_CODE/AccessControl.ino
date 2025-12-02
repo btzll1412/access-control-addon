@@ -1014,9 +1014,19 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
                 if (credType == "card") {
                     JsonArray cards = user["cards"];
                     for (JsonVariant card : cards) {
-                        if (card.as<String>() == credential) {
+                        String storedCard = card.as<String>();
+                        // Exact match first
+                        if (storedCard == credential) {
                             credentialMatch = true;
                             break;
+                        }
+                        // If credential has space (facility + code), try matching just the card code
+                        if (credential.indexOf(' ') > 0) {
+                            String cardCodeOnly = credential.substring(credential.indexOf(' ') + 1);
+                            if (storedCard == cardCodeOnly) {
+                                credentialMatch = true;
+                                break;
+                            }
                         }
                     }
                 } else if (credType == "pin") {
@@ -1064,9 +1074,20 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
             if (credType == "card") {
                 JsonArray cards = user["cards"];
                 for (JsonVariant card : cards) {
-                    if (card.as<String>() == credential) {
+                    String storedCard = card.as<String>();
+                    // Exact match first
+                    if (storedCard == credential) {
                         credentialMatch = true;
                         break;
+                    }
+                    // If credential has space (facility + code), try matching just the card code
+                    // This supports cards stored as just the card code (last 5 digits)
+                    if (credential.indexOf(' ') > 0) {
+                        String cardCodeOnly = credential.substring(credential.indexOf(' ') + 1);
+                        if (storedCard == cardCodeOnly) {
+                            credentialMatch = true;
+                            break;
+                        }
                     }
                 }
             } else if (credType == "pin") {
