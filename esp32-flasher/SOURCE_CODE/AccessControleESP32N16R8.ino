@@ -160,8 +160,17 @@ struct BoardConfig {
     String wifiPassword;
     bool configured;
     String macAddress;
+
+    // Static IP configuration
+    bool useStaticIP;      // true = static, false = DHCP
+    String staticIP;       // Static IP address
+    String gateway;        // Gateway address
+    String subnet;         // Subnet mask
+    String dns;            // DNS server
+
+    // Emergency mode
     String emergencyMode;  // "lock", "unlock", or ""
-    unsigned long emergencyAutoResetAt;
+    unsigned long emergencyAutoResetAt;  // millis() when to auto-reset
 };
 
 // ===============================================================
@@ -503,58 +512,76 @@ String getTimestamp() {
 
 void loadConfig() {
     addLiveLog("📂 Loading configuration...");
-    
+
     preferences.begin("access-ctrl", false);
-    
+
     config.boardName = preferences.getString("boardName", "Unconfigured Board");
     config.controllerIP = preferences.getString("controllerIP", "");
     config.controllerPort = preferences.getInt("controllerPort", 8100);
     config.wifiSSID = preferences.getString("wifiSSID", "");
     config.wifiPassword = preferences.getString("wifiPass", "");
     config.configured = preferences.getBool("configured", false);
-    
+
+    // Static IP configuration (default to DHCP)
+    config.useStaticIP = preferences.getBool("useStaticIP", false);
+    config.staticIP = preferences.getString("staticIP", "");
+    config.gateway = preferences.getString("gateway", "");
+    config.subnet = preferences.getString("subnet", "255.255.255.0");
+    config.dns = preferences.getString("dns", "8.8.8.8");
+
     // Emergency mode is NOT saved - always starts in normal mode
     config.emergencyMode = "";
     config.emergencyAutoResetAt = 0;
-    
+
     doors[0].name = preferences.getString("door1Name", "Door 1");
     doors[0].unlockDuration = preferences.getInt("door1Unlock", DEFAULT_UNLOCK_DURATION);
     doors[0].emergencyOverride = "";
     doors[0].currentScheduleMode = "controlled";
     doors[0].scheduledUnlock = false;
-    
+
     doors[1].name = preferences.getString("door2Name", "Door 2");
     doors[1].unlockDuration = preferences.getInt("door2Unlock", DEFAULT_UNLOCK_DURATION);
     doors[1].emergencyOverride = "";
     doors[1].currentScheduleMode = "controlled";
     doors[1].scheduledUnlock = false;
-    
+
     preferences.end();
-    
+
     addLiveLog("  Board: " + config.boardName);
     addLiveLog("  Controller: " + config.controllerIP + ":" + String(config.controllerPort));
+    addLiveLog("  IP Mode: " + String(config.useStaticIP ? "Static" : "DHCP"));
+    if (config.useStaticIP) {
+        addLiveLog("  Static IP: " + config.staticIP);
+    }
 }
 
 void saveConfig() {
     addLiveLog("💾 Saving configuration...");
-    
+
     preferences.begin("access-ctrl", false);
-    
+
     preferences.putString("boardName", config.boardName);
     preferences.putString("controllerIP", config.controllerIP);
     preferences.putInt("controllerPort", config.controllerPort);
     preferences.putString("wifiSSID", config.wifiSSID);
     preferences.putString("wifiPass", config.wifiPassword);
     preferences.putBool("configured", config.configured);
-    
+
+    // Static IP configuration
+    preferences.putBool("useStaticIP", config.useStaticIP);
+    preferences.putString("staticIP", config.staticIP);
+    preferences.putString("gateway", config.gateway);
+    preferences.putString("subnet", config.subnet);
+    preferences.putString("dns", config.dns);
+
     preferences.putString("door1Name", doors[0].name);
     preferences.putInt("door1Unlock", doors[0].unlockDuration);
-    
+
     preferences.putString("door2Name", doors[1].name);
     preferences.putInt("door2Unlock", doors[1].unlockDuration);
-    
+
     preferences.end();
-    
+
     addLiveLog("  ✅ Configuration saved");
 }
 
@@ -793,26 +820,61 @@ void startWiFiManager() {
         html += ".container{background:white;padding:30px;border-radius:10px;max-width:500px;margin:auto}";
         html += "h1{color:#333}input,select{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}";
         html += "button{background:#4CAF50;color:white;padding:15px;border:none;border-radius:5px;cursor:pointer;width:100%;font-size:16px}";
-        html += "button:hover{background:#45a049}</style></head><body>";
+        html += "button:hover{background:#45a049}";
+        html += ".ip-section{background:#f9f9f9;padding:15px;border-radius:5px;margin:15px 0;display:none}";
+        html += ".ip-section.show{display:block}";
+        html += ".radio-group{margin:15px 0}";
+        html += ".radio-group label{display:inline-block;margin-right:20px;cursor:pointer}";
+        html += "</style>";
+        html += "<script>";
+        html += "function toggleIPSection(){";
+        html += "  var isStatic=document.getElementById('ipStatic').checked;";
+        html += "  document.getElementById('staticIPSection').className=isStatic?'ip-section show':'ip-section';";
+        html += "}";
+        html += "</script></head><body>";
         html += "<div class='container'><h1>🔐 Access Control Setup</h1>";
         html += "<form action='/save' method='POST'>";
         html += "<label>WiFi Network:</label><input name='ssid' required placeholder='Your WiFi SSID'>";
         html += "<label>WiFi Password:</label><input name='pass' type='password' required placeholder='WiFi Password'>";
         html += "<label>Board Name:</label><input name='board' required placeholder='e.g., Main Office'>";
         html += "<label>Controller IP:</label><input name='controller' placeholder='e.g., 192.168.1.100 (optional)'>";
+        html += "<hr style='margin:20px 0'>";
+        html += "<label style='font-weight:bold'>IP Configuration:</label>";
+        html += "<div class='radio-group'>";
+        html += "<label><input type='radio' name='ipMode' value='dhcp' id='ipDHCP' checked onclick='toggleIPSection()'> DHCP (Automatic)</label>";
+        html += "<label><input type='radio' name='ipMode' value='static' id='ipStatic' onclick='toggleIPSection()'> Static IP</label>";
+        html += "</div>";
+        html += "<div id='staticIPSection' class='ip-section'>";
+        html += "<label>Static IP Address:</label><input name='staticIP' placeholder='e.g., 192.168.1.50'>";
+        html += "<label>Gateway:</label><input name='gateway' placeholder='e.g., 192.168.1.1'>";
+        html += "<label>Subnet Mask:</label><input name='subnet' value='255.255.255.0' placeholder='255.255.255.0'>";
+        html += "<label>DNS Server:</label><input name='dns' value='8.8.8.8' placeholder='8.8.8.8'>";
+        html += "</div>";
         html += "<button type='submit'>💾 Save & Connect</button>";
         html += "</form></div></body></html>";
-        
+
         server.send(200, "text/html", html);
     });
-    
+
     server.on("/save", HTTP_POST, []() {
         config.wifiSSID = server.arg("ssid");
         config.wifiPassword = server.arg("pass");
         config.boardName = server.arg("board");
         config.controllerIP = server.arg("controller");
         config.configured = true;
-        
+
+        // Static IP configuration
+        String ipMode = server.arg("ipMode");
+        config.useStaticIP = (ipMode == "static");
+        if (config.useStaticIP) {
+            config.staticIP = server.arg("staticIP");
+            config.gateway = server.arg("gateway");
+            config.subnet = server.arg("subnet");
+            config.dns = server.arg("dns");
+            if (config.subnet.length() == 0) config.subnet = "255.255.255.0";
+            if (config.dns.length() == 0) config.dns = "8.8.8.8";
+        }
+
         saveConfig();
         
         String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='10;url=/'>";
@@ -844,32 +906,60 @@ bool connectWiFi() {
         addLiveLog("⚠️  No WiFi configured");
         return false;
     }
-    
+
     addLiveLog("📡 Connecting to WiFi: " + config.wifiSSID);
+
+    // Disconnect any previous connection first
+    WiFi.disconnect(true);
+    delay(100);
+
     WiFi.mode(WIFI_STA);
+
+    // Apply static IP configuration if enabled
+    if (config.useStaticIP && config.staticIP.length() > 0) {
+        addLiveLog("🔧 Using Static IP: " + config.staticIP);
+
+        IPAddress ip, gateway, subnet, dns;
+        if (ip.fromString(config.staticIP) &&
+            gateway.fromString(config.gateway) &&
+            subnet.fromString(config.subnet) &&
+            dns.fromString(config.dns)) {
+
+            if (!WiFi.config(ip, gateway, subnet, dns)) {
+                addLiveLog("⚠️  Static IP config failed, using DHCP");
+            }
+        } else {
+            addLiveLog("⚠️  Invalid IP addresses, using DHCP");
+        }
+    } else {
+        addLiveLog("🔧 Using DHCP");
+    }
+
     WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
-    
+
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-        delay(1000);
+    int maxAttempts = config.useStaticIP ? 20 : 30;  // Faster timeout for static IP
+
+    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+        delay(500);  // Reduced delay for faster connection
         Serial.print(".");
-        blinkLED(1);
+        if (attempts % 2 == 0) blinkLED(1);  // Blink less frequently
         attempts++;
     }
-    
+
     if (WiFi.status() == WL_CONNECTED) {
         addLiveLog("✅ WiFi connected!");
         addLiveLog("📍 IP Address: " + WiFi.localIP().toString());
-        
+
         config.macAddress = WiFi.macAddress();
         addLiveLog("🔖 MAC Address: " + config.macAddress);
-        
+
         configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-        
+
         return true;
     }
-    
-    addLiveLog("❌ WiFi connection failed");
+
+    addLiveLog("❌ WiFi connection failed after " + String(attempts) + " attempts");
     return false;
 }
 
@@ -1837,57 +1927,159 @@ void setupWebInterface() {
     // Configuration page
     server.on("/config", HTTP_GET, []() {
         if (!checkAuth()) return;
-        
+
+        String dhcpChecked = config.useStaticIP ? "" : "checked";
+        String staticChecked = config.useStaticIP ? "checked" : "";
+        String staticDisplay = config.useStaticIP ? "block" : "none";
+
         String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
         html += "<style>body{font-family:Arial;margin:20px;background:#f0f0f0}";
         html += ".container{background:white;padding:30px;border-radius:10px;max-width:600px;margin:auto}";
         html += "h1{color:#333}input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}";
         html += "button{background:#4CAF50;color:white;padding:15px;border:none;border-radius:5px;cursor:pointer;width:100%;font-size:16px}";
-        html += "button:hover{background:#45a049}label{font-weight:bold}</style></head><body>";
+        html += "button:hover{background:#45a049}label{font-weight:bold}";
+        html += ".section{background:#f9f9f9;padding:15px;border-radius:5px;margin:15px 0}";
+        html += ".section h3{margin-top:0;color:#666}";
+        html += ".radio-group{margin:10px 0}";
+        html += ".radio-group label{display:inline-block;margin-right:20px;font-weight:normal;cursor:pointer}";
+        html += "#staticIPSection{display:" + staticDisplay + "}";
+        html += ".info{background:#e3f2fd;padding:10px;border-radius:5px;margin:10px 0;font-size:13px;color:#1565c0}";
+        html += "</style>";
+        html += "<script>";
+        html += "function toggleIPSection(){";
+        html += "  var isStatic=document.getElementById('ipStatic').checked;";
+        html += "  document.getElementById('staticIPSection').style.display=isStatic?'block':'none';";
+        html += "}";
+        html += "</script></head><body>";
         html += "<div class='container'><h1>⚙️ Board Configuration</h1>";
         html += "<form action='/save-config' method='POST'>";
         html += "<label>Board Name:</label><input name='boardName' value='" + config.boardName + "' required>";
         html += "<label>Controller IP:</label><input name='controllerIP' value='" + config.controllerIP + "' placeholder='192.168.1.100'>";
         html += "<label>Controller Port:</label><input name='controllerPort' type='number' value='" + String(config.controllerPort) + "'>";
+
+        // Door settings
+        html += "<div class='section'><h3>Door Settings</h3>";
         html += "<label>Door 1 Name:</label><input name='door1Name' value='" + doors[0].name + "'>";
         html += "<label>Door 1 Unlock (ms):</label><input name='door1Unlock' type='number' value='" + String(doors[0].unlockDuration) + "'>";
         html += "<label>Door 2 Name:</label><input name='door2Name' value='" + doors[1].name + "'>";
         html += "<label>Door 2 Unlock (ms):</label><input name='door2Unlock' type='number' value='" + String(doors[1].unlockDuration) + "'>";
+        html += "</div>";
+
+        // Network settings
+        html += "<div class='section'><h3>Network Settings</h3>";
+        html += "<label>IP Configuration:</label>";
+        html += "<div class='radio-group'>";
+        html += "<label><input type='radio' name='ipMode' value='dhcp' id='ipDHCP' " + dhcpChecked + " onclick='toggleIPSection()'> DHCP (Automatic)</label>";
+        html += "<label><input type='radio' name='ipMode' value='static' id='ipStatic' " + staticChecked + " onclick='toggleIPSection()'> Static IP</label>";
+        html += "</div>";
+        html += "<div id='staticIPSection'>";
+        html += "<label>Static IP Address:</label><input name='staticIP' value='" + config.staticIP + "' placeholder='e.g., 192.168.1.50'>";
+        html += "<label>Gateway:</label><input name='gateway' value='" + config.gateway + "' placeholder='e.g., 192.168.1.1'>";
+        html += "<label>Subnet Mask:</label><input name='subnet' value='" + (config.subnet.length() > 0 ? config.subnet : "255.255.255.0") + "'>";
+        html += "<label>DNS Server:</label><input name='dns' value='" + (config.dns.length() > 0 ? config.dns : "8.8.8.8") + "'>";
+        html += "</div>";
+        html += "<div class='info'>Current IP: " + WiFi.localIP().toString() + " | MAC: " + config.macAddress + "</div>";
+        html += "</div>";
+
         html += "<button type='submit'>💾 Save Configuration</button>";
         html += "</form>";
         html += "<br><button onclick=\"location.href='/'\">← Back</button>";
+        html += "<button onclick=\"if(confirm('Reset WiFi settings and restart in AP mode?'))location.href='/reset-wifi'\" style='background:#f44336;margin-top:10px'>Reset WiFi Settings</button>";
         html += "</div></body></html>";
-        
+
         server.send(200, "text/html", html);
     });
     
     // Save configuration
     server.on("/save-config", HTTP_POST, []() {
         if (!checkAuth()) return;
-        
+
         config.boardName = server.arg("boardName");
         config.controllerIP = server.arg("controllerIP");
         config.controllerPort = server.arg("controllerPort").toInt();
-        
+
         doors[0].name = server.arg("door1Name");
         doors[0].unlockDuration = server.arg("door1Unlock").toInt();
-        
+
         doors[1].name = server.arg("door2Name");
         doors[1].unlockDuration = server.arg("door2Unlock").toInt();
-        
+
+        // Static IP configuration
+        String ipMode = server.arg("ipMode");
+        bool previousStaticIP = config.useStaticIP;
+        String previousIP = config.staticIP;
+
+        config.useStaticIP = (ipMode == "static");
+        if (config.useStaticIP) {
+            config.staticIP = server.arg("staticIP");
+            config.gateway = server.arg("gateway");
+            config.subnet = server.arg("subnet");
+            config.dns = server.arg("dns");
+            if (config.subnet.length() == 0) config.subnet = "255.255.255.0";
+            if (config.dns.length() == 0) config.dns = "8.8.8.8";
+        }
+
         saveConfig();
-        
-        String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='3;url=/'></head><body style='text-align:center;padding:50px;font-family:Arial'>";
-        html += "<h1>✅ Configuration Saved!</h1><p>Redirecting...</p></body></html>";
-        
+
+        // Check if network settings changed (requires restart)
+        bool networkChanged = (previousStaticIP != config.useStaticIP) ||
+                              (config.useStaticIP && previousIP != config.staticIP);
+
+        String html = "<!DOCTYPE html><html><head>";
+        if (networkChanged) {
+            html += "<meta http-equiv='refresh' content='10;url=/'>";
+        } else {
+            html += "<meta http-equiv='refresh' content='3;url=/'>";
+        }
+        html += "</head><body style='text-align:center;padding:50px;font-family:Arial'>";
+        html += "<h1>✅ Configuration Saved!</h1>";
+        if (networkChanged) {
+            html += "<p>Network settings changed. Board will restart...</p>";
+        } else {
+            html += "<p>Redirecting...</p>";
+        }
+        html += "</body></html>";
+
         server.send(200, "text/html", html);
-        
+
         if (config.controllerIP.length() > 0) {
             delay(1000);
             announceToController();
         }
+
+        // Restart if network settings changed
+        if (networkChanged) {
+            delay(2000);
+            ESP.restart();
+        }
     });
-    
+
+    // Reset WiFi and restart in AP mode
+    server.on("/reset-wifi", HTTP_GET, []() {
+        if (!checkAuth()) return;
+
+        String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='5;url=http://192.168.4.1'></head>";
+        html += "<body style='text-align:center;padding:50px;font-family:Arial'>";
+        html += "<h1>🔄 Resetting WiFi...</h1>";
+        html += "<p>Board will restart in AP mode.</p>";
+        html += "<p>Connect to the AP and go to http://192.168.4.1</p>";
+        html += "</body></html>";
+
+        server.send(200, "text/html", html);
+
+        delay(2000);
+
+        // Clear WiFi credentials
+        preferences.begin("access-ctrl", false);
+        preferences.putString("wifiSSID", "");
+        preferences.putString("wifiPass", "");
+        preferences.putBool("configured", false);
+        preferences.putBool("useStaticIP", false);
+        preferences.end();
+
+        ESP.restart();
+    });
+
     // Manual unlock
     server.on("/unlock", HTTP_GET, []() {
         if (!checkAuth()) return;
@@ -2536,34 +2728,39 @@ loadConfig();
     
     door1Wiegand = &doors[0].wiegand;
     door2Wiegand = &doors[1].wiegand;
-    
-    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
-    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
-    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
-    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
-    
-    addLiveLog("✅ GPIO initialized");
-    
+
+    // NOTE: Wiegand interrupts are attached AFTER WiFi connection
+    // to prevent interference during WiFi negotiation
+    addLiveLog("✅ GPIO initialized (interrupts pending)");
+
     if (!config.configured || config.wifiSSID.length() == 0) {
         addLiveLog("⚠️  No WiFi configuration - starting setup portal");
         startWiFiManager();
     }
-    
+
     if (connectWiFi()) {
+        // Attach Wiegand interrupts AFTER WiFi is connected
+        // This prevents interference during WiFi negotiation
+        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
+        addLiveLog("✅ Wiegand interrupts attached");
+
         loadUsersDB();
         setupWebInterface();
-        
+
         if (config.controllerIP.length() > 0) {
             delay(2000);
             announceToController();
         }
-        
+
         sendHeartbeat();
-        
+
         addLiveLog("🔄 Performing initial schedule check...");
         delay(3000);
         updateDoorModesFromSchedule();
-        
+
     } else {
         addLiveLog("⚠️  WiFi connection failed - starting setup portal");
         startWiFiManager();
