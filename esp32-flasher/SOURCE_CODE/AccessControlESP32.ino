@@ -1980,11 +1980,53 @@ void setupWebInterface() {
         saveConfig();
         
         server.send(200, "application/json", "{\"success\":true}");
-        
+
         delay(1000);
         announceToController();
     });
-    
+
+    // API: Update board/door names from controller
+    server.on("/api/set-config", HTTP_POST, []() {
+        DynamicJsonDocument doc(512);
+        deserializeJson(doc, server.arg("plain"));
+
+        bool changed = false;
+
+        if (doc.containsKey("board_name")) {
+            String newName = doc["board_name"].as<String>();
+            if (newName.length() > 0 && newName != config.boardName) {
+                config.boardName = newName;
+                changed = true;
+                addLiveLog("📝 Board name updated: " + newName);
+            }
+        }
+
+        if (doc.containsKey("door1_name")) {
+            String newName = doc["door1_name"].as<String>();
+            if (newName.length() > 0 && newName != doors[0].name) {
+                doors[0].name = newName;
+                changed = true;
+                addLiveLog("📝 Door 1 name updated: " + newName);
+            }
+        }
+
+        if (doc.containsKey("door2_name")) {
+            String newName = doc["door2_name"].as<String>();
+            if (newName.length() > 0 && newName != doors[1].name) {
+                doors[1].name = newName;
+                changed = true;
+                addLiveLog("📝 Door 2 name updated: " + newName);
+            }
+        }
+
+        if (changed) {
+            saveConfig();
+            server.send(200, "application/json", "{\"success\":true,\"message\":\"Configuration updated\"}");
+        } else {
+            server.send(200, "application/json", "{\"success\":true,\"message\":\"No changes needed\"}");
+        }
+    });
+
     // API: Sync users database and door schedules
     server.on("/api/sync", HTTP_POST, []() {
         String jsonData = server.arg("plain");

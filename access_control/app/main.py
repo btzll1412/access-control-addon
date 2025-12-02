@@ -2170,37 +2170,66 @@ def create_board():
 @app.route('/api/boards/<int:board_id>', methods=['PUT'])
 @login_required
 def update_board(board_id):
-    """Update a board"""
+    """Update a board and sync names to ESP32"""
     conn = None
     try:
         data = request.json
         logger.info(f"✏️ Updating board ID {board_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # Get current board IP for syncing
+        cursor.execute('SELECT ip_address FROM boards WHERE id = ?', (board_id,))
+        board = cursor.fetchone()
+        board_ip = board['ip_address'] if board else data['ip_address']
+
         cursor.execute('''
-            UPDATE boards 
+            UPDATE boards
             SET name = ?, ip_address = ?, door1_name = ?, door2_name = ?
             WHERE id = ?
         ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name'], board_id))
-        
+
         cursor.execute('''
-            UPDATE doors 
+            UPDATE doors
             SET name = ?
             WHERE board_id = ? AND door_number = 1
         ''', (data['door1_name'], board_id))
-        
+
         cursor.execute('''
-            UPDATE doors 
+            UPDATE doors
             SET name = ?
             WHERE board_id = ? AND door_number = 2
         ''', (data['door2_name'], board_id))
-        
+
         conn.commit()
-        
+
+        # Push name changes to ESP32 board
+        sync_success = False
+        try:
+            import requests
+            esp_url = f"http://{data['ip_address']}/api/set-config"
+            config_data = {
+                'board_name': data['name'],
+                'door1_name': data['door1_name'],
+                'door2_name': data['door2_name']
+            }
+            response = requests.post(esp_url, json=config_data, timeout=5)
+            if response.status_code == 200:
+                sync_success = True
+                logger.info(f"✅ Names synced to ESP32 at {data['ip_address']}")
+            else:
+                logger.warning(f"⚠️ ESP32 sync returned status {response.status_code}")
+        except Exception as sync_error:
+            logger.warning(f"⚠️ Could not sync names to ESP32: {sync_error}")
+
         logger.info(f"✅ Board {board_id} updated")
-        return jsonify({'success': True, 'message': 'Board updated successfully'})
+        message = 'Board updated successfully'
+        if sync_success:
+            message += ' and synced to device'
+        else:
+            message += ' (device sync pending - will update on next reboot)'
+        return jsonify({'success': True, 'message': message})
     except Exception as e:
         logger.error(f"❌ Error updating board: {e}")
         if conn:
