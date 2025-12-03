@@ -2269,19 +2269,22 @@ if (syncDoc.containsKey("door_names")) {
     }
 }
 
-// ✅ NEW: Load unlock durations from sync
+// ✅ Load unlock durations from sync
 if (syncDoc.containsKey("unlock_durations")) {
     JsonObject durations = syncDoc["unlock_durations"];
-    
+
     if (durations.containsKey("door1")) {
-        door1UnlockDuration = durations["door1"].as<int>();
-        addLiveLog("⏱️ Door 1 unlock: " + String(door1UnlockDuration) + "ms");
+        doors[0].unlockDuration = durations["door1"].as<int>();
+        addLiveLog("⏱️ Door 1 unlock: " + String(doors[0].unlockDuration) + "ms");
     }
-    
+
     if (durations.containsKey("door2")) {
-        door2UnlockDuration = durations["door2"].as<int>();
-        addLiveLog("⏱️ Door 2 unlock: " + String(door2UnlockDuration) + "ms");
+        doors[1].unlockDuration = durations["door2"].as<int>();
+        addLiveLog("⏱️ Door 2 unlock: " + String(doors[1].unlockDuration) + "ms");
     }
+
+    // Save updated durations to flash
+    saveConfig();
 }
 
 // ✅ REPLACE OR ADD THIS SECTION
