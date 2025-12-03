@@ -518,7 +518,9 @@ def upgrade_database():
 
         if 'mac_address' not in board_columns:
             logger.info("🔧 Adding mac_address column to boards")
-            cursor.execute("ALTER TABLE boards ADD COLUMN mac_address TEXT UNIQUE")
+            cursor.execute("ALTER TABLE boards ADD COLUMN mac_address TEXT")
+            # Create unique index separately (SQLite doesn't allow UNIQUE in ALTER TABLE)
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_mac_address ON boards(mac_address)")
 
         conn.commit()
         logger.info("✅ Database upgrade complete")
