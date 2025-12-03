@@ -1304,15 +1304,13 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
     }
     
     // ===== CHECK REGULAR USERS =====
-    
+
     if (usersDB.containsKey("users")) {
         JsonArray users = usersDB["users"];
-        
+
         for (JsonObject user : users) {
-            if (!user["active"].as<bool>()) continue;
-            
             bool credentialMatch = false;
-            
+
             if (credType == "card") {
                 JsonArray cards = user["cards"];
                 for (JsonVariant card : cards) {
@@ -1332,26 +1330,33 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
             }
 
             if (!credentialMatch) continue;
-            
+
             result.userName = user["name"].as<String>();
-            
+
+            // Check if user is active FIRST
+            if (!user["active"].as<bool>()) {
+                result.reason = "User deactivated";
+                addLiveLog("  ❌ User DEACTIVATED: " + result.userName);
+                return result;
+            }
+
             // Check door access
             JsonArray doors_access = user["doors"];
             bool hasDoorAccess = false;
-            
+
             for (JsonVariant door : doors_access) {
                 if (door.as<int>() == doorNumber) {
                     hasDoorAccess = true;
                     break;
                 }
             }
-            
+
             if (!hasDoorAccess) {
                 result.reason = "No access to this door";
                 addLiveLog("  ❌ User found but NO ACCESS to door " + String(doorNumber));
                 return result;
             }
-            
+
             // ✅ NEW: Check user schedule (time restrictions)
             if (!checkUserSchedule(result.userName)) {
                 result.granted = false;
@@ -1359,16 +1364,16 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
                 addLiveLog("  ❌ User outside their allowed schedule");
                 return result;
             }
-            
+
             result.granted = true;
             result.reason = "Access granted";
             addLiveLog("  ✅ User validated: " + result.userName);
             return result;
         }
     }
-    
+
     // ===== ✅ NEW: CHECK TEMP CODES =====
-    
+
     if (credType == "pin" && tempCodesDB.containsKey("temp_codes")) {
         addLiveLog("  🎫 Checking temp codes...");
         
