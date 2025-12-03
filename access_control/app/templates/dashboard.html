@@ -1652,22 +1652,27 @@
         <div id="tab-users" class="tab-content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Users</h2>
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <!-- Search Box -->
+            <input type="text" id="userSearchInput" placeholder="🔍 Search users..."
+                   oninput="filterUsers(this.value)"
+                   style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; width: 200px;">
+
             <!-- CSV Import/Export Buttons -->
             <button class="btn btn-secondary btn-small" onclick="window.location.href='/api/users/template'">
                 📥 Download Template
             </button>
-            
-            <input type="file" accept=".csv" id="csvUpload" style="display: none;" 
+
+            <input type="file" accept=".csv" id="csvUpload" style="display: none;"
                    onchange="handleCSVUpload(this)">
             <button class="btn btn-success btn-small" onclick="document.getElementById('csvUpload').click()">
                 📤 Import CSV
             </button>
-            
+
             <button class="btn btn-warning btn-small" onclick="window.location.href='/api/users/export'">
                 💾 Export All
             </button>
-            
+
             <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
         </div>
     </div>
@@ -4478,46 +4483,80 @@ async function saveDoorSettings(event) {
 }
 
         // ==================== USERS ====================
+        let allUsersData = [];  // Store all users for filtering
+
         async function loadUsers() {
             try {
                 const response = await fetch('/api/users');
                 const data = await response.json();
 
                 if (data.success) {
-                    const container = document.getElementById('usersList');
+                    allUsersData = data.users;  // Store for filtering
+                    renderUsers(allUsersData);
 
-                    if (data.users.length === 0) {
-                        container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No users configured yet</td></tr>';
-                        return;
-                    }
-
-                    container.innerHTML = data.users.map(user => `
-                        <tr>
-                            <td><strong>${user.name}</strong></td>
-                            <td>
-                                <span class="badge ${user.active ? 'badge-success' : 'badge-danger'}">
-                                    ${user.active ? '✅ Active' : '❌ Inactive'}
-                                </span>
-                            </td>
-                            <td>${user.cards.length} card(s)</td>
-                            <td>${user.pins.length} PIN(s)</td>
-                            <td>${user.groups.length} group(s)</td>
-                            <td>${user.schedules.length} schedule(s)</td>
-                            <td>
-                                <button class="btn btn-secondary btn-small" onclick="editUser(${user.id})">
-                                    ✏️ Edit
-                                </button>
-                                <button class="btn btn-danger btn-small" onclick="deleteUser(${user.id})">
-                                    🗑️
-                                </button>
-                            </td>
-                        </tr>
-                    `).join('');
+                    // Clear search box on reload
+                    document.getElementById('userSearchInput').value = '';
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
                 showToast('Error loading users', 'error');
             }
+        }
+
+        function renderUsers(users) {
+            const container = document.getElementById('usersList');
+
+            if (users.length === 0) {
+                container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No users found</td></tr>';
+                return;
+            }
+
+            container.innerHTML = users.map(user => `
+                <tr>
+                    <td><strong>${user.name}</strong></td>
+                    <td>
+                        <span class="badge ${user.active ? 'badge-success' : 'badge-danger'}">
+                            ${user.active ? '✅ Active' : '❌ Inactive'}
+                        </span>
+                    </td>
+                    <td>${user.cards.length} card(s)</td>
+                    <td>${user.pins.length} PIN(s)</td>
+                    <td>${user.groups.length} group(s)</td>
+                    <td>${user.schedules.length} schedule(s)</td>
+                    <td>
+                        <button class="btn btn-secondary btn-small" onclick="editUser(${user.id})">
+                            ✏️ Edit
+                        </button>
+                        <button class="btn btn-danger btn-small" onclick="deleteUser(${user.id})">
+                            🗑️
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function filterUsers(searchTerm) {
+            const term = searchTerm.toLowerCase().trim();
+
+            if (!term) {
+                renderUsers(allUsersData);
+                return;
+            }
+
+            const filtered = allUsersData.filter(user => {
+                // Search by name
+                if (user.name.toLowerCase().includes(term)) return true;
+
+                // Search by card number
+                if (user.cards.some(card => card.card_number && card.card_number.toLowerCase().includes(term))) return true;
+
+                // Search by group name
+                if (user.groups.some(group => group.name && group.name.toLowerCase().includes(term))) return true;
+
+                return false;
+            });
+
+            renderUsers(filtered);
         }
 
         async function openUserModal(userId = null) {
