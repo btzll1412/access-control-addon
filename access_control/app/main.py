@@ -2437,15 +2437,28 @@ def board_announce():
                     SET ip_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
                     WHERE mac_address = ?
                 ''', (board_ip, mac_address))
-                conn.commit()
                 logger.info(f"  🔄 Board '{existing_board['name']}' IP updated: {old_ip} → {board_ip}")
-                return jsonify({
-                    'success': True,
-                    'message': f'Board IP updated from {old_ip} to {board_ip}'
-                })
             else:
+                # Just update last_seen timestamp
+                cursor.execute('''
+                    UPDATE boards
+                    SET last_seen = CURRENT_TIMESTAMP, online = 1
+                    WHERE mac_address = ?
+                ''', (mac_address,))
                 logger.info(f"  ℹ️  Board already adopted: {board_ip} (MAC: {mac_address})")
-                return jsonify({'success': True, 'message': 'Board already registered'})
+
+            # Clean up any stale pending_boards entry for this MAC
+            cursor.execute('DELETE FROM pending_boards WHERE mac_address = ?', (mac_address,))
+            if cursor.rowcount > 0:
+                logger.info(f"  🧹 Cleaned up stale pending entry for MAC: {mac_address}")
+
+            conn.commit()
+            return jsonify({
+                'success': True,
+                'message': 'Board already registered',
+                'board_id': existing_board['id'],
+                'board_name': existing_board['name']
+            })
 
         # STEP 1.5: Check if this is a legacy board (adopted before MAC tracking)
         # Look for board by IP that doesn't have MAC set yet
@@ -2459,11 +2472,19 @@ def board_announce():
                 SET mac_address = ?, last_seen = CURRENT_TIMESTAMP, online = 1
                 WHERE id = ?
             ''', (mac_address, legacy_board['id']))
+
+            # Clean up any stale pending_boards entry for this MAC
+            cursor.execute('DELETE FROM pending_boards WHERE mac_address = ?', (mac_address,))
+            if cursor.rowcount > 0:
+                logger.info(f"  🧹 Cleaned up stale pending entry for MAC: {mac_address}")
+
             conn.commit()
             logger.info(f"  🔧 Legacy board '{legacy_board['name']}' updated with MAC: {mac_address}")
             return jsonify({
                 'success': True,
-                'message': f'Board MAC address recorded: {mac_address}'
+                'message': f'Board MAC address recorded: {mac_address}',
+                'board_id': legacy_board['id'],
+                'board_name': legacy_board['name']
             })
 
         # STEP 2: Check if MAC is in pending_boards
