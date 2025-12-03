@@ -1521,9 +1521,12 @@ def get_stats():
         cursor.execute('SELECT COUNT(*) as count FROM boards WHERE online = 1')
         online_boards = cursor.fetchone()['count']
         
+        cursor.execute('SELECT COUNT(*) as count FROM users')
+        total_users = cursor.fetchone()['count']
+
         cursor.execute('SELECT COUNT(*) as count FROM users WHERE active = 1')
         active_users = cursor.fetchone()['count']
-        
+
         cursor.execute('SELECT COUNT(*) as count FROM doors')
         total_doors = cursor.fetchone()['count']
         
@@ -1546,6 +1549,7 @@ def get_stats():
             'stats': {
                 'total_boards': total_boards,
                 'online_boards': online_boards,
+                'total_users': total_users,
                 'active_users': active_users,
                 'total_doors': total_doors,
                 'today_events': today_events,

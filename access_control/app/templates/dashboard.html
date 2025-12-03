@@ -2955,7 +2955,8 @@ async function handleLogout() {
                 if (data.success) {
                     document.getElementById('statOnlineBoards').textContent = 
                         data.stats.online_boards + '/' + data.stats.total_boards;
-                    document.getElementById('statActiveUsers').textContent = data.stats.active_users;
+                    document.getElementById('statActiveUsers').textContent =
+                        data.stats.active_users + '/' + data.stats.total_users;
                     document.getElementById('statTotalDoors').textContent = data.stats.total_doors;
                     document.getElementById('statTodayEvents').textContent = data.stats.today_events;
                     
