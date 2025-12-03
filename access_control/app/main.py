@@ -4008,31 +4008,37 @@ def delete_user(user_id):
 def download_user_template():
     """Download CSV template for bulk user import"""
     logger.info("📥 Generating user import template")
-    
+
     output = StringIO()
     writer = csv.writer(output)
-    
+
     writer.writerow(['Name', 'Card Numbers', 'PIN Codes', 'Groups', 'Active', 'Valid From', 'Valid Until', 'Notes'])
-    
+
+    # Add instruction row
+    writer.writerow([
+        '⚠️ TIP: If card numbers start with 0, format the Card Numbers column as TEXT in Excel before pasting',
+        '', '', '', '', '', '', ''
+    ])
+
     writer.writerow([
         'John Doe',
-        '123 45678',
+        '012 34567',
         '1234,5678',
         'Employees,Security',
         'Yes',
         '2025-01-01',
         '2025-12-31',
-        'Full-time employee'
+        'Full-time employee - notice card starts with 0'
     ])
     writer.writerow([
         'Jane Smith',
         '200 12345,201 99999',
-        '9999',
+        '0999',
         'Employees',
         'Yes',
         '',
         '',
-        'Manager'
+        'Manager - notice PIN starts with 0'
     ])
     writer.writerow([
         'Bob Johnson',
@@ -4147,6 +4153,10 @@ def import_users_csv():
                 if not name:
                     errors.append(f"Row {row_num}: Name is required")
                     continue
+
+                # Skip instruction/tip rows
+                if name.startswith('⚠️') or 'TIP:' in name.upper():
+                    continue
                 
                 cursor.execute('SELECT id FROM users WHERE name = ?', (name,))
                 existing = cursor.fetchone()
@@ -4188,16 +4198,22 @@ def import_users_csv():
                 if cards_str:
                     for card_num in cards_str.split(','):
                         card_num = card_num.strip()
+                        # Strip leading apostrophe (Excel text prefix)
+                        if card_num.startswith("'"):
+                            card_num = card_num[1:]
                         if card_num:
                             cursor.execute('''
                                 INSERT INTO user_cards (user_id, card_number, card_format)
                                 VALUES (?, ?, 'wiegand26')
                             ''', (user_id, card_num))
-                
+
                 pins_str = row.get('PIN Codes', '').strip()
                 if pins_str:
                     for pin in pins_str.split(','):
                         pin = pin.strip()
+                        # Strip leading apostrophe (Excel text prefix)
+                        if pin.startswith("'"):
+                            pin = pin[1:]
                         if pin:
                             cursor.execute('''
                                 INSERT INTO user_pins (user_id, pin)
