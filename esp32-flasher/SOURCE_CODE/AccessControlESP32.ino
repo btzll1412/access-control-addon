@@ -2378,25 +2378,26 @@ void setup() {
     door1Wiegand = &doors[0].wiegand;
     door2Wiegand = &doors[1].wiegand;
 
-    // NOTE: Wiegand interrupts are attached AFTER WiFi connection
-    // to prevent interference during WiFi negotiation
-    addLiveLog("✅ GPIO initialized (interrupts pending)");
+    addLiveLog("✅ GPIO initialized");
 
+    // Load user database FIRST - so we can work offline
+    loadUsersDB();
+
+    // Attach Wiegand interrupts - needed for offline operation
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
+    addLiveLog("✅ Wiegand interrupts attached");
+
+    // Check if board needs initial configuration
     if (!config.configured || config.wifiSSID.length() == 0) {
         addLiveLog("⚠️  No WiFi configuration - starting setup portal");
         startWiFiManager();
     }
 
+    // Try to connect to WiFi
     if (connectWiFi()) {
-        // Attach Wiegand interrupts AFTER WiFi is connected
-        // This prevents interference during WiFi negotiation
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
-        addLiveLog("✅ Wiegand interrupts attached");
-
-        loadUsersDB();
         setupWebInterface();
 
         if (config.controllerIP.length() > 0) {
@@ -2411,8 +2412,13 @@ void setup() {
         updateDoorModesFromSchedule();
 
     } else {
-        addLiveLog("⚠️  WiFi connection failed - starting setup portal");
-        startWiFiManager();
+        // WiFi failed but board is configured - work in OFFLINE MODE
+        addLiveLog("⚠️  WiFi unavailable - running in OFFLINE MODE");
+        addLiveLog("📋 Using cached user database (" + String(usersDB["users"].size()) + " users)");
+        addLiveLog("🔄 Will retry WiFi connection in background");
+
+        // Still set up web interface for local AP access if needed
+        // But don't block - continue to main loop
     }
     
     addLiveLog("=======================================================");
