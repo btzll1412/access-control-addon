@@ -4001,6 +4001,41 @@ def delete_user(user_id):
         if conn:
             conn.close()
 
+@app.route('/api/users/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_users():
+    """Delete multiple users at once"""
+    conn = None
+    try:
+        data = request.json
+        user_ids = data.get('user_ids', [])
+
+        if not user_ids:
+            return jsonify({'success': False, 'message': 'No user IDs provided'}), 400
+
+        logger.info(f"🗑️ Bulk deleting {len(user_ids)} users: {user_ids}")
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Delete users (cascade will handle cards, pins, groups)
+        placeholders = ','.join('?' * len(user_ids))
+        cursor.execute(f'DELETE FROM users WHERE id IN ({placeholders})', user_ids)
+
+        deleted = cursor.rowcount
+        conn.commit()
+
+        logger.info(f"✅ Bulk delete complete: {deleted} users deleted")
+        return jsonify({'success': True, 'deleted': deleted, 'message': f'{deleted} user(s) deleted successfully'})
+    except Exception as e:
+        logger.error(f"❌ Error bulk deleting users: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 # ==================== CSV IMPORT/EXPORT FOR USERS ====================
 
 @app.route('/api/users/template', methods=['GET'])
@@ -4202,10 +4237,20 @@ def import_users_csv():
                         if card_num.startswith("'"):
                             card_num = card_num[1:]
                         if card_num:
+                            # Check if card already exists for another user
                             cursor.execute('''
-                                INSERT INTO user_cards (user_id, card_number, card_format)
-                                VALUES (?, ?, 'wiegand26')
-                            ''', (user_id, card_num))
+                                SELECT u.name FROM user_cards uc
+                                JOIN users u ON uc.user_id = u.id
+                                WHERE uc.card_number = ? AND uc.user_id != ?
+                            ''', (card_num, user_id))
+                            existing_card = cursor.fetchone()
+                            if existing_card:
+                                errors.append(f"Row {row_num}: Card '{card_num}' already assigned to '{existing_card['name']}' - skipped")
+                            else:
+                                cursor.execute('''
+                                    INSERT INTO user_cards (user_id, card_number, card_format)
+                                    VALUES (?, ?, 'wiegand26')
+                                ''', (user_id, card_num))
 
                 pins_str = row.get('PIN Codes', '').strip()
                 if pins_str:
@@ -4215,10 +4260,20 @@ def import_users_csv():
                         if pin.startswith("'"):
                             pin = pin[1:]
                         if pin:
+                            # Check if PIN already exists for another user
                             cursor.execute('''
-                                INSERT INTO user_pins (user_id, pin)
-                                VALUES (?, ?)
-                            ''', (user_id, pin))
+                                SELECT u.name FROM user_pins up
+                                JOIN users u ON up.user_id = u.id
+                                WHERE up.pin = ? AND up.user_id != ?
+                            ''', (pin, user_id))
+                            existing_pin = cursor.fetchone()
+                            if existing_pin:
+                                errors.append(f"Row {row_num}: PIN '{pin}' already assigned to '{existing_pin['name']}' - skipped")
+                            else:
+                                cursor.execute('''
+                                    INSERT INTO user_pins (user_id, pin)
+                                    VALUES (?, ?)
+                                ''', (user_id, pin))
                 
                 groups_str = row.get('Groups', '').strip()
                 if groups_str:

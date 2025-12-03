@@ -1674,6 +1674,11 @@
             </button>
 
             <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
+
+            <!-- Delete Selected Button (hidden by default) -->
+            <button class="btn btn-danger" id="deleteSelectedUsersBtn" style="display: none;" onclick="deleteSelectedUsers()">
+                🗑️ Delete Selected (<span id="selectedUsersCount">0</span>)
+            </button>
         </div>
     </div>
 
@@ -1681,6 +1686,9 @@
                 <table id="usersTable">
                     <thead>
                         <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" id="selectAllUsers" onchange="toggleSelectAllUsers(this)">
+                            </th>
                             <th>Name</th>
                             <th>Status</th>
                             <th>Cards</th>
@@ -4506,13 +4514,20 @@ async function saveDoorSettings(event) {
         function renderUsers(users) {
             const container = document.getElementById('usersList');
 
+            // Reset select all checkbox
+            document.getElementById('selectAllUsers').checked = false;
+            updateSelectedUsersCount();
+
             if (users.length === 0) {
-                container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No users found</td></tr>';
+                container.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No users found</td></tr>';
                 return;
             }
 
             container.innerHTML = users.map(user => `
                 <tr>
+                    <td>
+                        <input type="checkbox" class="user-checkbox" value="${user.id}" onchange="updateSelectedUsersCount()">
+                    </td>
                     <td><strong>${user.name}</strong></td>
                     <td>
                         <span class="badge ${user.active ? 'badge-success' : 'badge-danger'}">
@@ -4533,6 +4548,53 @@ async function saveDoorSettings(event) {
                     </td>
                 </tr>
             `).join('');
+        }
+
+        function toggleSelectAllUsers(checkbox) {
+            const userCheckboxes = document.querySelectorAll('.user-checkbox');
+            userCheckboxes.forEach(cb => cb.checked = checkbox.checked);
+            updateSelectedUsersCount();
+        }
+
+        function updateSelectedUsersCount() {
+            const selected = document.querySelectorAll('.user-checkbox:checked').length;
+            document.getElementById('selectedUsersCount').textContent = selected;
+            document.getElementById('deleteSelectedUsersBtn').style.display = selected > 0 ? 'inline-block' : 'none';
+        }
+
+        async function deleteSelectedUsers() {
+            const selectedCheckboxes = document.querySelectorAll('.user-checkbox:checked');
+            const selectedIds = Array.from(selectedCheckboxes).map(cb => parseInt(cb.value));
+
+            if (selectedIds.length === 0) {
+                showToast('No users selected', 'error');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete ${selectedIds.length} user(s)? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users/bulk-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_ids: selectedIds })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`Successfully deleted ${data.deleted} user(s)`, 'success');
+                    loadUsers();
+                    loadStats();
+                } else {
+                    showToast(data.message || 'Error deleting users', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting users:', error);
+                showToast('Error deleting users', 'error');
+            }
         }
 
         function filterUsers(searchTerm) {
