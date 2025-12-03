@@ -205,6 +205,8 @@ int currentKeypadDoor = -1;
 
 unsigned long lastWiFiCheck = 0;
 int wifiReconnectAttempts = 0;
+bool apFallbackMode = false;  // True when broadcasting AP while trying to reconnect
+String apFallbackSSID = "";   // AP SSID for fallback mode
 
 // Non-blocking reader feedback timers
 unsigned long readerLedOffTime[2] = {0, 0};
@@ -899,6 +901,51 @@ void startWiFiManager() {
     
     addLiveLog("⏱️  WiFi Portal timeout - restarting...");
     ESP.restart();
+}
+
+// ===============================================================
+// AP Fallback Mode - Non-blocking AP for WiFi recovery
+// Broadcasts AP while continuing to try reconnecting to WiFi
+// ===============================================================
+void startAPFallbackMode() {
+    if (apFallbackMode) {
+        return;  // Already in fallback mode
+    }
+
+    addLiveLog("🚨 Starting AP Fallback Mode (WiFi recovery)");
+
+    // Switch to AP+STA mode - this allows both AP and station to be active
+    WiFi.mode(WIFI_AP_STA);
+
+    // Create AP for configuration access
+    apFallbackSSID = "AccessControl-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+    WiFi.softAP(apFallbackSSID.c_str(), "Config123");
+
+    IPAddress apIP = WiFi.softAPIP();
+    addLiveLog("📡 Fallback AP Started: " + apFallbackSSID);
+    addLiveLog("📡 Password: Config123");
+    addLiveLog("🌐 Configure at: http://" + apIP.toString());
+    addLiveLog("⚠️  Will keep trying to reconnect to: " + config.wifiSSID);
+
+    apFallbackMode = true;
+    blinkLED(5);
+}
+
+void stopAPFallbackMode() {
+    if (!apFallbackMode) {
+        return;  // Not in fallback mode
+    }
+
+    addLiveLog("✅ Stopping AP Fallback Mode - WiFi reconnected!");
+
+    // Turn off the AP
+    WiFi.softAPdisconnect(true);
+
+    // Switch back to STA only mode
+    WiFi.mode(WIFI_STA);
+
+    apFallbackMode = false;
+    apFallbackSSID = "";
 }
 
 bool connectWiFi() {
@@ -1843,6 +1890,11 @@ void setupWebInterface() {
         html += "<div class='status " + String(controllerOnline ? "online" : "offline") + "'>";
         html += "Controller: " + String(controllerOnline ? "✅ Online" : "⚠️ Offline");
         html += "</div>";
+        if (apFallbackMode) {
+            html += "<div class='status' style='background:#fff3cd;color:#856404'>";
+            html += "📡 AP Fallback Mode Active - SSID: " + apFallbackSSID;
+            html += "</div>";
+        }
         html += "<table>";
         html += "<tr><td><b>Board Name:</b></td><td>" + config.boardName + "</td></tr>";
         html += "<tr><td><b>IP Address:</b></td><td>" + WiFi.localIP().toString() + "</td></tr>";
@@ -2774,25 +2826,26 @@ loadConfig();
     door1Wiegand = &doors[0].wiegand;
     door2Wiegand = &doors[1].wiegand;
 
-    // NOTE: Wiegand interrupts are attached AFTER WiFi connection
-    // to prevent interference during WiFi negotiation
-    addLiveLog("✅ GPIO initialized (interrupts pending)");
+    addLiveLog("✅ GPIO initialized");
 
+    // Load user database FIRST - so we can work offline
+    loadUsersDB();
+
+    // Attach Wiegand interrupts - needed for offline operation
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
+    attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
+    addLiveLog("✅ Wiegand interrupts attached");
+
+    // Check if board needs initial configuration
     if (!config.configured || config.wifiSSID.length() == 0) {
         addLiveLog("⚠️  No WiFi configuration - starting setup portal");
         startWiFiManager();
     }
 
+    // Try to connect to WiFi
     if (connectWiFi()) {
-        // Attach Wiegand interrupts AFTER WiFi is connected
-        // This prevents interference during WiFi negotiation
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR1), door1_D0_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR1), door1_D1_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D0_DOOR2), door2_D0_ISR, FALLING);
-        attachInterrupt(digitalPinToInterrupt(WIEGAND_D1_DOOR2), door2_D1_ISR, FALLING);
-        addLiveLog("✅ Wiegand interrupts attached");
-
-        loadUsersDB();
         setupWebInterface();
 
         if (config.controllerIP.length() > 0) {
@@ -2807,8 +2860,13 @@ loadConfig();
         updateDoorModesFromSchedule();
 
     } else {
-        addLiveLog("⚠️  WiFi connection failed - starting setup portal");
-        startWiFiManager();
+        // WiFi failed but board is configured - work in OFFLINE MODE
+        addLiveLog("⚠️  WiFi unavailable - running in OFFLINE MODE");
+        addLiveLog("📋 Using cached user database (" + String(usersDB["users"].size()) + " users)");
+        addLiveLog("🔄 Will retry WiFi connection in background");
+
+        // Still set up web interface - needed for AP fallback mode
+        setupWebInterface();
     }
     
     addLiveLog("=======================================================");
@@ -2826,23 +2884,32 @@ void loop() {
     unsigned long now = millis();
     
     
-    // ✅ ADD THIS ENTIRE SECTION HERE:
     // ===============================================================
     // WiFi Watchdog - Auto-reconnect if disconnected
+    // Broadcasts AP after 10 failed attempts while still trying to reconnect
     // ===============================================================
     if (now - lastWiFiCheck >= 30000) {  // Check every 30 seconds
         lastWiFiCheck = now;
-        
+
         if (WiFi.status() != WL_CONNECTED) {
             // WiFi is DOWN!
             wifiReconnectAttempts++;
-            addLiveLog("⚠️  WiFi DISCONNECTED! (Attempt " + String(wifiReconnectAttempts) + "/10)");
-            
-            // Try to reconnect
-            addLiveLog("🔄 Attempting WiFi reconnection...");
-            WiFi.disconnect();
+
+            if (apFallbackMode) {
+                addLiveLog("🔄 WiFi reconnection attempt " + String(wifiReconnectAttempts) + " (AP broadcasting)");
+            } else {
+                addLiveLog("⚠️  WiFi DISCONNECTED! (Attempt " + String(wifiReconnectAttempts) + "/10)");
+            }
+
+            // Try to reconnect (works in both STA and AP_STA mode)
+            addLiveLog("🔄 Attempting WiFi reconnection to: " + config.wifiSSID);
+
+            // In AP_STA mode, we can't fully disconnect, so just try to connect
+            if (!apFallbackMode) {
+                WiFi.disconnect();
+            }
             WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
-            
+
             // Wait up to 10 seconds for connection
             int attempts = 0;
             while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -2851,13 +2918,18 @@ void loop() {
                 blinkLED(1);
                 attempts++;
             }
-            
+
             if (WiFi.status() == WL_CONNECTED) {
                 // WiFi RECONNECTED!
                 addLiveLog("✅ WiFi reconnected successfully!");
                 addLiveLog("📍 IP Address: " + WiFi.localIP().toString());
                 wifiReconnectAttempts = 0;
-                
+
+                // Stop AP fallback mode if it was active
+                if (apFallbackMode) {
+                    stopAPFallbackMode();
+                }
+
                 // Try to re-announce to controller
                 if (config.controllerIP.length() > 0) {
                     addLiveLog("📢 Re-announcing to controller...");
@@ -2870,21 +2942,24 @@ void loop() {
                 }
             } else {
                 // WiFi reconnection FAILED
-                addLiveLog("❌ WiFi reconnection failed (attempt " + String(wifiReconnectAttempts) + "/10)");
-                
-                if (wifiReconnectAttempts >= 10) {
-                    // After 10 failed attempts (5 minutes), start AP mode
-                    addLiveLog("🚨 WiFi FAILED 10 times - Starting AP configuration portal");
-                    addLiveLog("⚠️  Access control will continue offline with last synced data");
-                    
-                    // Start AP mode for reconfiguration
-                    startWiFiManager();
+                addLiveLog("❌ WiFi reconnection failed (attempt " + String(wifiReconnectAttempts) + ")");
+
+                if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
+                    // After 10 failed attempts (5 minutes), start AP fallback mode
+                    // This broadcasts an AP so user can connect and reconfigure
+                    // BUT continues trying to reconnect to the configured WiFi
+                    addLiveLog("⚠️  Access control continues offline with last synced data");
+                    startAPFallbackMode();
                 }
             }
         } else {
             // WiFi is CONNECTED
             if (wifiReconnectAttempts > 0) {
                 wifiReconnectAttempts = 0;
+            }
+            // If we were in fallback mode and now connected, stop it
+            if (apFallbackMode) {
+                stopAPFallbackMode();
             }
         }
     }
