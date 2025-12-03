@@ -1675,9 +1675,19 @@
 
             <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
 
+            <!-- Select Mode Toggle Button -->
+            <button class="btn btn-secondary btn-small" id="toggleSelectModeBtn" onclick="toggleSelectMode()">
+                ☑️ Select
+            </button>
+
             <!-- Delete Selected Button (hidden by default) -->
             <button class="btn btn-danger" id="deleteSelectedUsersBtn" style="display: none;" onclick="deleteSelectedUsers()">
                 🗑️ Delete Selected (<span id="selectedUsersCount">0</span>)
+            </button>
+
+            <!-- Cancel Selection Button (hidden by default) -->
+            <button class="btn btn-secondary btn-small" id="cancelSelectModeBtn" style="display: none;" onclick="toggleSelectMode()">
+                ✖️ Cancel
             </button>
         </div>
     </div>
@@ -1686,7 +1696,7 @@
                 <table id="usersTable">
                     <thead>
                         <tr>
-                            <th style="width: 40px;">
+                            <th class="select-column" style="width: 40px; display: none;">
                                 <input type="checkbox" id="selectAllUsers" onchange="toggleSelectAllUsers(this)">
                             </th>
                             <th>Name</th>
@@ -4511,12 +4521,17 @@ async function saveDoorSettings(event) {
             }
         }
 
+        let selectModeActive = false;
+
         function renderUsers(users) {
             const container = document.getElementById('usersList');
 
             // Reset select all checkbox
             document.getElementById('selectAllUsers').checked = false;
             updateSelectedUsersCount();
+
+            // Check if select mode is active
+            const showCheckbox = selectModeActive ? '' : 'display: none;';
 
             if (users.length === 0) {
                 container.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No users found</td></tr>';
@@ -4525,7 +4540,7 @@ async function saveDoorSettings(event) {
 
             container.innerHTML = users.map(user => `
                 <tr>
-                    <td>
+                    <td class="select-column" style="${showCheckbox}">
                         <input type="checkbox" class="user-checkbox" value="${user.id}" onchange="updateSelectedUsersCount()">
                     </td>
                     <td><strong>${user.name}</strong></td>
@@ -4550,6 +4565,27 @@ async function saveDoorSettings(event) {
             `).join('');
         }
 
+        function toggleSelectMode() {
+            selectModeActive = !selectModeActive;
+
+            // Toggle visibility of select columns
+            const selectColumns = document.querySelectorAll('.select-column');
+            selectColumns.forEach(col => {
+                col.style.display = selectModeActive ? '' : 'none';
+            });
+
+            // Toggle buttons visibility
+            document.getElementById('toggleSelectModeBtn').style.display = selectModeActive ? 'none' : 'inline-block';
+            document.getElementById('cancelSelectModeBtn').style.display = selectModeActive ? 'inline-block' : 'none';
+
+            // If exiting select mode, clear all selections
+            if (!selectModeActive) {
+                document.getElementById('selectAllUsers').checked = false;
+                document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+                updateSelectedUsersCount();
+            }
+        }
+
         function toggleSelectAllUsers(checkbox) {
             const userCheckboxes = document.querySelectorAll('.user-checkbox');
             userCheckboxes.forEach(cb => cb.checked = checkbox.checked);
@@ -4559,7 +4595,8 @@ async function saveDoorSettings(event) {
         function updateSelectedUsersCount() {
             const selected = document.querySelectorAll('.user-checkbox:checked').length;
             document.getElementById('selectedUsersCount').textContent = selected;
-            document.getElementById('deleteSelectedUsersBtn').style.display = selected > 0 ? 'inline-block' : 'none';
+            // Only show delete button if in select mode AND users are selected
+            document.getElementById('deleteSelectedUsersBtn').style.display = (selectModeActive && selected > 0) ? 'inline-block' : 'none';
         }
 
         async function deleteSelectedUsers() {
@@ -4586,6 +4623,8 @@ async function saveDoorSettings(event) {
 
                 if (data.success) {
                     showToast(`Successfully deleted ${data.deleted} user(s)`, 'success');
+                    // Exit select mode after successful delete
+                    toggleSelectMode();
                     loadUsers();
                     loadStats();
                 } else {
