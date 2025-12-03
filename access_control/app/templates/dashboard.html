@@ -1651,7 +1651,21 @@
         <!-- Tab: Users -->
         <div id="tab-users" class="tab-content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>Users</h2>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="margin: 0;">Users</h2>
+            <!-- Select Mode Toggle Button (next to Users heading) -->
+            <button class="btn btn-secondary btn-small" id="toggleSelectModeBtn" onclick="toggleSelectMode()">
+                ☑️ Select
+            </button>
+            <!-- Cancel Selection Button (hidden by default) -->
+            <button class="btn btn-secondary btn-small" id="cancelSelectModeBtn" style="display: none;" onclick="toggleSelectMode()">
+                ✖️ Cancel
+            </button>
+            <!-- Delete Selected Button (hidden by default) -->
+            <button class="btn btn-danger btn-small" id="deleteSelectedUsersBtn" style="display: none;" onclick="deleteSelectedUsers()">
+                🗑️ Delete (<span id="selectedUsersCount">0</span>)
+            </button>
+        </div>
         <div style="display: flex; gap: 10px; align-items: center;">
             <!-- Search Box -->
             <input type="text" id="userSearchInput" placeholder="🔍 Search users..."
@@ -1689,21 +1703,6 @@
             </button>
 
             <button class="btn btn-primary" onclick="openUserModal()">➕ Add User</button>
-
-            <!-- Select Mode Toggle Button -->
-            <button class="btn btn-secondary btn-small" id="toggleSelectModeBtn" onclick="toggleSelectMode()">
-                ☑️ Select
-            </button>
-
-            <!-- Delete Selected Button (hidden by default) -->
-            <button class="btn btn-danger" id="deleteSelectedUsersBtn" style="display: none;" onclick="deleteSelectedUsers()">
-                🗑️ Delete Selected (<span id="selectedUsersCount">0</span>)
-            </button>
-
-            <!-- Cancel Selection Button (hidden by default) -->
-            <button class="btn btn-secondary btn-small" id="cancelSelectModeBtn" style="display: none;" onclick="toggleSelectMode()">
-                ✖️ Cancel
-            </button>
         </div>
     </div>
 
