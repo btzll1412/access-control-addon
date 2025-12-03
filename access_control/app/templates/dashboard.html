@@ -1655,8 +1655,23 @@
         <div style="display: flex; gap: 10px; align-items: center;">
             <!-- Search Box -->
             <input type="text" id="userSearchInput" placeholder="🔍 Search users..."
-                   oninput="filterUsers(this.value)"
+                   oninput="applyUserFilters()"
                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; width: 200px;">
+
+            <!-- Status Filter -->
+            <select id="userStatusFilter" onchange="applyUserFilters()"
+                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px;">
+                <option value="all">All Status</option>
+                <option value="active">✅ Active</option>
+                <option value="inactive">❌ Inactive</option>
+            </select>
+
+            <!-- Group Filter -->
+            <select id="userGroupFilter" onchange="applyUserFilters()"
+                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px;">
+                <option value="all">All Groups</option>
+                <!-- Populated dynamically -->
+            </select>
 
             <!-- CSV Import/Export Buttons -->
             <button class="btn btn-secondary btn-small" onclick="window.location.href='/api/users/template'">
@@ -4510,10 +4525,16 @@ async function saveDoorSettings(event) {
 
                 if (data.success) {
                     allUsersData = data.users;  // Store for filtering
-                    renderUsers(allUsersData);
 
-                    // Clear search box on reload
+                    // Populate group filter dropdown
+                    populateGroupFilter();
+
+                    // Reset filters on reload
                     document.getElementById('userSearchInput').value = '';
+                    document.getElementById('userStatusFilter').value = 'all';
+                    document.getElementById('userGroupFilter').value = 'all';
+
+                    renderUsers(allUsersData);
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
@@ -4636,28 +4657,76 @@ async function saveDoorSettings(event) {
             }
         }
 
-        function filterUsers(searchTerm) {
-            const term = searchTerm.toLowerCase().trim();
+        function applyUserFilters() {
+            const searchTerm = document.getElementById('userSearchInput').value.toLowerCase().trim();
+            const statusFilter = document.getElementById('userStatusFilter').value;
+            const groupFilter = document.getElementById('userGroupFilter').value;
 
-            if (!term) {
-                renderUsers(allUsersData);
-                return;
+            let filtered = allUsersData;
+
+            // Filter by status
+            if (statusFilter === 'active') {
+                filtered = filtered.filter(user => user.active);
+            } else if (statusFilter === 'inactive') {
+                filtered = filtered.filter(user => !user.active);
             }
 
-            const filtered = allUsersData.filter(user => {
-                // Search by name
-                if (user.name.toLowerCase().includes(term)) return true;
+            // Filter by group
+            if (groupFilter !== 'all') {
+                filtered = filtered.filter(user =>
+                    user.groups.some(group => group.id === parseInt(groupFilter))
+                );
+            }
 
-                // Search by card number
-                if (user.cards.some(card => card.card_number && card.card_number.toLowerCase().includes(term))) return true;
+            // Filter by search term
+            if (searchTerm) {
+                filtered = filtered.filter(user => {
+                    // Search by name
+                    if (user.name.toLowerCase().includes(searchTerm)) return true;
 
-                // Search by group name
-                if (user.groups.some(group => group.name && group.name.toLowerCase().includes(term))) return true;
+                    // Search by card number
+                    if (user.cards.some(card => card.card_number && card.card_number.toLowerCase().includes(searchTerm))) return true;
 
-                return false;
-            });
+                    // Search by group name
+                    if (user.groups.some(group => group.name && group.name.toLowerCase().includes(searchTerm))) return true;
+
+                    return false;
+                });
+            }
 
             renderUsers(filtered);
+        }
+
+        function populateGroupFilter() {
+            // Get unique groups from all users
+            const groupsMap = new Map();
+            allUsersData.forEach(user => {
+                user.groups.forEach(group => {
+                    if (!groupsMap.has(group.id)) {
+                        groupsMap.set(group.id, group.name);
+                    }
+                });
+            });
+
+            const groupSelect = document.getElementById('userGroupFilter');
+            const currentValue = groupSelect.value;
+
+            // Keep "All Groups" and add the rest
+            groupSelect.innerHTML = '<option value="all">All Groups</option>';
+            groupsMap.forEach((name, id) => {
+                groupSelect.innerHTML += `<option value="${id}">${name}</option>`;
+            });
+
+            // Restore selection if still valid
+            if (currentValue !== 'all' && groupsMap.has(parseInt(currentValue))) {
+                groupSelect.value = currentValue;
+            }
+        }
+
+        // Keep old function name for compatibility
+        function filterUsers(searchTerm) {
+            document.getElementById('userSearchInput').value = searchTerm;
+            applyUserFilters();
         }
 
         async function openUserModal(userId = null) {
