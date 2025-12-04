@@ -3277,11 +3277,16 @@ async function handleLogout() {
                 }
             });
         
+            // Reset filters when leaving certain tabs
+            if (tabName !== 'users') {
+                userFiltersInitialized = false;  // Reset so filters clear on next visit
+            }
+
             // Load data for tab
             if (tabName === 'boards') loadBoards();
             if (tabName === 'doors') loadDoors();
             if (tabName === 'scheduleTemplates') loadScheduleTemplates();
-            if (tabName === 'users') loadUsers();
+            if (tabName === 'users') loadUsers(true);  // Reset filters when switching to users tab
             if (tabName === 'groups') loadGroups();
             if (tabName === 'schedules') loadSchedules();
             if (tabName === 'emergency') loadEmergencyControls();
@@ -4832,8 +4837,9 @@ async function saveDoorSettings(event) {
 
         // ==================== USERS ====================
         let allUsersData = [];  // Store all users for filtering
+        let userFiltersInitialized = false;  // Track if filters should be reset
 
-        async function loadUsers() {
+        async function loadUsers(resetFilters = false) {
             try {
                 const response = await fetch('api/users');
                 const data = await response.json();
@@ -4844,12 +4850,17 @@ async function saveDoorSettings(event) {
                     // Populate group filter dropdown
                     populateGroupFilter();
 
-                    // Reset filters on reload
-                    document.getElementById('userSearchInput').value = '';
-                    document.getElementById('userStatusFilter').value = 'all';
-                    document.getElementById('userGroupFilter').value = 'all';
-
-                    renderUsers(allUsersData);
+                    // Only reset filters when explicitly requested (tab switch)
+                    if (resetFilters || !userFiltersInitialized) {
+                        document.getElementById('userSearchInput').value = '';
+                        document.getElementById('userStatusFilter').value = 'all';
+                        document.getElementById('userGroupFilter').value = 'all';
+                        userFiltersInitialized = true;
+                        renderUsers(allUsersData);
+                    } else {
+                        // Preserve filters and re-apply them
+                        applyUserFilters();
+                    }
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
