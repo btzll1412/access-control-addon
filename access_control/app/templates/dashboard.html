@@ -2168,8 +2168,8 @@
                 </div>
                 <div class="card-body" style="padding: 20px;">
                     <p style="color: #78350f; margin-bottom: 20px; font-size: 14px;">
-                        Two-factor authentication is <strong>enabled</strong> in the addon configuration.
-                        Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.)
+                        Two-factor authentication is <strong>enabled</strong> for your account.
+                        Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.) to set up 2FA for <strong id="totpUsername">your account</strong>.
                     </p>
 
                     <div style="display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: start;">
@@ -2219,9 +2219,9 @@
                     <div style="margin-top: 20px; padding: 15px; background: #fef2f2; border-radius: 8px; border: 1px solid #fecaca;">
                         <strong style="color: #dc2626;">⚠️ Important:</strong>
                         <ul style="margin: 10px 0 0 20px; color: #991b1b; font-size: 13px;">
-                            <li>Anyone with access to this QR code can generate login codes</li>
-                            <li>All users sharing this login will use the same authenticator</li>
-                            <li>If you lose access to your authenticator, disable TOTP in the addon configuration</li>
+                            <li>This QR code is unique to your account - do not share it with others</li>
+                            <li>Each user has their own separate 2FA secret</li>
+                            <li>If you lose access to your authenticator, an admin can disable TOTP for your account in the addon configuration</li>
                         </ul>
                     </div>
                 </div>
@@ -2978,7 +2978,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     console.log('✅ Login successful!');
                     hideLoginOverlay();
                     isAuthenticated = true;
-                    showToast('Login successful!', 'success');
+                    // Store user info and apply permissions
+                    currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+                    applyPermissions();
+                    showToast(`Welcome, ${data.username}!`, 'success');
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
@@ -3047,7 +3050,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     pendingCredentials = { username: '', password: '', remember: false };
                     hideLoginOverlay();
                     isAuthenticated = true;
-                    showToast('Login successful!', 'success');
+                    // Store user info and apply permissions
+                    currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+                    applyPermissions();
+                    showToast(`Welcome, ${data.username}!`, 'success');
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
@@ -3061,7 +3067,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
     }
-    
+
     // 2. Check authentication and load dashboard
     console.log('🚀 Checking authentication...');
     const isAuthed = await checkAuthStatus();
@@ -3108,6 +3114,55 @@ document.addEventListener('DOMContentLoaded', async function() {
         // ==================== AUTHENTICATION (FLASK SESSION-BASED) ====================
 let isAuthenticated = false;
 let rememberDays = 30;
+let currentUser = { username: '', role: '', permissions: [] };
+
+// Permission checking functions
+function hasPermission(permission) {
+    if (currentUser.permissions.includes('*')) return true;
+    return currentUser.permissions.includes(permission);
+}
+
+function applyPermissions() {
+    // Map tabs to required permissions
+    const tabPermissions = {
+        'boards': 'manage_boards',
+        'doors': 'manage_doors',
+        'users': 'manage_users',
+        'groups': 'manage_groups',
+        'schedules': 'manage_schedules',
+        'tempcodes': 'manage_temp_codes',
+        'emergency': 'emergency_control',
+        'logs': 'view_logs',
+        'settings': 'manage_settings'
+    };
+
+    // Hide tabs user doesn't have permission for
+    document.querySelectorAll('.tab').forEach(tab => {
+        const onclick = tab.getAttribute('onclick') || '';
+        for (const [tabName, permission] of Object.entries(tabPermissions)) {
+            if (onclick.includes(`'${tabName}'`)) {
+                if (!hasPermission(permission) && !hasPermission('view_dashboard')) {
+                    tab.style.display = 'none';
+                } else if (!hasPermission(permission)) {
+                    // Can view but not manage - disable editing later
+                    tab.dataset.viewOnly = 'true';
+                }
+                break;
+            }
+        }
+    });
+
+    // Update header with username
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions && currentUser.username) {
+        const userDisplay = document.createElement('span');
+        userDisplay.style.cssText = 'margin-right: 15px; color: #64748b; font-size: 14px;';
+        userDisplay.innerHTML = `👤 <strong>${currentUser.username}</strong> <span style="color: #94a3b8;">(${currentUser.role})</span>`;
+        headerActions.insertBefore(userDisplay, headerActions.firstChild);
+    }
+
+    console.log('🔐 Permissions applied for user:', currentUser.username, currentUser.permissions);
+}
 
 async function checkAuthStatus() {
     try {
@@ -3132,14 +3187,18 @@ async function checkAuthStatus() {
             console.log('✅ Auth not required');
             hideLoginOverlay();
             isAuthenticated = true;
+            currentUser = { username: data.username || 'admin', role: data.role || 'admin', permissions: data.permissions || ['*'] };
+            applyPermissions();
             return true;
         }
-        
+
         // Check if authenticated
         if (data.authenticated) {
             console.log('✅ Authenticated via session');
             hideLoginOverlay();
             isAuthenticated = true;
+            currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+            applyPermissions();
             return true;
         } else {
             console.log('❌ Not authenticated');
@@ -6192,9 +6251,14 @@ async function saveDoorSettings(event) {
                     document.getElementById('totpQrCode').innerHTML = `<img src="data:image/png;base64,${data.qr_code}" alt="TOTP QR Code" style="max-width: 200px;">`;
                     document.getElementById('totpAccount').textContent = data.account;
                     document.getElementById('totpSecret').textContent = data.secret;
+                    // Show username in the description
+                    const totpUsername = document.getElementById('totpUsername');
+                    if (totpUsername && currentUser.username) {
+                        totpUsername.textContent = currentUser.username;
+                    }
                     totpEnabled = true;
                 } else {
-                    // TOTP not enabled
+                    // TOTP not enabled for this user
                     document.getElementById('totpSection').style.display = 'none';
                     totpEnabled = false;
                 }
