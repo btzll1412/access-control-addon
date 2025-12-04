@@ -3290,6 +3290,10 @@ async function handleLogout() {
                 loadLogFilterOptions();
                 loadLogs();
             }
+            if (tabName === 'settings') {
+                loadTotpSettings();
+                loadBackgroundSettings();
+            }
         }
         // ==================== STATS ====================
         async function loadStats() {
