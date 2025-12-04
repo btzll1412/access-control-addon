@@ -23,31 +23,149 @@ import qrcode
 import base64
 
 # ==================== AUTH CONFIGURATION ====================
+# Available permissions
+PERMISSIONS = {
+    'view_dashboard': 'View dashboard and stats',
+    'manage_boards': 'Add, edit, delete controller boards',
+    'manage_doors': 'Configure doors and relays',
+    'manage_users': 'Create, edit, delete access users',
+    'manage_groups': 'Manage user groups',
+    'manage_schedules': 'Create and manage schedules',
+    'manage_temp_codes': 'Create temporary access codes',
+    'emergency_control': 'Use emergency lockdown controls',
+    'view_logs': 'View access logs',
+    'manage_settings': 'Change system settings',
+    '*': 'Full administrator access'
+}
+
 def get_auth_config():
     """Read authentication settings from add-on options"""
     try:
         if os.path.exists('/data/options.json'):
             with open('/data/options.json', 'r') as f:
                 options = json.load(f)
+
+                # Get admin users (new format)
+                admin_users = options.get('admin_users', [])
+
+                # Backward compatibility: if no admin_users, use old single user config
+                if not admin_users:
+                    admin_users = [{
+                        'username': options.get('auth_username', 'admin'),
+                        'password': options.get('auth_password', 'admin'),
+                        'role': 'admin'
+                    }]
+
+                # Get roles configuration
+                roles = options.get('roles', {
+                    'admin': ['*'],
+                    'manager': ['view_dashboard', 'manage_users', 'manage_groups', 'manage_doors', 'manage_schedules', 'manage_temp_codes', 'view_logs'],
+                    'operator': ['view_dashboard', 'manage_temp_codes', 'emergency_control', 'view_logs'],
+                    'viewer': ['view_dashboard', 'view_logs']
+                })
+
                 return {
                     'enabled': options.get('auth_enabled', True),
-                    'username': options.get('auth_username', 'admin'),
-                    'password': options.get('auth_password', 'admin'),
                     'remember_days': options.get('remember_days', 30),
-                    'totp_enabled': options.get('totp_enabled', False)
+                    'totp_enabled': options.get('totp_enabled', False),
+                    'admin_users': admin_users,
+                    'roles': roles
                 }
     except Exception as e:
         print(f"⚠️  Could not read auth config: {e}")
 
+    # Default config
     return {
         'enabled': True,
-        'username': 'admin',
-        'password': 'admin',
         'remember_days': 30,
-        'totp_enabled': False
+        'totp_enabled': False,
+        'admin_users': [{'username': 'admin', 'password': 'admin', 'role': 'admin'}],
+        'roles': {
+            'admin': ['*'],
+            'manager': ['view_dashboard', 'manage_users', 'manage_groups', 'manage_doors', 'manage_schedules', 'manage_temp_codes', 'view_logs'],
+            'operator': ['view_dashboard', 'manage_temp_codes', 'emergency_control', 'view_logs'],
+            'viewer': ['view_dashboard', 'view_logs']
+        }
     }
 
 AUTH_CONFIG = get_auth_config()
+
+def get_user_by_username(username):
+    """Find a user by username"""
+    for user in AUTH_CONFIG.get('admin_users', []):
+        if user.get('username') == username:
+            return user
+    return None
+
+def get_user_permissions(user):
+    """Get list of permissions for a user"""
+    if not user:
+        return []
+
+    permissions = []
+
+    # Get permissions from role
+    role = user.get('role')
+    if role:
+        role_perms = AUTH_CONFIG.get('roles', {}).get(role, [])
+        permissions.extend(role_perms)
+
+    # Get direct permissions
+    direct_perms = user.get('permissions', [])
+    permissions.extend(direct_perms)
+
+    # Remove duplicates
+    return list(set(permissions))
+
+def has_permission(user_permissions, required_permission):
+    """Check if user has a specific permission"""
+    if '*' in user_permissions:
+        return True
+    return required_permission in user_permissions
+
+def require_permission(permission):
+    """Decorator to require a specific permission for an endpoint"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Check if logged in
+            if not session.get('logged_in'):
+                return jsonify({'success': False, 'message': 'Authentication required'}), 401
+
+            # Get user permissions from session
+            user_permissions = session.get('permissions', [])
+
+            # Check permission
+            if not has_permission(user_permissions, permission):
+                logger.warning(f"⛔ Permission denied: {session.get('username')} tried to access {permission}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Permission denied. Required: {permission}'
+                }), 403
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+def get_current_admin_user():
+    """Get the currently logged in admin username"""
+    return session.get('username', 'system')
+
+def log_admin_action(action_type, details, target_name=None):
+    """Log an admin action to the access logs for audit trail"""
+    try:
+        admin_user = get_current_admin_user()
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO access_logs (user_id, user_name, door_id, door_name, access_type, granted, details)
+            VALUES (NULL, ?, NULL, ?, ?, 1, ?)
+        ''', (admin_user, target_name or 'System', action_type, details))
+        conn.commit()
+        conn.close()
+        logger.info(f"📝 Audit: [{admin_user}] {action_type}: {details}")
+    except Exception as e:
+        logger.error(f"❌ Failed to log admin action: {e}")
 
 # ==================== TOTP CONFIGURATION ====================
 TOTP_SECRET_FILE = '/data/.totp_secret'
@@ -979,7 +1097,7 @@ def debug_auth():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Login endpoint with remember device support and optional TOTP"""
+    """Login endpoint with multi-user support, permissions, and optional TOTP"""
     conn = None
     try:
         data = request.json
@@ -997,8 +1115,14 @@ def login():
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'}), 400
 
-        # Check against config (primary auth source)
-        if username == AUTH_CONFIG['username'] and password == AUTH_CONFIG['password']:
+        # Find user in admin_users list
+        user = get_user_by_username(username)
+
+        if user and user.get('password') == password:
+            # Get user permissions
+            permissions = get_user_permissions(user)
+            role = user.get('role', 'custom')
+
             # Check TOTP if enabled
             if AUTH_CONFIG.get('totp_enabled', False):
                 # Check if device is trusted (skip TOTP)
@@ -1023,34 +1147,41 @@ def login():
                 else:
                     logger.info(f"✅ TOTP verified for '{username}'")
 
+            # Store user info and permissions in session
             session['logged_in'] = True
             session['username'] = username
+            session['role'] = role
+            session['permissions'] = permissions
             session['password_version'] = PASSWORD_VERSION
 
             # Set session duration based on remember checkbox
             if remember:
-                # Make session permanent with configured duration
                 session.permanent = True
                 app.permanent_session_lifetime = timedelta(days=AUTH_CONFIG['remember_days'])
-                logger.info(f"✅ User '{username}' logged in (remembered for {AUTH_CONFIG['remember_days']} days)")
+                logger.info(f"✅ User '{username}' ({role}) logged in (remembered for {AUTH_CONFIG['remember_days']} days)")
             else:
-                # Session expires when browser closes
                 session.permanent = False
-                logger.info(f"✅ User '{username}' logged in (session only)")
+                logger.info(f"✅ User '{username}' ({role}) logged in (session only)")
 
-            # Update last login in database
+            # Log admin login action
             try:
                 conn = get_db()
                 cursor = conn.cursor()
-                cursor.execute('UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?', (username,))
+                cursor.execute('''
+                    INSERT INTO access_logs (user_id, user_name, door_id, door_name, access_type, granted, details)
+                    VALUES (NULL, ?, NULL, 'System', 'ADMIN_LOGIN', 1, ?)
+                ''', (username, f"Admin user '{username}' ({role}) logged in"))
                 conn.commit()
             except Exception as db_error:
-                logger.warning(f"Could not update last_login: {db_error}")
+                logger.warning(f"Could not log admin login: {db_error}")
 
-            # Prepare response
+            # Prepare response with permissions
             response_data = {
                 'success': True,
                 'message': 'Login successful',
+                'username': username,
+                'role': role,
+                'permissions': permissions,
                 'remember_days': AUTH_CONFIG['remember_days'] if remember else 0
             }
 
@@ -1061,7 +1192,7 @@ def login():
                 response.set_cookie(
                     'trusted_device',
                     new_token,
-                    max_age=TRUSTED_DEVICE_DAYS * 24 * 60 * 60,  # 7 days in seconds
+                    max_age=TRUSTED_DEVICE_DAYS * 24 * 60 * 60,
                     httponly=True,
                     samesite='Lax',
                     path='/'
@@ -1092,13 +1223,16 @@ def logout():
 
 @app.route('/api/auth-status', methods=['GET'])
 def auth_status():
-    """Check authentication status"""
-    # ✅ If auth disabled, return not required
+    """Check authentication status and return user permissions"""
+    # If auth disabled, return full access
     if not AUTH_CONFIG['enabled']:
         return jsonify({
             'success': True,
             'auth_required': False,
             'authenticated': True,
+            'username': 'admin',
+            'role': 'admin',
+            'permissions': ['*'],
             'remember_days': 0
         })
 
@@ -1120,15 +1254,23 @@ def auth_status():
             'remember_days': AUTH_CONFIG['remember_days']
         })
 
-    # Normal auth status response
-    return jsonify({
+    # Normal auth status response with user info
+    response = {
         'success': True,
         'auth_required': True,
         'authenticated': has_session,
         'remember_days': AUTH_CONFIG['remember_days'],
         'password_changed': False,
         'totp_enabled': AUTH_CONFIG.get('totp_enabled', False)
-    })
+    }
+
+    # Add user details if authenticated
+    if has_session:
+        response['username'] = session.get('username')
+        response['role'] = session.get('role')
+        response['permissions'] = session.get('permissions', [])
+
+    return jsonify(response)
 
 @app.route('/api/totp/qr-code', methods=['GET'])
 @login_required
@@ -1415,6 +1557,7 @@ def get_temp_codes():
 
 @app.route('/api/temp-codes', methods=['POST'])
 @login_required
+@require_permission('manage_temp_codes')
 def create_temp_code():
     """Create a new temporary access code"""
     conn = None
@@ -1553,6 +1696,7 @@ def create_temp_code():
 
 @app.route('/api/temp-codes/<int:temp_code_id>', methods=['PUT'])
 @login_required
+@require_permission('manage_temp_codes')
 def update_temp_code(temp_code_id):
     """Update a temporary code"""
     conn = None
@@ -1656,6 +1800,7 @@ def update_temp_code(temp_code_id):
 
 @app.route('/api/temp-codes/<int:temp_code_id>', methods=['DELETE'])
 @login_required
+@require_permission('manage_temp_codes')
 def delete_temp_code(temp_code_id):
     """Delete a temporary code"""
     conn = None
@@ -1835,6 +1980,7 @@ def get_timezone_info():
 
 @app.route('/api/boards/<int:board_id>/emergency-lock', methods=['POST'])
 @login_required
+@require_permission('emergency_control')
 def emergency_lock_board(board_id):
     """Activate emergency lockdown for entire board"""
     conn = None
@@ -1890,6 +2036,7 @@ def emergency_lock_board(board_id):
 
 @app.route('/api/boards/<int:board_id>/emergency-unlock', methods=['POST'])
 @login_required
+@require_permission('emergency_control')
 def emergency_unlock_board(board_id):
     """Activate emergency unlock (evacuation) for entire board"""
     conn = None
@@ -1953,6 +2100,7 @@ def emergency_unlock_board(board_id):
 
 @app.route('/api/boards/<int:board_id>/emergency-reset', methods=['POST'])
 @login_required
+@require_permission('emergency_control')
 def emergency_reset_board(board_id):
     """Reset emergency mode back to normal"""
     conn = None
@@ -2380,6 +2528,7 @@ def get_boards():
 
 @app.route('/api/boards', methods=['POST'])
 @login_required
+@require_permission('manage_boards')
 def create_board():
     """Create a new board and auto-create doors"""
     conn = None
@@ -2425,6 +2574,7 @@ def create_board():
 
 @app.route('/api/boards/<int:board_id>', methods=['PUT'])
 @login_required
+@require_permission('manage_boards')
 def update_board(board_id):
     """Update a board and sync names to ESP32"""
     conn = None
@@ -2497,6 +2647,7 @@ def update_board(board_id):
 
 @app.route('/api/boards/<int:board_id>', methods=['DELETE'])
 @login_required
+@require_permission('manage_boards')
 def delete_board(board_id):
     """Delete a board and preserve access logs"""
     conn = None
@@ -4148,6 +4299,7 @@ def get_users():
 
 @app.route('/api/users', methods=['POST'])
 @login_required
+@require_permission('manage_users')
 def create_user():
     """Create a new user"""
     conn = None
@@ -4256,7 +4408,10 @@ def create_user():
                 ''', (user_id, schedule_id))
         
         conn.commit()
-        
+
+        # Audit log
+        log_admin_action('USER_CREATED', f"Created user '{data['name']}' (ID: {user_id})", data['name'])
+
         logger.info(f"✅ User created: {data['name']} (ID: {user_id})")
         return jsonify({'success': True, 'message': 'User created successfully', 'user_id': user_id})
     except Exception as e:
@@ -4270,6 +4425,7 @@ def create_user():
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
 @login_required
+@require_permission('manage_users')
 def update_user(user_id):
     """Update a user"""
     conn = None
@@ -4395,19 +4551,27 @@ def update_user(user_id):
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @login_required
+@require_permission('manage_users')
 def delete_user(user_id):
     """Delete a user"""
     conn = None
     try:
         logger.info(f"🗑️ Deleting user ID {user_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # Get user name for audit log
+        cursor.execute('SELECT name FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+        user_name = user['name'] if user else f'ID:{user_id}'
+
         cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
-        
         conn.commit()
-        
+
+        # Audit log
+        log_admin_action('USER_DELETED', f"Deleted user '{user_name}' (ID: {user_id})", user_name)
+
         logger.info(f"✅ User {user_id} deleted")
         return jsonify({'success': True, 'message': 'User deleted successfully'})
     except Exception as e:
@@ -4421,6 +4585,7 @@ def delete_user(user_id):
 
 @app.route('/api/users/bulk-delete', methods=['POST'])
 @login_required
+@require_permission('manage_users')
 def bulk_delete_users():
     """Delete multiple users at once"""
     conn = None
@@ -4436,12 +4601,20 @@ def bulk_delete_users():
         conn = get_db()
         cursor = conn.cursor()
 
-        # Delete users (cascade will handle cards, pins, groups)
+        # Get user names for audit log
         placeholders = ','.join('?' * len(user_ids))
+        cursor.execute(f'SELECT id, name FROM users WHERE id IN ({placeholders})', user_ids)
+        users = cursor.fetchall()
+        user_names = [u['name'] for u in users]
+
+        # Delete users (cascade will handle cards, pins, groups)
         cursor.execute(f'DELETE FROM users WHERE id IN ({placeholders})', user_ids)
 
         deleted = cursor.rowcount
         conn.commit()
+
+        # Audit log
+        log_admin_action('USERS_BULK_DELETED', f"Bulk deleted {deleted} users: {', '.join(user_names)}")
 
         logger.info(f"✅ Bulk delete complete: {deleted} users deleted")
         return jsonify({'success': True, 'deleted': deleted, 'message': f'{deleted} user(s) deleted successfully'})
@@ -5183,6 +5356,7 @@ def get_groups():
 
 @app.route('/api/groups', methods=['POST'])
 @login_required
+@require_permission('manage_groups')
 def create_group():
     """Create a new access group"""
     conn = None
@@ -5224,6 +5398,7 @@ def create_group():
 
 @app.route('/api/groups/<int:group_id>', methods=['PUT'])
 @login_required
+@require_permission('manage_groups')
 def update_group(group_id):
     """Update an access group"""
     conn = None
@@ -5263,6 +5438,7 @@ def update_group(group_id):
 
 @app.route('/api/groups/<int:group_id>', methods=['DELETE'])
 @login_required
+@require_permission('manage_groups')
 def delete_group(group_id):
     """Delete an access group"""
     conn = None
@@ -5330,6 +5506,7 @@ def get_schedules():
 
 @app.route('/api/schedules', methods=['POST'])
 @login_required
+@require_permission('manage_schedules')
 def create_schedule():
     """Create a new access schedule"""
     conn = None
@@ -5371,6 +5548,7 @@ def create_schedule():
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
 @login_required
+@require_permission('manage_schedules')
 def update_schedule(schedule_id):
     """Update an access schedule"""
     conn = None
@@ -5410,6 +5588,7 @@ def update_schedule(schedule_id):
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
 @login_required
+@require_permission('manage_schedules')
 def delete_schedule(schedule_id):
     """Delete an access schedule"""
     conn = None

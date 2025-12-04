@@ -2978,7 +2978,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     console.log('✅ Login successful!');
                     hideLoginOverlay();
                     isAuthenticated = true;
-                    showToast('Login successful!', 'success');
+                    // Store user info and apply permissions
+                    currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+                    applyPermissions();
+                    showToast(`Welcome, ${data.username}!`, 'success');
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
@@ -3047,7 +3050,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                     pendingCredentials = { username: '', password: '', remember: false };
                     hideLoginOverlay();
                     isAuthenticated = true;
-                    showToast('Login successful!', 'success');
+                    // Store user info and apply permissions
+                    currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+                    applyPermissions();
+                    showToast(`Welcome, ${data.username}!`, 'success');
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
@@ -3061,7 +3067,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
     }
-    
+
     // 2. Check authentication and load dashboard
     console.log('🚀 Checking authentication...');
     const isAuthed = await checkAuthStatus();
@@ -3108,6 +3114,55 @@ document.addEventListener('DOMContentLoaded', async function() {
         // ==================== AUTHENTICATION (FLASK SESSION-BASED) ====================
 let isAuthenticated = false;
 let rememberDays = 30;
+let currentUser = { username: '', role: '', permissions: [] };
+
+// Permission checking functions
+function hasPermission(permission) {
+    if (currentUser.permissions.includes('*')) return true;
+    return currentUser.permissions.includes(permission);
+}
+
+function applyPermissions() {
+    // Map tabs to required permissions
+    const tabPermissions = {
+        'boards': 'manage_boards',
+        'doors': 'manage_doors',
+        'users': 'manage_users',
+        'groups': 'manage_groups',
+        'schedules': 'manage_schedules',
+        'tempcodes': 'manage_temp_codes',
+        'emergency': 'emergency_control',
+        'logs': 'view_logs',
+        'settings': 'manage_settings'
+    };
+
+    // Hide tabs user doesn't have permission for
+    document.querySelectorAll('.tab').forEach(tab => {
+        const onclick = tab.getAttribute('onclick') || '';
+        for (const [tabName, permission] of Object.entries(tabPermissions)) {
+            if (onclick.includes(`'${tabName}'`)) {
+                if (!hasPermission(permission) && !hasPermission('view_dashboard')) {
+                    tab.style.display = 'none';
+                } else if (!hasPermission(permission)) {
+                    // Can view but not manage - disable editing later
+                    tab.dataset.viewOnly = 'true';
+                }
+                break;
+            }
+        }
+    });
+
+    // Update header with username
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions && currentUser.username) {
+        const userDisplay = document.createElement('span');
+        userDisplay.style.cssText = 'margin-right: 15px; color: #64748b; font-size: 14px;';
+        userDisplay.innerHTML = `👤 <strong>${currentUser.username}</strong> <span style="color: #94a3b8;">(${currentUser.role})</span>`;
+        headerActions.insertBefore(userDisplay, headerActions.firstChild);
+    }
+
+    console.log('🔐 Permissions applied for user:', currentUser.username, currentUser.permissions);
+}
 
 async function checkAuthStatus() {
     try {
@@ -3132,14 +3187,18 @@ async function checkAuthStatus() {
             console.log('✅ Auth not required');
             hideLoginOverlay();
             isAuthenticated = true;
+            currentUser = { username: data.username || 'admin', role: data.role || 'admin', permissions: data.permissions || ['*'] };
+            applyPermissions();
             return true;
         }
-        
+
         // Check if authenticated
         if (data.authenticated) {
             console.log('✅ Authenticated via session');
             hideLoginOverlay();
             isAuthenticated = true;
+            currentUser = { username: data.username, role: data.role, permissions: data.permissions || [] };
+            applyPermissions();
             return true;
         } else {
             console.log('❌ Not authenticated');
