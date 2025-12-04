@@ -311,6 +311,12 @@
             color: #1e40af;
         }
 
+        .emergency-status.offline {
+            background: #fef2f2;
+            color: #dc2626;
+            font-weight: bold;
+        }
+
         .emergency-actions {
             display: flex;
             gap: 10px;
@@ -3744,18 +3750,22 @@ async function loadEmergencyControls() {
                 const isEmergency = board.emergency_mode !== null;
                 
                 return `
-                    <div class="emergency-panel">
+                    <div class="emergency-panel" style="${!board.online ? 'opacity: 0.7;' : ''}">
                         <div class="emergency-panel-header">
                             <h2>🚨 ${board.name}</h2>
+                            ${!board.online ? '<span style="background: #dc2626; color: white; padding: 4px 12px; border-radius: 20px; font-size: 14px; margin-left: 10px;">🔴 OFFLINE</span>' : ''}
                         </div>
 
                         <div class="emergency-board-controls">
                             <div class="emergency-board-info">
                                 <div class="emergency-board-name">${board.name}</div>
-                                <div class="emergency-status ${isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal'}">
-                                    ${isEmergency 
-                                        ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
-                                        : '🟢 Normal Operation'
+                                <div class="emergency-status ${!board.online ? 'offline' : (isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal')}">
+                                    ${!board.online
+                                        ? '🔴 Board Offline - Cannot Control'
+                                        : (isEmergency
+                                            ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
+                                            : '🟢 Normal Operation'
+                                        )
                                     }
                                 </div>
                             </div>
