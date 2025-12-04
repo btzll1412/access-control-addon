@@ -2168,8 +2168,8 @@
                 </div>
                 <div class="card-body" style="padding: 20px;">
                     <p style="color: #78350f; margin-bottom: 20px; font-size: 14px;">
-                        Two-factor authentication is <strong>enabled</strong> in the addon configuration.
-                        Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.)
+                        Two-factor authentication is <strong>enabled</strong> for your account.
+                        Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.) to set up 2FA for <strong id="totpUsername">your account</strong>.
                     </p>
 
                     <div style="display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: start;">
@@ -2219,9 +2219,9 @@
                     <div style="margin-top: 20px; padding: 15px; background: #fef2f2; border-radius: 8px; border: 1px solid #fecaca;">
                         <strong style="color: #dc2626;">⚠️ Important:</strong>
                         <ul style="margin: 10px 0 0 20px; color: #991b1b; font-size: 13px;">
-                            <li>Anyone with access to this QR code can generate login codes</li>
-                            <li>All users sharing this login will use the same authenticator</li>
-                            <li>If you lose access to your authenticator, disable TOTP in the addon configuration</li>
+                            <li>This QR code is unique to your account - do not share it with others</li>
+                            <li>Each user has their own separate 2FA secret</li>
+                            <li>If you lose access to your authenticator, an admin can disable TOTP for your account in the addon configuration</li>
                         </ul>
                     </div>
                 </div>
@@ -6251,9 +6251,14 @@ async function saveDoorSettings(event) {
                     document.getElementById('totpQrCode').innerHTML = `<img src="data:image/png;base64,${data.qr_code}" alt="TOTP QR Code" style="max-width: 200px;">`;
                     document.getElementById('totpAccount').textContent = data.account;
                     document.getElementById('totpSecret').textContent = data.secret;
+                    // Show username in the description
+                    const totpUsername = document.getElementById('totpUsername');
+                    if (totpUsername && currentUser.username) {
+                        totpUsername.textContent = currentUser.username;
+                    }
                     totpEnabled = true;
                 } else {
-                    // TOTP not enabled
+                    // TOTP not enabled for this user
                     document.getElementById('totpSection').style.display = 'none';
                     totpEnabled = false;
                 }

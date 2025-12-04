@@ -167,48 +167,65 @@ def log_admin_action(action_type, details, target_name=None):
     except Exception as e:
         logger.error(f"❌ Failed to log admin action: {e}")
 
-# ==================== TOTP CONFIGURATION ====================
-TOTP_SECRET_FILE = '/data/.totp_secret'
+# ==================== TOTP CONFIGURATION (PER-USER) ====================
+TOTP_SECRETS_FILE = '/data/.totp_secrets.json'
 
-def get_or_create_totp_secret():
-    """Get or create TOTP secret for authenticator apps"""
+def load_totp_secrets():
+    """Load all user TOTP secrets from file"""
     try:
-        if os.path.exists(TOTP_SECRET_FILE):
-            with open(TOTP_SECRET_FILE, 'r') as f:
-                secret = f.read().strip()
-                if secret:
-                    return secret
+        if os.path.exists(TOTP_SECRETS_FILE):
+            with open(TOTP_SECRETS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"❌ Error loading TOTP secrets: {e}")
+    return {}
 
-        # Generate new secret
+def save_totp_secrets(secrets):
+    """Save all user TOTP secrets to file"""
+    try:
+        with open(TOTP_SECRETS_FILE, 'w') as f:
+            json.dump(secrets, f)
+    except Exception as e:
+        logger.error(f"❌ Error saving TOTP secrets: {e}")
+
+def get_or_create_user_totp_secret(username):
+    """Get or create TOTP secret for a specific user"""
+    try:
+        secrets = load_totp_secrets()
+
+        if username in secrets and secrets[username]:
+            return secrets[username]
+
+        # Generate new secret for this user
         secret = pyotp.random_base32()
-        with open(TOTP_SECRET_FILE, 'w') as f:
-            f.write(secret)
-        logger.info("🔐 Generated new TOTP secret")
+        secrets[username] = secret
+        save_totp_secrets(secrets)
+        logger.info(f"🔐 Generated new TOTP secret for user '{username}'")
         return secret
     except Exception as e:
-        logger.error(f"❌ Error with TOTP secret: {e}")
+        logger.error(f"❌ Error with TOTP secret for {username}: {e}")
         return pyotp.random_base32()
 
-def verify_totp(code):
-    """Verify a TOTP code"""
+def verify_user_totp(username, code):
+    """Verify a TOTP code for a specific user"""
     try:
-        secret = get_or_create_totp_secret()
+        secret = get_or_create_user_totp_secret(username)
         totp = pyotp.TOTP(secret)
         # Allow 1 period tolerance for clock drift
         return totp.verify(code, valid_window=1)
     except Exception as e:
-        logger.error(f"❌ TOTP verification error: {e}")
+        logger.error(f"❌ TOTP verification error for {username}: {e}")
         return False
 
-def get_totp_qr_code():
-    """Generate QR code for authenticator app setup"""
+def get_user_totp_qr_code(username):
+    """Generate QR code for a specific user's authenticator app setup"""
     try:
-        secret = get_or_create_totp_secret()
+        secret = get_or_create_user_totp_secret(username)
         totp = pyotp.TOTP(secret)
 
         # Create provisioning URI
         uri = totp.provisioning_uri(
-            name=AUTH_CONFIG['username'],
+            name=username,
             issuer_name="Access Control System"
         )
 
@@ -229,8 +246,15 @@ def get_totp_qr_code():
         img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         return img_base64, secret
     except Exception as e:
-        logger.error(f"❌ Error generating QR code: {e}")
+        logger.error(f"❌ Error generating QR code for {username}: {e}")
         return None, None
+
+def is_user_totp_enabled(username):
+    """Check if TOTP is enabled for a specific user"""
+    user = get_user_by_username(username)
+    if user:
+        return user.get('totp_enabled', False)
+    return False
 
 # ==================== TRUSTED DEVICE MANAGEMENT ====================
 TRUSTED_DEVICES_FILE = '/data/trusted_devices.json'
@@ -1123,8 +1147,9 @@ def login():
             permissions = get_user_permissions(user)
             role = user.get('role', 'custom')
 
-            # Check TOTP if enabled
-            if AUTH_CONFIG.get('totp_enabled', False):
+            # Check TOTP if enabled for this user
+            user_totp_enabled = user.get('totp_enabled', False)
+            if user_totp_enabled:
                 # Check if device is trusted (skip TOTP)
                 is_trusted = verify_trusted_device(trusted_device_token)
 
@@ -1137,7 +1162,7 @@ def login():
                         'message': 'Authenticator code required',
                         'totp_required': True
                     }), 401
-                elif not verify_totp(totp_code):
+                elif not verify_user_totp(username, totp_code):
                     logger.warning(f"❌ Invalid TOTP code for '{username}'")
                     return jsonify({
                         'success': False,
@@ -1186,7 +1211,7 @@ def login():
             }
 
             # Create trusted device token if requested and TOTP was verified
-            if remember_device and AUTH_CONFIG.get('totp_enabled', False) and totp_code:
+            if remember_device and user_totp_enabled and totp_code:
                 new_token = create_trusted_device_token()
                 response = make_response(jsonify(response_data))
                 response.set_cookie(
@@ -1261,29 +1286,40 @@ def auth_status():
         'authenticated': has_session,
         'remember_days': AUTH_CONFIG['remember_days'],
         'password_changed': False,
-        'totp_enabled': AUTH_CONFIG.get('totp_enabled', False)
+        'totp_enabled': False
     }
 
     # Add user details if authenticated
     if has_session:
-        response['username'] = session.get('username')
+        username = session.get('username')
+        response['username'] = username
         response['role'] = session.get('role')
         response['permissions'] = session.get('permissions', [])
+        # Return per-user TOTP status
+        response['totp_enabled'] = is_user_totp_enabled(username)
 
     return jsonify(response)
 
 @app.route('/api/totp/qr-code', methods=['GET'])
 @login_required
 def get_totp_qr():
-    """Get TOTP QR code for authenticator app setup"""
+    """Get TOTP QR code for the currently logged-in user"""
     try:
-        if not AUTH_CONFIG.get('totp_enabled', False):
+        username = session.get('username')
+        if not username:
             return jsonify({
                 'success': False,
-                'message': 'TOTP is not enabled in addon configuration'
+                'message': 'Not logged in'
+            }), 401
+
+        # Check if TOTP is enabled for this user
+        if not is_user_totp_enabled(username):
+            return jsonify({
+                'success': False,
+                'message': 'Two-factor authentication is not enabled for your account'
             }), 400
 
-        qr_base64, secret = get_totp_qr_code()
+        qr_base64, secret = get_user_totp_qr_code(username)
 
         if qr_base64:
             return jsonify({
@@ -1291,7 +1327,7 @@ def get_totp_qr():
                 'qr_code': qr_base64,
                 'secret': secret,
                 'issuer': 'Access Control System',
-                'account': AUTH_CONFIG['username']
+                'account': username
             })
         else:
             return jsonify({
@@ -1305,15 +1341,19 @@ def get_totp_qr():
 @app.route('/api/totp/verify', methods=['POST'])
 @login_required
 def verify_totp_code():
-    """Verify a TOTP code (for testing setup)"""
+    """Verify a TOTP code for the current user (for testing setup)"""
     try:
+        username = session.get('username')
+        if not username:
+            return jsonify({'success': False, 'message': 'Not logged in'}), 401
+
         data = request.json
         code = data.get('code', '').strip()
 
         if not code:
             return jsonify({'success': False, 'message': 'Code required'}), 400
 
-        if verify_totp(code):
+        if verify_user_totp(username, code):
             return jsonify({'success': True, 'message': 'Code is valid'})
         else:
             return jsonify({'success': False, 'message': 'Invalid code'}), 401
