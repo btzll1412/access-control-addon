@@ -311,6 +311,12 @@
             color: #1e40af;
         }
 
+        .emergency-status.offline {
+            background: #fef2f2;
+            color: #dc2626;
+            font-weight: bold;
+        }
+
         .emergency-actions {
             display: flex;
             gap: 10px;
@@ -2731,33 +2737,42 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',  // ✅ Include cookies
+                    credentials: 'include',  // ✅ Include cookies (works with ingress)
                     body: JSON.stringify({ username, password, remember })
                 });
-                
+
+                console.log('Login response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.log('❌ Login failed:', response.status, errorData);
+                    showLoginError(errorData.message || `Login failed (${response.status})`);
+                    return;
+                }
+
                 const data = await response.json();
                 console.log('Login response:', data);
-                
+
                 if (data.success) {
                     console.log('✅ Login successful!');
                     hideLoginOverlay();
                     isAuthenticated = true;
-                    
+
                     showToast('Login successful!', 'success');
-                    
+
                     // Load dashboard data
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
                     loadEmergencyStatus();
-                    
+
                 } else {
                     console.log('❌ Login failed:', data.message);
                     showLoginError(data.message || 'Invalid credentials');
                 }
             } catch (error) {
                 console.error('❌ Login error:', error);
-                showLoginError('Connection error. Please try again.');
+                showLoginError('Connection error: ' + error.message);
             }
         });
     }
@@ -2810,7 +2825,7 @@ let rememberDays = 30;
 async function checkAuthStatus() {
     try {
         const response = await fetch('/api/auth-status', {
-            credentials: 'same-origin'  // ✅ Include session cookies
+            credentials: 'include'  // ✅ Include session cookies (works with ingress)
         });
         
         const data = await response.json();
@@ -2909,7 +2924,7 @@ async function handleLogout() {
     try {
         await fetch('/api/logout', {
             method: 'POST',
-            credentials: 'same-origin'  // ✅ Include session cookies
+            credentials: 'include'  // ✅ Include session cookies (works with ingress)
         });
         
         isAuthenticated = false;
@@ -3735,18 +3750,22 @@ async function loadEmergencyControls() {
                 const isEmergency = board.emergency_mode !== null;
                 
                 return `
-                    <div class="emergency-panel">
+                    <div class="emergency-panel" style="${!board.online ? 'opacity: 0.7;' : ''}">
                         <div class="emergency-panel-header">
                             <h2>🚨 ${board.name}</h2>
+                            ${!board.online ? '<span style="background: #dc2626; color: white; padding: 4px 12px; border-radius: 20px; font-size: 14px; margin-left: 10px;">🔴 OFFLINE</span>' : ''}
                         </div>
 
                         <div class="emergency-board-controls">
                             <div class="emergency-board-info">
                                 <div class="emergency-board-name">${board.name}</div>
-                                <div class="emergency-status ${isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal'}">
-                                    ${isEmergency 
-                                        ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
-                                        : '🟢 Normal Operation'
+                                <div class="emergency-status ${!board.online ? 'offline' : (isEmergency ? (board.emergency_mode === 'lock' ? 'locked' : 'unlocked') : 'normal')}">
+                                    ${!board.online
+                                        ? '🔴 Board Offline - Cannot Control'
+                                        : (isEmergency
+                                            ? (board.emergency_mode === 'lock' ? '🔒 EMERGENCY LOCKED' : '🔓 EMERGENCY UNLOCKED')
+                                            : '🟢 Normal Operation'
+                                        )
                                     }
                                 </div>
                             </div>

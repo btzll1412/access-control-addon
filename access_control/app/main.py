@@ -86,12 +86,24 @@ PASSWORD_VERSION = get_or_create_password_version()
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 # Create Flask app with explicit template folder
-app = Flask(__name__, 
+app = Flask(__name__,
             template_folder=os.path.join(basedir, 'templates'))
-app.secret_key = secrets.token_hex(32)
 
 # Database path
 DB_PATH = '/data/access_control.db'
+
+# ==================== SECRET KEY (Persistent) ====================
+# Use a persistent secret key so sessions survive restarts
+SECRET_KEY_FILE = '/data/.flask_secret_key'
+if os.path.exists(SECRET_KEY_FILE):
+    with open(SECRET_KEY_FILE, 'r') as f:
+        app.secret_key = f.read().strip()
+    logger.info("🔑 Loaded existing secret key")
+else:
+    app.secret_key = secrets.token_hex(32)
+    with open(SECRET_KEY_FILE, 'w') as f:
+        f.write(app.secret_key)
+    logger.info("🔑 Generated new secret key")
 
 # ==================== INGRESS SUPPORT ====================
 # Get ingress path from environment
@@ -101,11 +113,17 @@ INGRESS_PATH = os.environ.get('INGRESS_PATH', '')
 if INGRESS_PATH:
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-    
+
     # Update static/template paths
     app.config['APPLICATION_ROOT'] = INGRESS_PATH
-    
+
     logger.info(f"🔗 Ingress enabled: {INGRESS_PATH}")
+
+# ==================== SESSION COOKIE CONFIG ====================
+# Configure session cookies to work with Home Assistant ingress
+app.config['SESSION_COOKIE_PATH'] = '/'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # Set True if using HTTPS only
 
 # ==================== AUTHENTICATION HELPERS ====================
 def login_required(f):
@@ -900,32 +918,32 @@ def auth_status():
             'authenticated': True,
             'remember_days': 0
         })
-    
-    # Auth enabled - check session
-    return jsonify({
-        'success': True,
-        'auth_required': True,
-        'authenticated': 'logged_in' in session,
-        'remember_days': AUTH_CONFIG['remember_days'],
-        'password_changed': session.get('password_version') != PASSWORD_VERSION
-    })
-    
-    # Check password version (invalidate if password changed)
-    if session.get('password_version') != PASSWORD_VERSION:
+
+    # Check if user has an existing session with old password
+    has_session = 'logged_in' in session
+    session_password_version = session.get('password_version')
+
+    # Password changed = user HAD a session but password version doesn't match
+    password_changed = has_session and session_password_version and session_password_version != PASSWORD_VERSION
+
+    # If password changed, clear the session
+    if password_changed:
         session.clear()
         return jsonify({
-            'authenticated': False,
+            'success': True,
             'auth_required': True,
-            'username': None,
+            'authenticated': False,
             'password_changed': True,
             'remember_days': AUTH_CONFIG['remember_days']
         })
-    
+
+    # Normal auth status response
     return jsonify({
-        'authenticated': True,
+        'success': True,
         'auth_required': True,
-        'username': session.get('username'),
-        'remember_days': AUTH_CONFIG['remember_days']
+        'authenticated': has_session,
+        'remember_days': AUTH_CONFIG['remember_days'],
+        'password_changed': False
     })
 
 
@@ -3913,12 +3931,67 @@ def update_user(user_id):
     try:
         data = request.json
         logger.info(f"✏️ Updating user ID {user_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # ✅ Check for duplicate cards (exclude this user's own cards)
+        if 'cards' in data:
+            for card in data['cards']:
+                card_number = card['number']
+                cursor.execute('''
+                    SELECT u.name
+                    FROM user_cards uc
+                    JOIN users u ON uc.user_id = u.id
+                    WHERE uc.card_number = ? AND uc.user_id != ?
+                ''', (card_number, user_id))
+
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ Card {card_number} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False,
+                        'message': f"Card {card_number} is already registered to user '{existing['name']}'"
+                    }), 400
+
+        # ✅ Check for duplicate PINs (exclude this user's own PINs)
+        if 'pins' in data:
+            for pin in data['pins']:
+                pin_code = pin['pin']
+
+                # Check in user_pins (exclude current user)
+                cursor.execute('''
+                    SELECT u.name
+                    FROM user_pins up
+                    JOIN users u ON up.user_id = u.id
+                    WHERE up.pin = ? AND up.user_id != ?
+                ''', (pin_code, user_id))
+
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ PIN {pin_code} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False,
+                        'message': f"PIN {pin_code} is already registered to user '{existing['name']}'"
+                    }), 400
+
+                # Check in temp_codes
+                cursor.execute('''
+                    SELECT name
+                    FROM temp_codes
+                    WHERE code = ?
+                ''', (pin_code,))
+
+                existing_temp = cursor.fetchone()
+                if existing_temp:
+                    logger.warning(f"⚠️ PIN {pin_code} already used as temp code '{existing_temp['name']}'")
+                    return jsonify({
+                        'success': False,
+                        'message': f"PIN {pin_code} is already in use as temporary code '{existing_temp['name']}'"
+                    }), 400
+
         cursor.execute('''
-            UPDATE users 
+            UPDATE users
             SET name = ?, active = ?, valid_from = ?, valid_until = ?, notes = ?
             WHERE id = ?
         ''', (
@@ -3929,7 +4002,7 @@ def update_user(user_id):
             data.get('notes', ''),
             user_id
         ))
-        
+
         cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
         if 'cards' in data:
             for card in data['cards']:
