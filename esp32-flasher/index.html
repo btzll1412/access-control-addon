@@ -26,7 +26,7 @@
             background: white;
             border-radius: 20px;
             padding: 40px;
-            max-width: 600px;
+            max-width: 650px;
             width: 100%;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
@@ -54,6 +54,108 @@
             text-align: center;
         }
 
+        /* Board Selector Styles */
+        .board-selector {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .board-selector h3 {
+            color: #1e293b;
+            margin-bottom: 15px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .board-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .board-option {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .board-option:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .board-option.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+
+        .board-option input[type="radio"] {
+            display: none;
+        }
+
+        .board-option .radio-circle {
+            width: 22px;
+            height: 22px;
+            border: 2px solid #cbd5e1;
+            border-radius: 50%;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .board-option.selected .radio-circle {
+            border-color: #667eea;
+            background: #667eea;
+        }
+
+        .board-option.selected .radio-circle::after {
+            content: '✓';
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .board-info {
+            flex: 1;
+        }
+
+        .board-info .board-name {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .board-info .board-desc {
+            color: #64748b;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .board-info .board-chip {
+            display: inline-block;
+            background: #dbeafe;
+            color: #1d4ed8;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+
         esp-web-install-button {
             display: block;
             margin: 30px 0;
@@ -75,6 +177,13 @@
         .install-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .install-button:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .requirements {
@@ -127,6 +236,25 @@
             font-family: 'Courier New', monospace;
         }
 
+        .warning-box {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .warning-box.visible {
+            display: block;
+        }
+
+        .warning-box p {
+            color: #92400e;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
         .footer {
             text-align: center;
             margin-top: 30px;
@@ -146,11 +274,51 @@
         </div>
 
         <p class="description">
-            Flash your ESP32 board with the Access Control firmware directly from your browser. 
+            Flash your ESP32 board with the Access Control firmware directly from your browser.
             <strong>No Arduino IDE, drivers, or software installation needed!</strong>
         </p>
 
-        <esp-web-install-button manifest="manifest.json">
+        <!-- Board Type Selector -->
+        <div class="board-selector">
+            <h3>🔧 Select Your Board Type:</h3>
+            <div class="board-options">
+                <label class="board-option selected" onclick="selectBoard('esp32')">
+                    <input type="radio" name="board" value="esp32" checked>
+                    <div class="radio-circle"></div>
+                    <div class="board-info">
+                        <div class="board-name">ESP32 Standard (4MB)</div>
+                        <div class="board-desc">ESP32-WROOM-32, ESP32 DevKit V1, NodeMCU-32S</div>
+                        <span class="board-chip">ESP32</span>
+                    </div>
+                </label>
+
+                <label class="board-option" onclick="selectBoard('esp32-n16r8')">
+                    <input type="radio" name="board" value="esp32-n16r8">
+                    <div class="radio-circle"></div>
+                    <div class="board-info">
+                        <div class="board-name">ESP32-N16R8 (16MB Flash + 8MB PSRAM)</div>
+                        <div class="board-desc">ESP32-WROVER, boards with extended memory</div>
+                        <span class="board-chip">ESP32 + PSRAM</span>
+                    </div>
+                </label>
+
+                <label class="board-option" onclick="selectBoard('esp32-s3')">
+                    <input type="radio" name="board" value="esp32-s3">
+                    <div class="radio-circle"></div>
+                    <div class="board-info">
+                        <div class="board-name">ESP32-S3</div>
+                        <div class="board-desc">ESP32-S3-WROOM, ESP32-S3-DevKitC</div>
+                        <span class="board-chip">ESP32-S3</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <div class="warning-box" id="firmwareWarning">
+            <p>⚠️ <strong>Note:</strong> Make sure you have compiled and uploaded the correct firmware for this board type. Using the wrong firmware may cause issues.</p>
+        </div>
+
+        <esp-web-install-button id="installButton" manifest="manifests/esp32.json">
             <button slot="activate" class="install-button">
                 ⚡ INSTALL FIRMWARE
             </button>
@@ -180,7 +348,7 @@
         <div class="requirements" style="background: #fef3c7; border: 2px solid #fbbf24; margin-top: 20px;">
             <h3>🔌 Hardware Requirements:</h3>
             <ul style="color: #78350f;">
-                <li>ESP32 Dev Board (ESP32-WROOM-32 or similar)</li>
+                <li>ESP32 Dev Board (select your variant above)</li>
                 <li>2x Wiegand RFID Readers</li>
                 <li>2x Door Strike/Relay Modules</li>
                 <li>2x 4x4 Matrix Keypads (optional)</li>
@@ -193,6 +361,33 @@
             <p style="margin-top: 10px;">Version 1.0.0 | MIT License</p>
         </div>
     </div>
-</body>
 
+    <script>
+        let selectedBoard = 'esp32';
+
+        function selectBoard(boardType) {
+            selectedBoard = boardType;
+
+            // Update visual selection
+            document.querySelectorAll('.board-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+            event.currentTarget.classList.add('selected');
+
+            // Update manifest path
+            const installButton = document.getElementById('installButton');
+            installButton.setAttribute('manifest', `manifests/${boardType}.json`);
+
+            // Show warning for non-standard boards
+            const warning = document.getElementById('firmwareWarning');
+            if (boardType !== 'esp32') {
+                warning.classList.add('visible');
+            } else {
+                warning.classList.remove('visible');
+            }
+
+            console.log(`Selected board: ${boardType}, manifest: manifests/${boardType}.json`);
+        }
+    </script>
+</body>
 </html>

@@ -1,0 +1,29 @@
+{
+  "name": "Access Control - ESP32-N16R8 (16MB Flash)",
+  "version": "1.0.0",
+  "home_assistant_domain": "esphome",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "../firmware/esp32-n16r8/bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "../firmware/esp32-n16r8/partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "../firmware/esp32-n16r8/boot_app0.bin",
+          "offset": 57344
+        },
+        {
+          "path": "../firmware/esp32-n16r8/firmware.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}
