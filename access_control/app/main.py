@@ -3913,12 +3913,67 @@ def update_user(user_id):
     try:
         data = request.json
         logger.info(f"✏️ Updating user ID {user_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # ✅ Check for duplicate cards (exclude this user's own cards)
+        if 'cards' in data:
+            for card in data['cards']:
+                card_number = card['number']
+                cursor.execute('''
+                    SELECT u.name
+                    FROM user_cards uc
+                    JOIN users u ON uc.user_id = u.id
+                    WHERE uc.card_number = ? AND uc.user_id != ?
+                ''', (card_number, user_id))
+
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ Card {card_number} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False,
+                        'message': f"Card {card_number} is already registered to user '{existing['name']}'"
+                    }), 400
+
+        # ✅ Check for duplicate PINs (exclude this user's own PINs)
+        if 'pins' in data:
+            for pin in data['pins']:
+                pin_code = pin['pin']
+
+                # Check in user_pins (exclude current user)
+                cursor.execute('''
+                    SELECT u.name
+                    FROM user_pins up
+                    JOIN users u ON up.user_id = u.id
+                    WHERE up.pin = ? AND up.user_id != ?
+                ''', (pin_code, user_id))
+
+                existing = cursor.fetchone()
+                if existing:
+                    logger.warning(f"⚠️ PIN {pin_code} already assigned to {existing['name']}")
+                    return jsonify({
+                        'success': False,
+                        'message': f"PIN {pin_code} is already registered to user '{existing['name']}'"
+                    }), 400
+
+                # Check in temp_codes
+                cursor.execute('''
+                    SELECT name
+                    FROM temp_codes
+                    WHERE code = ?
+                ''', (pin_code,))
+
+                existing_temp = cursor.fetchone()
+                if existing_temp:
+                    logger.warning(f"⚠️ PIN {pin_code} already used as temp code '{existing_temp['name']}'")
+                    return jsonify({
+                        'success': False,
+                        'message': f"PIN {pin_code} is already in use as temporary code '{existing_temp['name']}'"
+                    }), 400
+
         cursor.execute('''
-            UPDATE users 
+            UPDATE users
             SET name = ?, active = ?, valid_from = ?, valid_until = ?, notes = ?
             WHERE id = ?
         ''', (
@@ -3929,7 +3984,7 @@ def update_user(user_id):
             data.get('notes', ''),
             user_id
         ))
-        
+
         cursor.execute('DELETE FROM user_cards WHERE user_id = ?', (user_id,))
         if 'cards' in data:
             for card in data['cards']:
