@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, make_response, redirect, url_for, render_template_string
+from flask import Flask, render_template, request, jsonify, session, make_response, redirect, url_for, render_template_string, send_file
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -3344,6 +3344,119 @@ def save_controller_settings():
     finally:
         if conn:
             conn.close()
+
+# ==================== BACKGROUND IMAGE API ====================
+
+BACKGROUND_IMAGE_PATH = '/data/background_image'
+BACKGROUND_SETTINGS_FILE = '/data/background_settings.json'
+
+@app.route('/api/background', methods=['GET'])
+@login_required
+def get_background_settings():
+    """Get background image settings"""
+    try:
+        settings = {
+            'enabled': False,
+            'mode': 'cover',  # 'cover' = one big picture, 'repeat' = tiled
+            'has_image': os.path.exists(BACKGROUND_IMAGE_PATH)
+        }
+
+        if os.path.exists(BACKGROUND_SETTINGS_FILE):
+            with open(BACKGROUND_SETTINGS_FILE, 'r') as f:
+                saved = json.load(f)
+                settings.update(saved)
+
+        settings['has_image'] = os.path.exists(BACKGROUND_IMAGE_PATH)
+
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        logger.error(f"❌ Error getting background settings: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/background', methods=['POST'])
+@login_required
+def save_background_settings():
+    """Save background settings (mode, enabled)"""
+    try:
+        data = request.json
+        settings = {
+            'enabled': data.get('enabled', False),
+            'mode': data.get('mode', 'cover')
+        }
+
+        # Validate mode
+        if settings['mode'] not in ['cover', 'repeat']:
+            return jsonify({'success': False, 'message': 'Mode must be "cover" or "repeat"'}), 400
+
+        with open(BACKGROUND_SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f)
+
+        logger.info(f"✅ Background settings saved: enabled={settings['enabled']}, mode={settings['mode']}")
+        return jsonify({'success': True, 'message': 'Background settings saved'})
+    except Exception as e:
+        logger.error(f"❌ Error saving background settings: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/background/upload', methods=['POST'])
+@login_required
+def upload_background():
+    """Upload background image"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'message': 'No image file provided'}), 400
+
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'}), 400
+
+        # Check file type
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in allowed_extensions:
+            return jsonify({'success': False, 'message': f'File type not allowed. Use: {", ".join(allowed_extensions)}'}), 400
+
+        # Save the file
+        file.save(BACKGROUND_IMAGE_PATH)
+
+        logger.info(f"✅ Background image uploaded: {file.filename}")
+        return jsonify({'success': True, 'message': 'Background image uploaded successfully'})
+    except Exception as e:
+        logger.error(f"❌ Error uploading background: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/background/image', methods=['GET'])
+def get_background_image():
+    """Serve the background image"""
+    try:
+        if os.path.exists(BACKGROUND_IMAGE_PATH):
+            return send_file(BACKGROUND_IMAGE_PATH, mimetype='image/png')
+        else:
+            return jsonify({'success': False, 'message': 'No background image'}), 404
+    except Exception as e:
+        logger.error(f"❌ Error serving background image: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/background/delete', methods=['DELETE'])
+@login_required
+def delete_background():
+    """Delete background image"""
+    try:
+        if os.path.exists(BACKGROUND_IMAGE_PATH):
+            os.remove(BACKGROUND_IMAGE_PATH)
+            logger.info("✅ Background image deleted")
+
+        # Also disable background in settings
+        if os.path.exists(BACKGROUND_SETTINGS_FILE):
+            with open(BACKGROUND_SETTINGS_FILE, 'r') as f:
+                settings = json.load(f)
+            settings['enabled'] = False
+            with open(BACKGROUND_SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f)
+
+        return jsonify({'success': True, 'message': 'Background image deleted'})
+    except Exception as e:
+        logger.error(f"❌ Error deleting background: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== DOOR API ====================
 
