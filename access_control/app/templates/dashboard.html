@@ -3038,11 +3038,9 @@ async function checkAuthStatus() {
             showLoginOverlay();
             isAuthenticated = false;
 
-            // Show TOTP field if enabled
-            if (data.totp_enabled) {
-                console.log('🔑 TOTP enabled, showing authenticator field');
-                document.getElementById('totpGroup').style.display = 'block';
-            }
+            // Reset TOTP field - will show only after credentials verified
+            document.getElementById('totpGroup').style.display = 'none';
+            document.getElementById('loginTotp').value = '';
 
             if (data.password_changed) {
                 showLoginError('Password changed. Please log in again.');
