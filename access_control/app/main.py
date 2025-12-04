@@ -918,32 +918,32 @@ def auth_status():
             'authenticated': True,
             'remember_days': 0
         })
-    
-    # Auth enabled - check session
-    return jsonify({
-        'success': True,
-        'auth_required': True,
-        'authenticated': 'logged_in' in session,
-        'remember_days': AUTH_CONFIG['remember_days'],
-        'password_changed': session.get('password_version') != PASSWORD_VERSION
-    })
-    
-    # Check password version (invalidate if password changed)
-    if session.get('password_version') != PASSWORD_VERSION:
+
+    # Check if user has an existing session with old password
+    has_session = 'logged_in' in session
+    session_password_version = session.get('password_version')
+
+    # Password changed = user HAD a session but password version doesn't match
+    password_changed = has_session and session_password_version and session_password_version != PASSWORD_VERSION
+
+    # If password changed, clear the session
+    if password_changed:
         session.clear()
         return jsonify({
-            'authenticated': False,
+            'success': True,
             'auth_required': True,
-            'username': None,
+            'authenticated': False,
             'password_changed': True,
             'remember_days': AUTH_CONFIG['remember_days']
         })
-    
+
+    # Normal auth status response
     return jsonify({
-        'authenticated': True,
+        'success': True,
         'auth_required': True,
-        'username': session.get('username'),
-        'remember_days': AUTH_CONFIG['remember_days']
+        'authenticated': has_session,
+        'remember_days': AUTH_CONFIG['remember_days'],
+        'password_changed': False
     })
 
 
