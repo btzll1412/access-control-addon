@@ -2040,6 +2040,73 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Background Image Section -->
+            <div class="card" style="margin-top: 20px; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border: 1px solid #c4b5fd;">
+                <div class="card-header" style="border-bottom: 1px solid #c4b5fd;">
+                    <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">🖼️</span>
+                        <span>Background Customization</span>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 20px;">
+                    <p style="color: #64748b; margin-bottom: 20px; font-size: 14px;">
+                        Upload a custom background image for the dashboard. You can choose to display it as one large image or as a repeated pattern.
+                    </p>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <!-- Upload Section -->
+                        <div style="padding: 20px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h4 style="margin-bottom: 15px; color: #7c3aed;">📤 Upload Background</h4>
+                            <div id="backgroundPreview" style="width: 100%; height: 120px; background: #f1f5f9; border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px dashed #cbd5e1;">
+                                <span style="color: #94a3b8;">No image uploaded</span>
+                            </div>
+                            <input type="file" id="backgroundImageFile" accept="image/*" style="display: none;" onchange="previewBackground(this)">
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="document.getElementById('backgroundImageFile').click()" style="flex: 1;">
+                                    📂 Choose Image
+                                </button>
+                                <button class="btn btn-danger" onclick="deleteBackground()" id="deleteBackgroundBtn" style="display: none;">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Settings Section -->
+                        <div style="padding: 20px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h4 style="margin-bottom: 15px; color: #7c3aed;">⚙️ Display Settings</h4>
+
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; border-radius: 6px; border: 2px solid #e2e8f0; margin-bottom: 10px;" id="modeCoverLabel">
+                                    <input type="radio" name="backgroundMode" value="cover" checked onchange="updateBackgroundMode()">
+                                    <div>
+                                        <strong>🖼️ Full Size (Cover)</strong>
+                                        <p style="font-size: 12px; color: #64748b; margin: 0;">One large image covering the entire background</p>
+                                    </div>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; border-radius: 6px; border: 2px solid #e2e8f0;" id="modeRepeatLabel">
+                                    <input type="radio" name="backgroundMode" value="repeat" onchange="updateBackgroundMode()">
+                                    <div>
+                                        <strong>🔲 Repeated (Tile)</strong>
+                                        <p style="font-size: 12px; color: #64748b; margin: 0;">Image repeated as a pattern</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="backgroundEnabled" onchange="toggleBackground()">
+                                    <span><strong>Enable Background</strong></span>
+                                </label>
+                            </div>
+
+                            <button class="btn btn-success" onclick="saveBackgroundSettings()" style="width: 100%;">
+                                💾 Save Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
     <!-- ==================== MODALS ==================== -->
@@ -2788,7 +2855,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         loadDoors();
         loadPendingBoards();
         loadEmergencyStatus();
-        
+        loadBackgroundSettings();
+
         // Refresh data every 15 seconds
         setInterval(() => {
             if (isAuthenticated) {
@@ -5685,6 +5753,190 @@ async function saveDoorSettings(event) {
             }
 
             input.value = '';
+        }
+
+        // ==================== BACKGROUND CUSTOMIZATION ====================
+        let backgroundSettings = { enabled: false, mode: 'cover', has_image: false };
+
+        async function loadBackgroundSettings() {
+            try {
+                const response = await fetch('api/background');
+                const data = await response.json();
+                if (data.success) {
+                    backgroundSettings = data.settings;
+                    updateBackgroundUI();
+                    applyBackground();
+                }
+            } catch (error) {
+                console.error('Error loading background settings:', error);
+            }
+        }
+
+        function updateBackgroundUI() {
+            // Update checkbox
+            document.getElementById('backgroundEnabled').checked = backgroundSettings.enabled;
+
+            // Update radio buttons
+            const coverRadio = document.querySelector('input[name="backgroundMode"][value="cover"]');
+            const repeatRadio = document.querySelector('input[name="backgroundMode"][value="repeat"]');
+            if (backgroundSettings.mode === 'cover') {
+                coverRadio.checked = true;
+            } else {
+                repeatRadio.checked = true;
+            }
+            updateBackgroundMode();
+
+            // Update preview
+            if (backgroundSettings.has_image) {
+                const preview = document.getElementById('backgroundPreview');
+                preview.innerHTML = `<img src="api/background/image?t=${Date.now()}" style="max-width: 100%; max-height: 100%; object-fit: contain;">`;
+                document.getElementById('deleteBackgroundBtn').style.display = 'block';
+            }
+        }
+
+        function updateBackgroundMode() {
+            const coverLabel = document.getElementById('modeCoverLabel');
+            const repeatLabel = document.getElementById('modeRepeatLabel');
+            const coverRadio = document.querySelector('input[name="backgroundMode"][value="cover"]');
+
+            if (coverRadio.checked) {
+                coverLabel.style.borderColor = '#7c3aed';
+                coverLabel.style.background = '#f5f3ff';
+                repeatLabel.style.borderColor = '#e2e8f0';
+                repeatLabel.style.background = 'white';
+            } else {
+                repeatLabel.style.borderColor = '#7c3aed';
+                repeatLabel.style.background = '#f5f3ff';
+                coverLabel.style.borderColor = '#e2e8f0';
+                coverLabel.style.background = 'white';
+            }
+        }
+
+        function previewBackground(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const preview = document.getElementById('backgroundPreview');
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                preview.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 100%; object-fit: contain;">`;
+                document.getElementById('deleteBackgroundBtn').style.display = 'block';
+
+                // Upload the file
+                uploadBackgroundImage(file);
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        async function uploadBackgroundImage(file) {
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                showToast('Uploading background image...', 'info');
+                const response = await fetch('api/background/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    backgroundSettings.has_image = true;
+                    showToast('Background image uploaded!', 'success');
+                } else {
+                    showToast('Upload failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error uploading background:', error);
+                showToast('Error uploading image', 'error');
+            }
+        }
+
+        async function deleteBackground() {
+            if (!confirm('Delete the background image?')) return;
+
+            try {
+                const response = await fetch('api/background/delete', { method: 'DELETE' });
+                const data = await response.json();
+
+                if (data.success) {
+                    backgroundSettings.has_image = false;
+                    backgroundSettings.enabled = false;
+                    document.getElementById('backgroundPreview').innerHTML = '<span style="color: #94a3b8;">No image uploaded</span>';
+                    document.getElementById('deleteBackgroundBtn').style.display = 'none';
+                    document.getElementById('backgroundEnabled').checked = false;
+                    document.getElementById('backgroundImageFile').value = '';
+                    applyBackground();
+                    showToast('Background image deleted', 'success');
+                } else {
+                    showToast('Delete failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting background:', error);
+                showToast('Error deleting image', 'error');
+            }
+        }
+
+        function toggleBackground() {
+            backgroundSettings.enabled = document.getElementById('backgroundEnabled').checked;
+            applyBackground();
+        }
+
+        async function saveBackgroundSettings() {
+            const mode = document.querySelector('input[name="backgroundMode"]:checked').value;
+            const enabled = document.getElementById('backgroundEnabled').checked;
+
+            try {
+                const response = await fetch('api/background', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode, enabled })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    backgroundSettings.mode = mode;
+                    backgroundSettings.enabled = enabled;
+                    applyBackground();
+                    showToast('Background settings saved!', 'success');
+                } else {
+                    showToast('Save failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving background settings:', error);
+                showToast('Error saving settings', 'error');
+            }
+        }
+
+        function applyBackground() {
+            const body = document.body;
+
+            if (backgroundSettings.enabled && backgroundSettings.has_image) {
+                const imageUrl = `url('api/background/image?t=${Date.now()}')`;
+
+                if (backgroundSettings.mode === 'cover') {
+                    body.style.backgroundImage = imageUrl;
+                    body.style.backgroundSize = 'cover';
+                    body.style.backgroundPosition = 'center';
+                    body.style.backgroundRepeat = 'no-repeat';
+                    body.style.backgroundAttachment = 'fixed';
+                } else {
+                    body.style.backgroundImage = imageUrl;
+                    body.style.backgroundSize = 'auto';
+                    body.style.backgroundPosition = 'top left';
+                    body.style.backgroundRepeat = 'repeat';
+                    body.style.backgroundAttachment = 'fixed';
+                }
+            } else {
+                // Reset to default gradient
+                body.style.backgroundImage = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                body.style.backgroundSize = '';
+                body.style.backgroundPosition = '';
+                body.style.backgroundRepeat = '';
+                body.style.backgroundAttachment = '';
+            }
         }
 
         // ==================== TOAST ====================
