@@ -328,8 +328,13 @@ def clean_expired_devices(devices):
 
 # Generate a password version hash - changes when password changes
 def get_password_version():
-    """Generate a hash of the current password config - used to invalidate sessions on password change"""
-    password_string = f"{AUTH_CONFIG['username']}:{AUTH_CONFIG['password']}"
+    """Generate a hash of all user credentials - used to invalidate sessions on password change"""
+    # Hash all user credentials together
+    admin_users = AUTH_CONFIG.get('admin_users', [])
+    password_parts = []
+    for user in admin_users:
+        password_parts.append(f"{user.get('username', '')}:{user.get('password', '')}")
+    password_string = '|'.join(sorted(password_parts))  # Sort for consistent ordering
     return hashlib.sha256(password_string.encode()).hexdigest()[:16]
 
 # ✅ NEW: Persistent password version to prevent false "password changed" warnings
