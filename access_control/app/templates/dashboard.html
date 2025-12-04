@@ -1464,26 +1464,27 @@
 
    <!-- Login Overlay -->
 <div class="login-overlay" id="loginOverlay">
-    <div class="login-container">
+    <!-- Screen 1: Credentials -->
+    <div class="login-container" id="loginScreen1">
         <div class="login-header">
             <div class="login-icon">🔐</div>
             <h1>Access Control System</h1>
             <p>Please sign in to continue</p>
         </div>
-        
+
         <div class="login-body">
             <div class="login-error" id="loginError">
                 <span>⚠️</span>
                 <span id="loginErrorText">Invalid credentials</span>
             </div>
-            
+
             <form id="loginForm">
                 <div class="login-form-group">
                     <label for="loginUsername">Username</label>
-                    <input type="text" id="loginUsername" name="username" 
+                    <input type="text" id="loginUsername" name="username"
                            placeholder="Enter username" required autocomplete="username">
                 </div>
-                
+
                 <div class="login-form-group">
                     <label for="loginPassword">Password</label>
                     <div class="password-wrapper">
@@ -1495,36 +1496,68 @@
                     </div>
                 </div>
 
-                <div class="login-form-group" id="totpGroup" style="display: none;">
-                    <label for="loginTotp">Authenticator Code</label>
-                    <input type="text" id="loginTotp" name="totp"
-                           placeholder="Enter 6-digit code" autocomplete="one-time-code"
-                           pattern="[0-9]{6}" maxlength="6" inputmode="numeric"
-                           style="text-align: center; font-size: 1.5em; letter-spacing: 0.3em;">
-                    <small style="color: #888; display: block; margin-top: 5px;">
-                        Enter the code from your authenticator app
-                    </small>
-                    <div class="login-remember" style="margin-top: 10px;">
-                        <input type="checkbox" id="loginRememberDevice" name="remember_device">
-                        <label for="loginRememberDevice">
-                            Remember this device for 7 days (skip 2FA)
-                        </label>
-                    </div>
-                </div>
-
                 <div class="login-remember">
                     <input type="checkbox" id="loginRemember" name="remember">
                     <label for="loginRemember">
-                        Remember this device for <span class="login-remember-days" id="rememberDays">30</span> days
+                        Remember me for <span class="login-remember-days" id="rememberDays">30</span> days
                     </label>
                 </div>
-                
+
                 <button type="submit" class="login-btn" id="loginBtn">
                     <span id="loginBtnText">🔑 Sign In</span>
                 </button>
             </form>
         </div>
-        
+
+        <div class="login-footer">
+            <p>Access Control System v1.0</p>
+        </div>
+    </div>
+
+    <!-- Screen 2: Two-Factor Authentication -->
+    <div class="login-container" id="loginScreen2" style="display: none;">
+        <div class="login-header">
+            <div class="login-icon">🔒</div>
+            <h1>Two-Step Verification</h1>
+            <p>Enter your authenticator code</p>
+        </div>
+
+        <div class="login-body">
+            <div class="login-error" id="totpError" style="display: none;">
+                <span>⚠️</span>
+                <span id="totpErrorText">Invalid code</span>
+            </div>
+
+            <form id="totpForm">
+                <div class="login-form-group">
+                    <label for="loginTotp">Authenticator Code</label>
+                    <input type="text" id="loginTotp" name="totp"
+                           placeholder="000000" autocomplete="one-time-code"
+                           pattern="[0-9]{6}" maxlength="6" inputmode="numeric"
+                           style="text-align: center; font-size: 2em; letter-spacing: 0.5em; padding: 15px;">
+                    <small style="color: #888; display: block; margin-top: 10px; text-align: center;">
+                        Open your authenticator app and enter the 6-digit code
+                    </small>
+                </div>
+
+                <div class="login-remember">
+                    <input type="checkbox" id="loginRememberDevice" name="remember_device">
+                    <label for="loginRememberDevice">
+                        Trust this device for 7 days
+                    </label>
+                </div>
+
+                <button type="submit" class="login-btn" id="totpBtn">
+                    <span id="totpBtnText">✓ Verify</span>
+                </button>
+
+                <button type="button" class="login-btn" id="totpBackBtn"
+                        style="background: #6c757d; margin-top: 10px;" onclick="showLoginScreen1()">
+                    ← Back to Login
+                </button>
+            </form>
+        </div>
+
         <div class="login-footer">
             <p>Access Control System v1.0</p>
         </div>
@@ -2872,51 +2905,66 @@ console.log('🔥 SCRIPT STARTING...');
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('✅ DOM Ready');
     
-    // 1. Setup login handler
+    // Store credentials temporarily for 2FA flow
+    let pendingCredentials = { username: '', password: '', remember: false };
+
+    // Screen transition functions
+    window.showLoginScreen1 = function() {
+        document.getElementById('loginScreen1').style.display = 'block';
+        document.getElementById('loginScreen2').style.display = 'none';
+        document.getElementById('loginTotp').value = '';
+        document.getElementById('totpError').style.display = 'none';
+    };
+
+    window.showLoginScreen2 = function() {
+        document.getElementById('loginScreen1').style.display = 'none';
+        document.getElementById('loginScreen2').style.display = 'block';
+        document.getElementById('loginTotp').value = '';
+        document.getElementById('loginTotp').focus();
+    };
+
+    function showTotpError(message) {
+        const errorEl = document.getElementById('totpError');
+        const errorText = document.getElementById('totpErrorText');
+        errorText.textContent = message;
+        errorEl.style.display = 'flex';
+    }
+
+    function hideTotpError() {
+        document.getElementById('totpError').style.display = 'none';
+    }
+
+    // 1. Setup login form handler (Screen 1 - Credentials)
     const loginForm = document.getElementById('loginForm');
-    
+
     if (loginForm) {
         loginForm.addEventListener('submit', async function(e) {
             e.preventDefault();
-            console.log('🔐 Login form submitted');
+            console.log('🔐 Login form submitted (Step 1: Credentials)');
 
             hideLoginError();
 
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
             const remember = document.getElementById('loginRemember').checked;
-            const totpCode = document.getElementById('loginTotp').value.trim();
-            const rememberDevice = document.getElementById('loginRememberDevice').checked;
 
             try {
-                const loginData = { username, password, remember };
-                if (totpCode) {
-                    loginData.totp_code = totpCode;
-                    loginData.remember_device = rememberDevice;
-                }
-
                 const response = await fetch('api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',  // ✅ Include cookies (works with ingress)
-                    body: JSON.stringify(loginData)
+                    credentials: 'include',
+                    body: JSON.stringify({ username, password, remember })
                 });
-
-                console.log('Login response status:', response.status);
 
                 const data = await response.json().catch(() => ({}));
                 console.log('Login response:', data);
 
                 // Check if TOTP is required
                 if (data.totp_required) {
-                    console.log('🔑 TOTP required, showing authenticator field');
-                    document.getElementById('totpGroup').style.display = 'block';
-                    document.getElementById('loginTotp').focus();
-                    if (!totpCode) {
-                        showLoginError(data.message || 'Please enter your authenticator code');
-                    } else {
-                        showLoginError(data.message || 'Invalid authenticator code');
-                    }
+                    console.log('🔑 TOTP required, showing 2FA screen');
+                    // Store credentials for step 2
+                    pendingCredentials = { username, password, remember };
+                    showLoginScreen2();
                     return;
                 }
 
@@ -2930,26 +2978,86 @@ document.addEventListener('DOMContentLoaded', async function() {
                     console.log('✅ Login successful!');
                     hideLoginOverlay();
                     isAuthenticated = true;
-
-                    // Reset TOTP field for next login
-                    document.getElementById('totpGroup').style.display = 'none';
-                    document.getElementById('loginTotp').value = '';
-
                     showToast('Login successful!', 'success');
-
-                    // Load dashboard data
                     loadStats();
                     loadDoors();
                     loadPendingBoards();
                     loadEmergencyStatus();
-
                 } else {
-                    console.log('❌ Login failed:', data.message);
                     showLoginError(data.message || 'Invalid credentials');
                 }
             } catch (error) {
                 console.error('❌ Login error:', error);
                 showLoginError('Connection error: ' + error.message);
+            }
+        });
+    }
+
+    // 2. Setup TOTP form handler (Screen 2 - Two-Factor)
+    const totpForm = document.getElementById('totpForm');
+
+    if (totpForm) {
+        totpForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            console.log('🔐 TOTP form submitted (Step 2: Verification)');
+
+            hideTotpError();
+
+            const totpCode = document.getElementById('loginTotp').value.trim();
+            const rememberDevice = document.getElementById('loginRememberDevice').checked;
+
+            if (!totpCode || totpCode.length !== 6) {
+                showTotpError('Please enter a 6-digit code');
+                return;
+            }
+
+            try {
+                const response = await fetch('api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        username: pendingCredentials.username,
+                        password: pendingCredentials.password,
+                        remember: pendingCredentials.remember,
+                        totp_code: totpCode,
+                        remember_device: rememberDevice
+                    })
+                });
+
+                const data = await response.json().catch(() => ({}));
+                console.log('TOTP verification response:', data);
+
+                if (data.totp_required) {
+                    // Invalid code
+                    showTotpError(data.message || 'Invalid authenticator code');
+                    document.getElementById('loginTotp').value = '';
+                    document.getElementById('loginTotp').focus();
+                    return;
+                }
+
+                if (!response.ok) {
+                    showTotpError(data.message || 'Verification failed');
+                    return;
+                }
+
+                if (data.success) {
+                    console.log('✅ Login successful with 2FA!');
+                    // Clear pending credentials
+                    pendingCredentials = { username: '', password: '', remember: false };
+                    hideLoginOverlay();
+                    isAuthenticated = true;
+                    showToast('Login successful!', 'success');
+                    loadStats();
+                    loadDoors();
+                    loadPendingBoards();
+                    loadEmergencyStatus();
+                } else {
+                    showTotpError(data.message || 'Verification failed');
+                }
+            } catch (error) {
+                console.error('❌ TOTP verification error:', error);
+                showTotpError('Connection error: ' + error.message);
             }
         });
     }
@@ -3038,10 +3146,6 @@ async function checkAuthStatus() {
             showLoginOverlay();
             isAuthenticated = false;
 
-            // Reset TOTP field - will show only after credentials verified
-            document.getElementById('totpGroup').style.display = 'none';
-            document.getElementById('loginTotp').value = '';
-
             if (data.password_changed) {
                 showLoginError('Password changed. Please log in again.');
             }
@@ -3060,6 +3164,12 @@ function showLoginOverlay() {
     const overlay = document.getElementById('loginOverlay');
     if (overlay) {
         overlay.classList.remove('hidden');
+        // Always show screen 1 (credentials) first
+        document.getElementById('loginScreen1').style.display = 'block';
+        document.getElementById('loginScreen2').style.display = 'none';
+        // Reset fields
+        document.getElementById('loginTotp').value = '';
+        document.getElementById('totpError').style.display = 'none';
         const usernameInput = document.getElementById('loginUsername');
         if (usernameInput) usernameInput.focus();
     }
