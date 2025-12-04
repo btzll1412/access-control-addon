@@ -1694,7 +1694,7 @@
             </select>
 
             <!-- CSV Import/Export Buttons -->
-            <button class="btn btn-secondary btn-small" onclick="window.location.href='/api/users/template'">
+            <button class="btn btn-secondary btn-small" onclick="window.location.href='api/users/template'">
                 📥 Download Template
             </button>
 
@@ -1704,7 +1704,7 @@
                 📤 Import CSV
             </button>
 
-            <button class="btn btn-warning btn-small" onclick="window.location.href='/api/users/export'">
+            <button class="btn btn-warning btn-small" onclick="window.location.href='api/users/export'">
                 💾 Export All
             </button>
 
@@ -2734,7 +2734,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             const remember = document.getElementById('loginRemember').checked;
             
             try {
-                const response = await fetch('/api/login', {
+                const response = await fetch('api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',  // ✅ Include cookies (works with ingress)
@@ -2824,7 +2824,7 @@ let rememberDays = 30;
 
 async function checkAuthStatus() {
     try {
-        const response = await fetch('/api/auth-status', {
+        const response = await fetch('api/auth-status', {
             credentials: 'include'  // ✅ Include session cookies (works with ingress)
         });
         
@@ -2922,7 +2922,7 @@ function togglePasswordVisibility() {
 
 async function handleLogout() {
     try {
-        await fetch('/api/logout', {
+        await fetch('api/logout', {
             method: 'POST',
             credentials: 'include'  // ✅ Include session cookies (works with ingress)
         });
@@ -3001,7 +3001,7 @@ async function handleLogout() {
         // ==================== STATS ====================
         async function loadStats() {
             try {
-                const response = await fetch('/api/stats');
+                const response = await fetch('api/stats');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3027,7 +3027,7 @@ async function handleLogout() {
         // ==================== EMERGENCY STATUS ====================
         async function loadEmergencyStatus() {
             try {
-                const response = await fetch('/api/emergency-status');
+                const response = await fetch('api/emergency-status');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3058,7 +3058,7 @@ async function handleLogout() {
         // ==================== BOARDS ====================
         async function loadBoards() {
             try {
-                const response = await fetch('/api/boards');
+                const response = await fetch('api/boards');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3163,7 +3163,7 @@ async function handleLogout() {
         async function syncAllBoards() {
             try {
                 showToast('Syncing all boards...', 'info');
-                const response = await fetch('/api/boards/sync-all', {
+                const response = await fetch('api/boards/sync-all', {
                     method: 'POST'
                 });
                 const data = await response.json();
@@ -3277,7 +3277,7 @@ async function handleLogout() {
         // ==================== PENDING BOARDS ====================
         async function loadPendingBoards() {
             try {
-                const response = await fetch('/api/pending-boards');
+                const response = await fetch('api/pending-boards');
                 const data = await response.json();
 
                 if (data.success && data.pending_boards.length > 0) {
@@ -3294,7 +3294,7 @@ async function handleLogout() {
 
         async function showPendingBoards() {
             try {
-                const response = await fetch('/api/pending-boards');
+                const response = await fetch('api/pending-boards');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3344,7 +3344,7 @@ async function handleLogout() {
 
         async function loadControllerSettings() {
             try {
-                const response = await fetch('/api/controller-settings');
+                const response = await fetch('api/controller-settings');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3406,7 +3406,7 @@ async function handleLogout() {
             const port = parseInt(portValue) || defaultPort;
 
             try {
-                const response = await fetch('/api/controller-settings', {
+                const response = await fetch('api/controller-settings', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -3583,7 +3583,7 @@ async function handleLogout() {
         // ==================== DOORS ====================
         async function loadDoors() {
             try {
-                const response = await fetch('/api/doors');
+                const response = await fetch('api/doors');
                 const data = await response.json();
 
                 if (data.success) {
@@ -3689,8 +3689,8 @@ async function handleLogout() {
 async function loadEmergencyControls() {
     try {
         const [boardsResponse, doorsResponse] = await Promise.all([
-            fetch('/api/boards'),
-            fetch('/api/doors')
+            fetch('api/boards'),
+            fetch('api/doors')
         ]);
 
         const boardsData = await boardsResponse.json();
@@ -4081,7 +4081,7 @@ function emergencyReset(boardId, boardName) {
 
             try {
                 // Load all templates
-                const templatesResponse = await fetch('/api/schedule-templates');
+                const templatesResponse = await fetch('api/schedule-templates');
                 const templatesData = await templatesResponse.json();
 
                 if (templatesData.success) {
@@ -4476,7 +4476,7 @@ function emergencyReset(boardId, boardName) {
                 loadDoors();
 
                 // Sync boards
-                await fetch('/api/boards/sync-all', { method: 'POST' });
+                await fetch('api/boards/sync-all', { method: 'POST' });
 
             } catch (error) {
                 console.error('Error saving door schedule:', error);
@@ -4538,7 +4538,7 @@ async function saveDoorSettings(event) {
 
         async function loadUsers() {
             try {
-                const response = await fetch('/api/users');
+                const response = await fetch('api/users');
                 const data = await response.json();
 
                 if (data.success) {
@@ -4652,7 +4652,7 @@ async function saveDoorSettings(event) {
             }
 
             try {
-                const response = await fetch('/api/users/bulk-delete', {
+                const response = await fetch('api/users/bulk-delete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_ids: selectedIds })
@@ -4755,7 +4755,7 @@ async function saveDoorSettings(event) {
 
             if (userId) {
                 document.getElementById('userModalTitle').textContent = 'Edit User';
-                const response = await fetch('/api/users');
+                const response = await fetch('api/users');
                 const data = await response.json();
                 const user = data.users.find(u => u.id === userId);
 
@@ -4838,7 +4838,7 @@ async function saveDoorSettings(event) {
         }
 
         async function loadGroupsForUser() {
-            const response = await fetch('/api/groups');
+            const response = await fetch('api/groups');
             const data = await response.json();
 
             if (data.success) {
@@ -4862,7 +4862,7 @@ async function saveDoorSettings(event) {
         }
 
         async function loadSchedulesForUser() {
-            const response = await fetch('/api/schedules');
+            const response = await fetch('api/schedules');
             const data = await response.json();
 
             if (data.success) {
@@ -5006,7 +5006,7 @@ async function saveDoorSettings(event) {
                     loadUsers();
 
                     // Sync all boards
-                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    await fetch('api/boards/sync-all', { method: 'POST' });
                     showToast('All boards synced with user changes', 'success');
                 } else {
                     showToast(data.message, 'error');
@@ -5037,7 +5037,7 @@ async function saveDoorSettings(event) {
                     loadUsers();
 
                     // Sync all boards
-                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    await fetch('api/boards/sync-all', { method: 'POST' });
                 } else {
                     showToast(data.message, 'error');
                 }
@@ -5050,7 +5050,7 @@ async function saveDoorSettings(event) {
         // ==================== GROUPS ====================
         async function loadGroups() {
             try {
-                const response = await fetch('/api/groups');
+                const response = await fetch('api/groups');
                 const data = await response.json();
 
                 if (data.success) {
@@ -5117,7 +5117,7 @@ async function saveDoorSettings(event) {
 
             if (groupId) {
                 document.getElementById('groupModalTitle').textContent = 'Edit Group';
-                const response = await fetch('/api/groups');
+                const response = await fetch('api/groups');
                 const data = await response.json();
                 const group = data.groups.find(g => g.id === groupId);
 
@@ -5147,7 +5147,7 @@ async function saveDoorSettings(event) {
         }
 
         async function loadDoorsForGroup() {
-            const response = await fetch('/api/doors');
+            const response = await fetch('api/doors');
             const data = await response.json();
 
             if (data.success) {
@@ -5208,7 +5208,7 @@ async function saveDoorSettings(event) {
                     loadGroups();
 
                     // Sync all boards
-                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    await fetch('api/boards/sync-all', { method: 'POST' });
                 } else {
                     showToast(data.message, 'error');
                 }
@@ -5248,7 +5248,7 @@ async function saveDoorSettings(event) {
         // ==================== SCHEDULES (User Time Restrictions) ====================
         async function loadSchedules() {
             try {
-                const response = await fetch('/api/schedules');
+                const response = await fetch('api/schedules');
                 const data = await response.json();
 
                 if (data.success) {
@@ -5322,7 +5322,7 @@ async function saveDoorSettings(event) {
 
             if (scheduleId) {
                 document.getElementById('scheduleModalTitle').textContent = 'Edit Schedule';
-                const response = await fetch('/api/schedules');
+                const response = await fetch('api/schedules');
                 const data = await response.json();
                 const schedule = data.schedules.find(s => s.id === scheduleId);
 
@@ -5482,7 +5482,7 @@ async function saveDoorSettings(event) {
 
         async function loadLogFilterOptions() {
             try {
-                const response = await fetch('/api/logs/filter-options');
+                const response = await fetch('api/logs/filter-options');
                 const data = await response.json();
 
                 if (data.success) {
@@ -5646,7 +5646,7 @@ async function saveDoorSettings(event) {
             formData.append('file', file);
 
             try {
-                const response = await fetch('/api/system/import', {
+                const response = await fetch('api/system/import', {
                     method: 'POST',
                     body: formData
                 });
@@ -5721,7 +5721,7 @@ async function saveDoorSettings(event) {
             try {
                 showToast('Importing users from CSV...', 'info');
                 
-                const response = await fetch('/api/users/import', {
+                const response = await fetch('api/users/import', {
                     method: 'POST',
                     body: formData
                 });
@@ -5746,7 +5746,7 @@ async function saveDoorSettings(event) {
                     loadUsers();
                     
                     // Sync all boards
-                    await fetch('/api/boards/sync-all', { method: 'POST' });
+                    await fetch('api/boards/sync-all', { method: 'POST' });
                     showToast('All boards synced with new users', 'success');
                 } else {
                     showToast('Import failed: ' + result.message, 'error');
@@ -5765,7 +5765,7 @@ async function saveDoorSettings(event) {
         
         async function loadTempCodes() {
             try {
-                const response = await fetch('/api/temp-codes');
+                const response = await fetch('api/temp-codes');
                 const data = await response.json();
         
                 if (data.success) {
@@ -5933,7 +5933,7 @@ async function saveDoorSettings(event) {
             if (codeId) {
                 document.getElementById('tempCodeModalTitle').textContent = 'Edit Temp Code';
                 
-                const response = await fetch('/api/temp-codes');
+                const response = await fetch('api/temp-codes');
                 const data = await response.json();
                 const code = data.temp_codes.find(c => c.id === codeId);
                 
@@ -5986,7 +5986,7 @@ async function saveDoorSettings(event) {
         }
         
         async function loadDoorsForTempCode() {
-            const response = await fetch('/api/doors');
+            const response = await fetch('api/doors');
             const data = await response.json();
         
             if (data.success) {
@@ -6008,7 +6008,7 @@ async function saveDoorSettings(event) {
         }
         
         async function loadGroupsForTempCode() {
-            const response = await fetch('/api/groups');
+            const response = await fetch('api/groups');
             const data = await response.json();
         
             if (data.success) {
@@ -6120,7 +6120,7 @@ async function saveDoorSettings(event) {
             showToast(data.message, 'success');
             
             // Sync all boards
-            await fetch('/api/boards/sync-all', { method: 'POST' });
+            await fetch('api/boards/sync-all', { method: 'POST' });
             showToast('All boards synced with new temp code', 'success');
         } else {
             showToast(data.message, 'error');
@@ -6197,7 +6197,7 @@ async function saveDoorSettings(event) {
             
             // Get all doors except current one
             try {
-                const response = await fetch('/api/doors');
+                const response = await fetch('api/doors');
                 const data = await response.json();
                 
                 if (!data.success) {
@@ -6304,7 +6304,7 @@ async function saveDoorSettings(event) {
                 closeCopyScheduleModal();
                 
                 // Sync all boards
-                await fetch('/api/boards/sync-all', { method: 'POST' });
+                await fetch('api/boards/sync-all', { method: 'POST' });
                 showToast('All boards synced with new schedules', 'success');
                 
             } catch (error) {
@@ -6319,7 +6319,7 @@ async function saveDoorSettings(event) {
 
         async function loadScheduleTemplates() {
             try {
-                const response = await fetch('/api/schedule-templates');
+                const response = await fetch('api/schedule-templates');
                 const data = await response.json();
 
                 if (data.success) {
@@ -6503,7 +6503,7 @@ async function saveDoorSettings(event) {
 
         async function loadDoorsForTemplate() {
             try {
-                const response = await fetch('/api/doors');
+                const response = await fetch('api/doors');
                 const data = await response.json();
 
                 if (data.success) {
@@ -6740,7 +6740,7 @@ async function saveDoorSettings(event) {
         // ==================== PRESET TEMPLATES ====================
         async function showPresetTemplates() {
             try {
-                const response = await fetch('/api/schedule-templates/presets');
+                const response = await fetch('api/schedule-templates/presets');
                 const data = await response.json();
 
                 if (data.success) {
