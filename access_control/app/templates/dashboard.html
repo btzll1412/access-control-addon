@@ -1504,6 +1504,12 @@
                     <small style="color: #888; display: block; margin-top: 5px;">
                         Enter the code from your authenticator app
                     </small>
+                    <div class="login-remember" style="margin-top: 10px;">
+                        <input type="checkbox" id="loginRememberDevice" name="remember_device">
+                        <label for="loginRememberDevice">
+                            Remember this device for 7 days (skip 2FA)
+                        </label>
+                    </div>
                 </div>
 
                 <div class="login-remember">
@@ -2880,11 +2886,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             const password = document.getElementById('loginPassword').value;
             const remember = document.getElementById('loginRemember').checked;
             const totpCode = document.getElementById('loginTotp').value.trim();
+            const rememberDevice = document.getElementById('loginRememberDevice').checked;
 
             try {
                 const loginData = { username, password, remember };
                 if (totpCode) {
                     loginData.totp_code = totpCode;
+                    loginData.remember_device = rememberDevice;
                 }
 
                 const response = await fetch('api/login', {

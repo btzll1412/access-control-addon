@@ -114,6 +114,76 @@ def get_totp_qr_code():
         logger.error(f"❌ Error generating QR code: {e}")
         return None, None
 
+# ==================== TRUSTED DEVICE MANAGEMENT ====================
+TRUSTED_DEVICES_FILE = '/data/trusted_devices.json'
+TRUSTED_DEVICE_DAYS = 7
+
+def load_trusted_devices():
+    """Load trusted devices from file"""
+    try:
+        if os.path.exists(TRUSTED_DEVICES_FILE):
+            with open(TRUSTED_DEVICES_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"❌ Error loading trusted devices: {e}")
+    return {}
+
+def save_trusted_devices(devices):
+    """Save trusted devices to file"""
+    try:
+        with open(TRUSTED_DEVICES_FILE, 'w') as f:
+            json.dump(devices, f)
+    except Exception as e:
+        logger.error(f"❌ Error saving trusted devices: {e}")
+
+def create_trusted_device_token():
+    """Create a new trusted device token"""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    expiry = (datetime.now() + timedelta(days=TRUSTED_DEVICE_DAYS)).isoformat()
+
+    devices = load_trusted_devices()
+    devices[token] = {'expiry': expiry, 'created': datetime.now().isoformat()}
+
+    # Clean up expired tokens while we're here
+    clean_expired_devices(devices)
+    save_trusted_devices(devices)
+
+    logger.info(f"🔐 Created trusted device token (expires in {TRUSTED_DEVICE_DAYS} days)")
+    return token
+
+def verify_trusted_device(token):
+    """Verify if a device token is valid and not expired"""
+    if not token:
+        return False
+
+    devices = load_trusted_devices()
+    if token not in devices:
+        return False
+
+    try:
+        expiry = datetime.fromisoformat(devices[token]['expiry'])
+        if datetime.now() > expiry:
+            # Token expired, remove it
+            del devices[token]
+            save_trusted_devices(devices)
+            logger.info("🔐 Trusted device token expired")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error verifying trusted device: {e}")
+        return False
+
+def clean_expired_devices(devices):
+    """Remove expired device tokens"""
+    now = datetime.now()
+    expired = [token for token, data in devices.items()
+               if datetime.fromisoformat(data['expiry']) < now]
+    for token in expired:
+        del devices[token]
+    if expired:
+        logger.info(f"🧹 Cleaned up {len(expired)} expired device tokens")
+
 # Generate a password version hash - changes when password changes
 def get_password_version():
     """Generate a hash of the current password config - used to invalidate sessions on password change"""
@@ -917,6 +987,10 @@ def login():
         password = data.get('password', '').strip()
         totp_code = data.get('totp_code', '').strip()
         remember = data.get('remember', False)
+        remember_device = data.get('remember_device', False)
+
+        # Check for trusted device cookie
+        trusted_device_token = request.cookies.get('trusted_device')
 
         logger.info(f"🔐 Login attempt: username='{username}'")
 
@@ -927,23 +1001,27 @@ def login():
         if username == AUTH_CONFIG['username'] and password == AUTH_CONFIG['password']:
             # Check TOTP if enabled
             if AUTH_CONFIG.get('totp_enabled', False):
-                if not totp_code:
+                # Check if device is trusted (skip TOTP)
+                is_trusted = verify_trusted_device(trusted_device_token)
+
+                if is_trusted:
+                    logger.info(f"🔐 Trusted device, skipping TOTP for '{username}'")
+                elif not totp_code:
                     logger.info(f"🔐 TOTP required for '{username}'")
                     return jsonify({
                         'success': False,
                         'message': 'Authenticator code required',
                         'totp_required': True
                     }), 401
-
-                if not verify_totp(totp_code):
+                elif not verify_totp(totp_code):
                     logger.warning(f"❌ Invalid TOTP code for '{username}'")
                     return jsonify({
                         'success': False,
                         'message': 'Invalid authenticator code',
                         'totp_required': True
                     }), 401
-
-                logger.info(f"✅ TOTP verified for '{username}'")
+                else:
+                    logger.info(f"✅ TOTP verified for '{username}'")
 
             session['logged_in'] = True
             session['username'] = username
@@ -969,15 +1047,33 @@ def login():
             except Exception as db_error:
                 logger.warning(f"Could not update last_login: {db_error}")
 
-            return jsonify({
+            # Prepare response
+            response_data = {
                 'success': True,
                 'message': 'Login successful',
                 'remember_days': AUTH_CONFIG['remember_days'] if remember else 0
-            })
+            }
+
+            # Create trusted device token if requested and TOTP was verified
+            if remember_device and AUTH_CONFIG.get('totp_enabled', False) and totp_code:
+                new_token = create_trusted_device_token()
+                response = make_response(jsonify(response_data))
+                response.set_cookie(
+                    'trusted_device',
+                    new_token,
+                    max_age=TRUSTED_DEVICE_DAYS * 24 * 60 * 60,  # 7 days in seconds
+                    httponly=True,
+                    samesite='Lax',
+                    path='/'
+                )
+                logger.info(f"🔐 Created trusted device cookie for '{username}' ({TRUSTED_DEVICE_DAYS} days)")
+                return response
+
+            return jsonify(response_data)
         else:
             logger.warning(f"❌ Failed login attempt for '{username}'")
             return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
-            
+
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
         import traceback
