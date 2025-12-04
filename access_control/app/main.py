@@ -86,12 +86,24 @@ PASSWORD_VERSION = get_or_create_password_version()
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 # Create Flask app with explicit template folder
-app = Flask(__name__, 
+app = Flask(__name__,
             template_folder=os.path.join(basedir, 'templates'))
-app.secret_key = secrets.token_hex(32)
 
 # Database path
 DB_PATH = '/data/access_control.db'
+
+# ==================== SECRET KEY (Persistent) ====================
+# Use a persistent secret key so sessions survive restarts
+SECRET_KEY_FILE = '/data/.flask_secret_key'
+if os.path.exists(SECRET_KEY_FILE):
+    with open(SECRET_KEY_FILE, 'r') as f:
+        app.secret_key = f.read().strip()
+    logger.info("🔑 Loaded existing secret key")
+else:
+    app.secret_key = secrets.token_hex(32)
+    with open(SECRET_KEY_FILE, 'w') as f:
+        f.write(app.secret_key)
+    logger.info("🔑 Generated new secret key")
 
 # ==================== INGRESS SUPPORT ====================
 # Get ingress path from environment
@@ -101,11 +113,17 @@ INGRESS_PATH = os.environ.get('INGRESS_PATH', '')
 if INGRESS_PATH:
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-    
+
     # Update static/template paths
     app.config['APPLICATION_ROOT'] = INGRESS_PATH
-    
+
     logger.info(f"🔗 Ingress enabled: {INGRESS_PATH}")
+
+# ==================== SESSION COOKIE CONFIG ====================
+# Configure session cookies to work with Home Assistant ingress
+app.config['SESSION_COOKIE_PATH'] = '/'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # Set True if using HTTPS only
 
 # ==================== AUTHENTICATION HELPERS ====================
 def login_required(f):
