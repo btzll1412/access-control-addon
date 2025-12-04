@@ -1487,14 +1487,31 @@
                 <div class="login-form-group">
                     <label for="loginPassword">Password</label>
                     <div class="password-wrapper">
-                        <input type="password" id="loginPassword" name="password" 
+                        <input type="password" id="loginPassword" name="password"
                                placeholder="Enter password" required autocomplete="current-password">
                         <button type="button" class="password-toggle" onclick="togglePasswordVisibility()">
                             👁️
                         </button>
                     </div>
                 </div>
-                
+
+                <div class="login-form-group" id="totpGroup" style="display: none;">
+                    <label for="loginTotp">Authenticator Code</label>
+                    <input type="text" id="loginTotp" name="totp"
+                           placeholder="Enter 6-digit code" autocomplete="one-time-code"
+                           pattern="[0-9]{6}" maxlength="6" inputmode="numeric"
+                           style="text-align: center; font-size: 1.5em; letter-spacing: 0.3em;">
+                    <small style="color: #888; display: block; margin-top: 5px;">
+                        Enter the code from your authenticator app
+                    </small>
+                    <div class="login-remember" style="margin-top: 10px;">
+                        <input type="checkbox" id="loginRememberDevice" name="remember_device">
+                        <label for="loginRememberDevice">
+                            Remember this device for 7 days (skip 2FA)
+                        </label>
+                    </div>
+                </div>
+
                 <div class="login-remember">
                     <input type="checkbox" id="loginRemember" name="remember">
                     <label for="loginRemember">
@@ -2104,6 +2121,75 @@
                                 💾 Save Settings
                             </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Two-Factor Authentication Section -->
+            <div class="card" id="totpSection" style="margin-top: 20px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; display: none;">
+                <div class="card-header" style="border-bottom: 1px solid #f59e0b;">
+                    <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">🔐</span>
+                        <span>Two-Factor Authentication (2FA)</span>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 20px;">
+                    <p style="color: #78350f; margin-bottom: 20px; font-size: 14px;">
+                        Two-factor authentication is <strong>enabled</strong> in the addon configuration.
+                        Scan the QR code below with your authenticator app (Google Authenticator, Authy, etc.)
+                    </p>
+
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 30px; align-items: start;">
+                        <!-- QR Code -->
+                        <div style="text-align: center;">
+                            <div id="totpQrCode" style="padding: 15px; background: white; border-radius: 12px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <div style="color: #94a3b8;">Loading QR code...</div>
+                            </div>
+                        </div>
+
+                        <!-- Instructions & Manual Entry -->
+                        <div>
+                            <h4 style="color: #92400e; margin-bottom: 15px;">Setup Instructions:</h4>
+                            <ol style="color: #78350f; margin-left: 20px; line-height: 2;">
+                                <li>Open your authenticator app</li>
+                                <li>Tap the <strong>+</strong> button to add a new account</li>
+                                <li>Scan the QR code or enter the secret manually</li>
+                                <li>Save the account</li>
+                            </ol>
+
+                            <div style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;">
+                                <strong style="color: #78350f;">Manual Entry (if QR doesn't work):</strong>
+                                <div style="margin-top: 10px;">
+                                    <span style="color: #64748b; font-size: 13px;">Account:</span>
+                                    <code id="totpAccount" style="display: block; background: #f1f5f9; padding: 8px; border-radius: 4px; margin-top: 5px; font-family: monospace;">-</code>
+                                </div>
+                                <div style="margin-top: 10px;">
+                                    <span style="color: #64748b; font-size: 13px;">Secret Key:</span>
+                                    <code id="totpSecret" style="display: block; background: #f1f5f9; padding: 8px; border-radius: 4px; margin-top: 5px; font-family: monospace; word-break: break-all;">-</code>
+                                </div>
+                            </div>
+
+                            <!-- Test TOTP -->
+                            <div style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;">
+                                <strong style="color: #78350f;">Test Your Setup:</strong>
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <input type="text" id="totpTestCode" placeholder="Enter 6-digit code"
+                                           style="flex: 1; padding: 10px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 16px; font-family: monospace; text-align: center; letter-spacing: 3px;"
+                                           maxlength="6" pattern="[0-9]{6}">
+                                    <button class="btn btn-primary" onclick="testTotpCode()">Verify</button>
+                                </div>
+                                <div id="totpTestResult" style="margin-top: 10px; display: none; padding: 10px; border-radius: 6px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 20px; padding: 15px; background: #fef2f2; border-radius: 8px; border: 1px solid #fecaca;">
+                        <strong style="color: #dc2626;">⚠️ Important:</strong>
+                        <ul style="margin: 10px 0 0 20px; color: #991b1b; font-size: 13px;">
+                            <li>Anyone with access to this QR code can generate login codes</li>
+                            <li>All users sharing this login will use the same authenticator</li>
+                            <li>If you lose access to your authenticator, disable TOTP in the addon configuration</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -2793,37 +2879,61 @@ document.addEventListener('DOMContentLoaded', async function() {
         loginForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             console.log('🔐 Login form submitted');
-            
+
             hideLoginError();
-            
+
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
             const remember = document.getElementById('loginRemember').checked;
-            
+            const totpCode = document.getElementById('loginTotp').value.trim();
+            const rememberDevice = document.getElementById('loginRememberDevice').checked;
+
             try {
+                const loginData = { username, password, remember };
+                if (totpCode) {
+                    loginData.totp_code = totpCode;
+                    loginData.remember_device = rememberDevice;
+                }
+
                 const response = await fetch('api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',  // ✅ Include cookies (works with ingress)
-                    body: JSON.stringify({ username, password, remember })
+                    body: JSON.stringify(loginData)
                 });
 
                 console.log('Login response status:', response.status);
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    console.log('❌ Login failed:', response.status, errorData);
-                    showLoginError(errorData.message || `Login failed (${response.status})`);
+                const data = await response.json().catch(() => ({}));
+                console.log('Login response:', data);
+
+                // Check if TOTP is required
+                if (data.totp_required) {
+                    console.log('🔑 TOTP required, showing authenticator field');
+                    document.getElementById('totpGroup').style.display = 'block';
+                    document.getElementById('loginTotp').focus();
+                    if (!totpCode) {
+                        showLoginError(data.message || 'Please enter your authenticator code');
+                    } else {
+                        showLoginError(data.message || 'Invalid authenticator code');
+                    }
                     return;
                 }
 
-                const data = await response.json();
-                console.log('Login response:', data);
+                if (!response.ok) {
+                    console.log('❌ Login failed:', response.status, data);
+                    showLoginError(data.message || `Login failed (${response.status})`);
+                    return;
+                }
 
                 if (data.success) {
                     console.log('✅ Login successful!');
                     hideLoginOverlay();
                     isAuthenticated = true;
+
+                    // Reset TOTP field for next login
+                    document.getElementById('totpGroup').style.display = 'none';
+                    document.getElementById('loginTotp').value = '';
 
                     showToast('Login successful!', 'success');
 
@@ -2856,6 +2966,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         loadPendingBoards();
         loadEmergencyStatus();
         loadBackgroundSettings();
+        loadTotpSettings();
 
         // Refresh data every 15 seconds
         setInterval(() => {
@@ -2926,11 +3037,17 @@ async function checkAuthStatus() {
             console.log('❌ Not authenticated');
             showLoginOverlay();
             isAuthenticated = false;
-            
+
+            // Show TOTP field if enabled
+            if (data.totp_enabled) {
+                console.log('🔑 TOTP enabled, showing authenticator field');
+                document.getElementById('totpGroup').style.display = 'block';
+            }
+
             if (data.password_changed) {
                 showLoginError('Password changed. Please log in again.');
             }
-            
+
             return false;
         }
     } catch (error) {
@@ -5936,6 +6053,70 @@ async function saveDoorSettings(event) {
                 body.style.backgroundPosition = '';
                 body.style.backgroundRepeat = '';
                 body.style.backgroundAttachment = '';
+            }
+        }
+
+        // ==================== TOTP (Two-Factor Authentication) ====================
+        let totpEnabled = false;
+
+        async function loadTotpSettings() {
+            try {
+                const response = await fetch('api/totp/qr-code');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('totpSection').style.display = 'block';
+                    document.getElementById('totpQrCode').innerHTML = `<img src="data:image/png;base64,${data.qr_code}" alt="TOTP QR Code" style="max-width: 200px;">`;
+                    document.getElementById('totpAccount').textContent = data.account;
+                    document.getElementById('totpSecret').textContent = data.secret;
+                    totpEnabled = true;
+                } else {
+                    // TOTP not enabled
+                    document.getElementById('totpSection').style.display = 'none';
+                    totpEnabled = false;
+                }
+            } catch (error) {
+                console.log('TOTP not enabled or error:', error);
+                document.getElementById('totpSection').style.display = 'none';
+            }
+        }
+
+        async function testTotpCode() {
+            const code = document.getElementById('totpTestCode').value.trim();
+            const resultDiv = document.getElementById('totpTestResult');
+
+            if (!code || code.length !== 6) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#fef2f2';
+                resultDiv.style.color = '#dc2626';
+                resultDiv.textContent = 'Please enter a 6-digit code';
+                return;
+            }
+
+            try {
+                const response = await fetch('api/totp/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+
+                const data = await response.json();
+                resultDiv.style.display = 'block';
+
+                if (data.success) {
+                    resultDiv.style.background = '#dcfce7';
+                    resultDiv.style.color = '#16a34a';
+                    resultDiv.textContent = '✅ Code is valid! Your authenticator is set up correctly.';
+                } else {
+                    resultDiv.style.background = '#fef2f2';
+                    resultDiv.style.color = '#dc2626';
+                    resultDiv.textContent = '❌ Invalid code. Please try again.';
+                }
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#fef2f2';
+                resultDiv.style.color = '#dc2626';
+                resultDiv.textContent = 'Error verifying code';
             }
         }
 

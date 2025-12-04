@@ -19,7 +19,8 @@
     "auth_enabled": true,
     "auth_username": "admin",
     "auth_password": "admin",
-    "remember_days": 30
+    "remember_days": 30,
+    "totp_enabled": false
   },
   "schema": {
     "log_level": "list(debug|info|warning|error)?",
@@ -27,7 +28,8 @@
     "auth_enabled": "bool",
     "auth_username": "str",
     "auth_password": "str",
-    "remember_days": "int"
+    "remember_days": "int",
+    "totp_enabled": "bool"
   },
   "ingress": true,
   "ingress_port": 8100,

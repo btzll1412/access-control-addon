@@ -18,6 +18,9 @@ import csv
 from io import StringIO
 from requests.auth import HTTPBasicAuth
 import hashlib
+import pyotp
+import qrcode
+import base64
 
 # ==================== AUTH CONFIGURATION ====================
 def get_auth_config():
@@ -30,19 +33,156 @@ def get_auth_config():
                     'enabled': options.get('auth_enabled', True),
                     'username': options.get('auth_username', 'admin'),
                     'password': options.get('auth_password', 'admin'),
-                    'remember_days': options.get('remember_days', 30)
+                    'remember_days': options.get('remember_days', 30),
+                    'totp_enabled': options.get('totp_enabled', False)
                 }
     except Exception as e:
         print(f"⚠️  Could not read auth config: {e}")
-    
+
     return {
         'enabled': True,
         'username': 'admin',
         'password': 'admin',
-        'remember_days': 30
+        'remember_days': 30,
+        'totp_enabled': False
     }
 
 AUTH_CONFIG = get_auth_config()
+
+# ==================== TOTP CONFIGURATION ====================
+TOTP_SECRET_FILE = '/data/.totp_secret'
+
+def get_or_create_totp_secret():
+    """Get or create TOTP secret for authenticator apps"""
+    try:
+        if os.path.exists(TOTP_SECRET_FILE):
+            with open(TOTP_SECRET_FILE, 'r') as f:
+                secret = f.read().strip()
+                if secret:
+                    return secret
+
+        # Generate new secret
+        secret = pyotp.random_base32()
+        with open(TOTP_SECRET_FILE, 'w') as f:
+            f.write(secret)
+        logger.info("🔐 Generated new TOTP secret")
+        return secret
+    except Exception as e:
+        logger.error(f"❌ Error with TOTP secret: {e}")
+        return pyotp.random_base32()
+
+def verify_totp(code):
+    """Verify a TOTP code"""
+    try:
+        secret = get_or_create_totp_secret()
+        totp = pyotp.TOTP(secret)
+        # Allow 1 period tolerance for clock drift
+        return totp.verify(code, valid_window=1)
+    except Exception as e:
+        logger.error(f"❌ TOTP verification error: {e}")
+        return False
+
+def get_totp_qr_code():
+    """Generate QR code for authenticator app setup"""
+    try:
+        secret = get_or_create_totp_secret()
+        totp = pyotp.TOTP(secret)
+
+        # Create provisioning URI
+        uri = totp.provisioning_uri(
+            name=AUTH_CONFIG['username'],
+            issuer_name="Access Control System"
+        )
+
+        # Generate QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(uri)
+        qr.make(fit=True)
+
+        # Create image
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        # Convert to base64
+        from io import BytesIO
+        buffer = BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+
+        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        return img_base64, secret
+    except Exception as e:
+        logger.error(f"❌ Error generating QR code: {e}")
+        return None, None
+
+# ==================== TRUSTED DEVICE MANAGEMENT ====================
+TRUSTED_DEVICES_FILE = '/data/trusted_devices.json'
+TRUSTED_DEVICE_DAYS = 7
+
+def load_trusted_devices():
+    """Load trusted devices from file"""
+    try:
+        if os.path.exists(TRUSTED_DEVICES_FILE):
+            with open(TRUSTED_DEVICES_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"❌ Error loading trusted devices: {e}")
+    return {}
+
+def save_trusted_devices(devices):
+    """Save trusted devices to file"""
+    try:
+        with open(TRUSTED_DEVICES_FILE, 'w') as f:
+            json.dump(devices, f)
+    except Exception as e:
+        logger.error(f"❌ Error saving trusted devices: {e}")
+
+def create_trusted_device_token():
+    """Create a new trusted device token"""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    expiry = (datetime.now() + timedelta(days=TRUSTED_DEVICE_DAYS)).isoformat()
+
+    devices = load_trusted_devices()
+    devices[token] = {'expiry': expiry, 'created': datetime.now().isoformat()}
+
+    # Clean up expired tokens while we're here
+    clean_expired_devices(devices)
+    save_trusted_devices(devices)
+
+    logger.info(f"🔐 Created trusted device token (expires in {TRUSTED_DEVICE_DAYS} days)")
+    return token
+
+def verify_trusted_device(token):
+    """Verify if a device token is valid and not expired"""
+    if not token:
+        return False
+
+    devices = load_trusted_devices()
+    if token not in devices:
+        return False
+
+    try:
+        expiry = datetime.fromisoformat(devices[token]['expiry'])
+        if datetime.now() > expiry:
+            # Token expired, remove it
+            del devices[token]
+            save_trusted_devices(devices)
+            logger.info("🔐 Trusted device token expired")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error verifying trusted device: {e}")
+        return False
+
+def clean_expired_devices(devices):
+    """Remove expired device tokens"""
+    now = datetime.now()
+    expired = [token for token, data in devices.items()
+               if datetime.fromisoformat(data['expiry']) < now]
+    for token in expired:
+        del devices[token]
+    if expired:
+        logger.info(f"🧹 Cleaned up {len(expired)} expired device tokens")
 
 # Generate a password version hash - changes when password changes
 def get_password_version():
@@ -839,29 +979,54 @@ def debug_auth():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Login endpoint with remember device support"""
+    """Login endpoint with remember device support and optional TOTP"""
     conn = None
     try:
         data = request.json
-        username = data.get('username', '').strip()  # ✅ Added .strip()
-        password = data.get('password', '').strip()  # ✅ Added .strip()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        totp_code = data.get('totp_code', '').strip()
         remember = data.get('remember', False)
-        
+        remember_device = data.get('remember_device', False)
+
+        # Check for trusted device cookie
+        trusted_device_token = request.cookies.get('trusted_device')
+
         logger.info(f"🔐 Login attempt: username='{username}'")
-        logger.info(f"   Config username: '{AUTH_CONFIG['username']}'")
-        logger.info(f"   Config password: '{AUTH_CONFIG['password']}'")
-        logger.info(f"   Username match: {username == AUTH_CONFIG['username']}")
-        logger.info(f"   Password match: {password == AUTH_CONFIG['password']}")
-        
+
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'}), 400
-        
+
         # Check against config (primary auth source)
         if username == AUTH_CONFIG['username'] and password == AUTH_CONFIG['password']:
+            # Check TOTP if enabled
+            if AUTH_CONFIG.get('totp_enabled', False):
+                # Check if device is trusted (skip TOTP)
+                is_trusted = verify_trusted_device(trusted_device_token)
+
+                if is_trusted:
+                    logger.info(f"🔐 Trusted device, skipping TOTP for '{username}'")
+                elif not totp_code:
+                    logger.info(f"🔐 TOTP required for '{username}'")
+                    return jsonify({
+                        'success': False,
+                        'message': 'Authenticator code required',
+                        'totp_required': True
+                    }), 401
+                elif not verify_totp(totp_code):
+                    logger.warning(f"❌ Invalid TOTP code for '{username}'")
+                    return jsonify({
+                        'success': False,
+                        'message': 'Invalid authenticator code',
+                        'totp_required': True
+                    }), 401
+                else:
+                    logger.info(f"✅ TOTP verified for '{username}'")
+
             session['logged_in'] = True
             session['username'] = username
             session['password_version'] = PASSWORD_VERSION
-            
+
             # Set session duration based on remember checkbox
             if remember:
                 # Make session permanent with configured duration
@@ -872,7 +1037,7 @@ def login():
                 # Session expires when browser closes
                 session.permanent = False
                 logger.info(f"✅ User '{username}' logged in (session only)")
-            
+
             # Update last login in database
             try:
                 conn = get_db()
@@ -881,16 +1046,34 @@ def login():
                 conn.commit()
             except Exception as db_error:
                 logger.warning(f"Could not update last_login: {db_error}")
-            
-            return jsonify({
-                'success': True, 
+
+            # Prepare response
+            response_data = {
+                'success': True,
                 'message': 'Login successful',
                 'remember_days': AUTH_CONFIG['remember_days'] if remember else 0
-            })
+            }
+
+            # Create trusted device token if requested and TOTP was verified
+            if remember_device and AUTH_CONFIG.get('totp_enabled', False) and totp_code:
+                new_token = create_trusted_device_token()
+                response = make_response(jsonify(response_data))
+                response.set_cookie(
+                    'trusted_device',
+                    new_token,
+                    max_age=TRUSTED_DEVICE_DAYS * 24 * 60 * 60,  # 7 days in seconds
+                    httponly=True,
+                    samesite='Lax',
+                    path='/'
+                )
+                logger.info(f"🔐 Created trusted device cookie for '{username}' ({TRUSTED_DEVICE_DAYS} days)")
+                return response
+
+            return jsonify(response_data)
         else:
             logger.warning(f"❌ Failed login attempt for '{username}'")
             return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
-            
+
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
         import traceback
@@ -943,9 +1126,58 @@ def auth_status():
         'auth_required': True,
         'authenticated': has_session,
         'remember_days': AUTH_CONFIG['remember_days'],
-        'password_changed': False
+        'password_changed': False,
+        'totp_enabled': AUTH_CONFIG.get('totp_enabled', False)
     })
 
+@app.route('/api/totp/qr-code', methods=['GET'])
+@login_required
+def get_totp_qr():
+    """Get TOTP QR code for authenticator app setup"""
+    try:
+        if not AUTH_CONFIG.get('totp_enabled', False):
+            return jsonify({
+                'success': False,
+                'message': 'TOTP is not enabled in addon configuration'
+            }), 400
+
+        qr_base64, secret = get_totp_qr_code()
+
+        if qr_base64:
+            return jsonify({
+                'success': True,
+                'qr_code': qr_base64,
+                'secret': secret,
+                'issuer': 'Access Control System',
+                'account': AUTH_CONFIG['username']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to generate QR code'
+            }), 500
+    except Exception as e:
+        logger.error(f"❌ Error getting TOTP QR code: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/totp/verify', methods=['POST'])
+@login_required
+def verify_totp_code():
+    """Verify a TOTP code (for testing setup)"""
+    try:
+        data = request.json
+        code = data.get('code', '').strip()
+
+        if not code:
+            return jsonify({'success': False, 'message': 'Code required'}), 400
+
+        if verify_totp(code):
+            return jsonify({'success': True, 'message': 'Code is valid'})
+        else:
+            return jsonify({'success': False, 'message': 'Invalid code'}), 401
+    except Exception as e:
+        logger.error(f"❌ Error verifying TOTP: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== TEMPORARY CODES API ====================
 
