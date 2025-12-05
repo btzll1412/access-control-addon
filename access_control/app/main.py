@@ -5662,10 +5662,11 @@ def delete_schedule(schedule_id):
 @app.route('/api/logs', methods=['GET'])
 @login_required
 def get_logs():
-    """Get access logs with advanced filtering"""
+    """Get access logs with advanced filtering including admin actions"""
     conn = None
     try:
-        limit = request.args.get('limit', 100, type=int)
+        limit = min(request.args.get('limit', 100, type=int), 1000)  # Max 1000
+        time_range = request.args.get('time_range', '24h')  # '24h' or 'all'
         user_id = request.args.get('user_id', type=int)
         door_id = request.args.get('door_id', type=int)
         board_name = request.args.get('board_name')
@@ -5675,19 +5676,20 @@ def get_logs():
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
         search = request.args.get('search')
-        
-        logger.info(f"📊 Loading logs with limit={limit}")
-        
+
+        logger.info(f"📊 Loading logs with limit={limit}, time_range={time_range}")
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # Build query to include admin actions (access_type column)
         query = '''
-            SELECT 
+            SELECT
                 al.id,
                 al.timestamp,
                 al.board_name,
                 al.door_name,
-                COALESCE(u.name, al.temp_code_name, 'Unknown') as user_name,
+                COALESCE(u.name, al.temp_code_name, al.user_name, 'Unknown') as user_name,
                 al.credential,
                 al.credential_type,
                 al.access_granted,
@@ -5697,13 +5699,19 @@ def get_logs():
                 al.temp_code_id,
                 al.temp_code_name,
                 al.temp_code_usage_count,
-                al.temp_code_remaining
+                al.temp_code_remaining,
+                al.access_type,
+                al.details
             FROM access_logs al
             LEFT JOIN users u ON al.user_id = u.id
             WHERE 1=1
         '''
         params = []
-        
+
+        # Apply time range filter (default 24 hours)
+        if time_range == '24h':
+            query += ' AND datetime(al.timestamp) >= datetime("now", "-24 hours")'
+
         if user_id:
             query += ' AND al.user_id = ?'
             params.append(user_id)
@@ -5740,14 +5748,16 @@ def get_logs():
         
         if search:
             query += ''' AND (
-                COALESCE(u.name, al.temp_code_name, 'Unknown') LIKE ? OR 
-                al.board_name LIKE ? OR 
-                al.door_name LIKE ? OR 
-                al.credential LIKE ? OR 
-                al.reason LIKE ?
+                COALESCE(u.name, al.temp_code_name, al.user_name, 'Unknown') LIKE ? OR
+                al.board_name LIKE ? OR
+                al.door_name LIKE ? OR
+                al.credential LIKE ? OR
+                al.reason LIKE ? OR
+                al.access_type LIKE ? OR
+                al.details LIKE ?
             )'''
             search_param = f'%{search}%'
-            params.extend([search_param] * 5)
+            params.extend([search_param] * 7)
         
         query += ' ORDER BY datetime(al.timestamp) DESC LIMIT ?'
         params.append(limit)
