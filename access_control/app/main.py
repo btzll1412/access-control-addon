@@ -1730,6 +1730,7 @@ def create_temp_code():
         conn.commit()
         
         logger.info(f"✅ Temp code created: {code} (ID: {temp_code_id})")
+        log_admin_action('TEMP_CODE_CREATED', f"Created temp code '{data.get('name', code)}' (Code: {code})", data.get('name', code))
         return jsonify({
             'success': True,
             'message': 'Temporary code created',
@@ -1861,15 +1862,22 @@ def delete_temp_code(temp_code_id):
     conn = None
     try:
         logger.info(f"🗑️ Deleting temp code ID {temp_code_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
+        # Get temp code info before deleting for audit log
+        cursor.execute('SELECT name, code FROM temp_codes WHERE id = ?', (temp_code_id,))
+        temp_code_info = cursor.fetchone()
+        temp_code_name = temp_code_info['name'] if temp_code_info else f'ID:{temp_code_id}'
+        temp_code_code = temp_code_info['code'] if temp_code_info else 'unknown'
+
         cursor.execute('DELETE FROM temp_codes WHERE id = ?', (temp_code_id,))
-        
+
         conn.commit()
-        
+
         logger.info(f"✅ Temp code {temp_code_id} deleted")
+        log_admin_action('TEMP_CODE_DELETED', f"Deleted temp code '{temp_code_name}' (Code: {temp_code_code})", temp_code_name)
         return jsonify({'success': True, 'message': 'Temporary code deleted'})
         
     except Exception as e:
@@ -1979,12 +1987,14 @@ def get_stats():
 
         cursor.execute('SELECT COUNT(*) as count FROM doors')
         total_doors = cursor.fetchone()['count']
-        
+
+        # Get today's date in local timezone for accurate event count
+        today_local = get_local_timestamp().strftime('%Y-%m-%d')
         cursor.execute('''
-            SELECT COUNT(*) as count 
-            FROM access_logs 
-            WHERE DATE(timestamp) = DATE('now')
-        ''')
+            SELECT COUNT(*) as count
+            FROM access_logs
+            WHERE DATE(timestamp) = ?
+        ''', (today_local,))
         today_events = cursor.fetchone()['count']
         
         cursor.execute('''
@@ -4592,7 +4602,10 @@ def update_user(user_id):
                 ''', (user_id, schedule_id))
         
         conn.commit()
-        
+
+        # Log admin action
+        log_admin_action('USER_MODIFIED', f"Modified user '{data['name']}' (ID: {user_id})", data['name'])
+
         logger.info(f"✅ User {user_id} updated")
         return jsonify({'success': True, 'message': 'User updated successfully'})
     except Exception as e:
