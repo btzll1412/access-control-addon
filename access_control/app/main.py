@@ -5710,7 +5710,10 @@ def get_logs():
 
         # Apply time range filter (default 24 hours)
         if time_range == '24h':
-            query += ' AND datetime(al.timestamp) >= datetime("now", "-24 hours")'
+            # Calculate 24 hours ago in local timezone (timestamps are stored in local time)
+            cutoff_time = (get_local_timestamp() - timedelta(hours=24)).isoformat()
+            query += ' AND al.timestamp >= ?'
+            params.append(cutoff_time)
 
         if user_id:
             query += ' AND al.user_id = ?'
