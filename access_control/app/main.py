@@ -6991,7 +6991,10 @@ if __name__ == '__main__':
     print(f"🕐 Timezone: {TIMEZONE}")
     print(f"🔐 Authentication: {'ENABLED' if AUTH_CONFIG['enabled'] else 'DISABLED'}")
     if AUTH_CONFIG['enabled']:
-        print(f"👤 Admin Username: {AUTH_CONFIG['username']}")
+        admin_users = AUTH_CONFIG.get('admin_users', [])
+        print(f"👤 Admin Users: {len(admin_users)} configured")
+        for user in admin_users:
+            print(f"   - {user.get('username')} ({user.get('role', 'viewer')})")
     print(f"🌐 Serving on http://0.0.0.0:8100")
     print("=" * 60)
     serve(app, host='0.0.0.0', port=8100)
