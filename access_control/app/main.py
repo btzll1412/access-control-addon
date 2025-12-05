@@ -809,6 +809,16 @@ def upgrade_database():
             logger.info("🔧 Adding credential_type column to access_logs")
             cursor.execute("ALTER TABLE access_logs ADD COLUMN credential_type TEXT")
 
+        # Add access_type column for admin action logging
+        if 'access_type' not in columns:
+            logger.info("🔧 Adding access_type column to access_logs")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN access_type TEXT")
+
+        # Add details column for admin action details
+        if 'details' not in columns:
+            logger.info("🔧 Adding details column to access_logs")
+            cursor.execute("ALTER TABLE access_logs ADD COLUMN details TEXT")
+
         # Check if unlock_duration column exists in doors table
         cursor.execute("PRAGMA table_info(doors)")
         door_columns = [col[1] for col in cursor.fetchall()]
