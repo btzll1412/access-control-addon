@@ -1880,7 +1880,19 @@
 <div id="tab-logs" class="tab-content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
         <h2>Access Logs</h2>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <!-- Time Range Toggle -->
+            <div style="display: flex; align-items: center; gap: 8px; background: #f1f5f9; padding: 8px 12px; border-radius: 8px;">
+                <span style="font-size: 13px; color: #64748b;">Show:</span>
+                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="radio" name="logTimeRange" value="24h" checked onchange="loadLogs()">
+                    <span style="font-size: 13px;">Last 24 hours</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="radio" name="logTimeRange" value="all" onchange="loadLogs()">
+                    <span style="font-size: 13px;">All (up to 1000)</span>
+                </label>
+            </div>
             <button class="btn btn-secondary btn-small" onclick="clearLogFilters()">
                 🔄 Clear Filters
             </button>
@@ -5891,34 +5903,39 @@ async function saveDoorSettings(event) {
             try {
                 // Build query parameters
                 const params = new URLSearchParams();
-                
-                const limit = document.getElementById('filterLimit')?.value || '100';
+
+                // Get time range (24h or all)
+                const timeRange = document.querySelector('input[name="logTimeRange"]:checked')?.value || '24h';
+                params.append('time_range', timeRange);
+
+                // Set limit based on time range
+                const limit = timeRange === 'all' ? '1000' : (document.getElementById('filterLimit')?.value || '100');
                 params.append('limit', limit);
-        
+
                 const userId = document.getElementById('filterUser')?.value;
                 if (userId) params.append('user_id', userId);
-        
+
                 const boardName = document.getElementById('filterBoard')?.value;
                 if (boardName) params.append('board_name', boardName);
-        
+
                 const doorId = document.getElementById('filterDoor')?.value;
                 if (doorId) params.append('door_id', doorId);
-        
+
                 const credentialType = document.getElementById('filterCredentialType')?.value;
                 if (credentialType) params.append('credential_type', credentialType);
-        
+
                 const accessGranted = document.getElementById('filterAccessGranted')?.value;
                 if (accessGranted) params.append('access_granted', accessGranted);
-        
+
                 const dateFrom = document.getElementById('filterDateFrom')?.value;
                 if (dateFrom) params.append('date_from', dateFrom);
-        
+
                 const dateTo = document.getElementById('filterDateTo')?.value;
                 if (dateTo) params.append('date_to', dateTo);
-        
+
                 const search = document.getElementById('filterSearch')?.value;
                 if (search) params.append('search', search);
-        
+
                 const response = await fetch(`/api/logs?${params.toString()}`);
                 const data = await response.json();
         
@@ -5939,12 +5956,35 @@ async function saveDoorSettings(event) {
                     }
         
                     container.innerHTML = data.logs.map(log => {
+                        // Check if it's an admin action
+                        const isAdminAction = log.access_type && log.access_type.startsWith('ADMIN_');
+
+                        if (isAdminAction) {
+                            // Admin action log entry
+                            const actionIcon = log.access_type === 'ADMIN_LOGIN' ? '🔑' :
+                                             log.access_type === 'ADMIN_LOGOUT' ? '🚪' :
+                                             log.access_type === 'ADMIN_LOGIN_FAILED' ? '🚫' : '⚙️';
+                            const actionColor = log.access_type === 'ADMIN_LOGIN_FAILED' ? '#dc2626' : '#6366f1';
+
+                            return `
+                                <tr style="background: linear-gradient(90deg, #eef2ff 0%, #fff 100%);">
+                                    <td style="white-space: nowrap;">${log.timestamp}</td>
+                                    <td colspan="2" style="color: ${actionColor}; font-weight: 500;">
+                                        ${actionIcon} ${log.access_type.replace('ADMIN_', '').replace('_', ' ')}
+                                    </td>
+                                    <td><strong style="color: #4f46e5;">👤 ${log.user_name || 'System'}</strong></td>
+                                    <td colspan="2">${log.details || log.door_name || ''}</td>
+                                    <td><small style="color: #64748b;">Admin Action</small></td>
+                                </tr>
+                            `;
+                        }
+
                         // Check if it's a temp code
                         const isTempCode = log.temp_code_id || log.credential_type === 'temp_code';
-                        const displayName = isTempCode 
+                        const displayName = isTempCode
                             ? `🎫 ${log.temp_code_name || log.user_name}`
                             : log.user_name || 'Unknown';
-                        
+
                         return `
                             <tr>
                                 <td style="white-space: nowrap;">${log.timestamp}</td>
@@ -5961,7 +6001,7 @@ async function saveDoorSettings(event) {
                                         ${log.access_granted ? '✅ Granted' : '❌ Denied'}
                                     </span>
                                 </td>
-                                <td>${log.reason}</td>
+                                <td>${log.reason || ''}</td>
                             </tr>
                         `;
                     }).join('');
@@ -5989,6 +6029,9 @@ async function saveDoorSettings(event) {
             document.getElementById('filterDateTo').value = '';
             document.getElementById('filterSearch').value = '';
             document.getElementById('filterLimit').value = '100';
+            // Reset time range to 24h
+            const timeRange24h = document.querySelector('input[name="logTimeRange"][value="24h"]');
+            if (timeRange24h) timeRange24h.checked = true;
             loadLogs();
         }
 
