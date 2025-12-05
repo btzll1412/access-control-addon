@@ -1979,12 +1979,14 @@ def get_stats():
 
         cursor.execute('SELECT COUNT(*) as count FROM doors')
         total_doors = cursor.fetchone()['count']
-        
+
+        # Get today's date in local timezone for accurate event count
+        today_local = get_local_timestamp().strftime('%Y-%m-%d')
         cursor.execute('''
-            SELECT COUNT(*) as count 
-            FROM access_logs 
-            WHERE DATE(timestamp) = DATE('now')
-        ''')
+            SELECT COUNT(*) as count
+            FROM access_logs
+            WHERE DATE(timestamp) = ?
+        ''', (today_local,))
         today_events = cursor.fetchone()['count']
         
         cursor.execute('''
