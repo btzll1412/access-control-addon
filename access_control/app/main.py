@@ -3483,11 +3483,11 @@ def sync_board_full(board_id):
             'emergency_mode': board['emergency_mode'],  # ✅ ADD THIS
             'door_overrides': door_overrides  # ✅ ADD THIS
         }
-        
-        # Send to board
+
+        # Send to board (increased timeout for large user databases)
         board_url = f"http://{board['ip_address']}/api/sync"
-        
-        response = requests.post(board_url, json=sync_data, timeout=10)
+
+        response = requests.post(board_url, json=sync_data, timeout=30)
         
         if response.status_code == 200:
             cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
