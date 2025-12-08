@@ -17,7 +17,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.2.1"
+#define FIRMWARE_VERSION "3.2.2"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -2344,88 +2344,119 @@ if (syncDoc.containsKey("unlock_durations")) {
     saveConfig();
 }
 
-// ✅ REPLACE OR ADD THIS SECTION
+// ✅ FIXED: Only trigger relays when emergency mode CHANGES (not on every sync)
 
 // Sync emergency mode (using only config.emergencyMode string)
 if (syncDoc.containsKey("emergency_mode")) {
     const char* mode = syncDoc["emergency_mode"];
-    
-    addLiveLog("📥 Emergency mode received from server: '" + String(mode ? mode : "null") + "'");
-    
-    if (mode == nullptr || strlen(mode) == 0) {
-        // Reset to normal
-        config.emergencyMode = "";
-        addLiveLog("✅✅✅ Emergency mode RESET - Normal operation ✅✅✅");
-        
-        // Release all doors if they were locked by emergency
-        for (int i = 0; i < 2; i++) {
-            // Only reset if no per-door override
-            if (doors[i].emergencyOverride == "") {
+    String newMode = (mode == nullptr || strlen(mode) == 0) ? "" : String(mode);
+
+    addLiveLog("📥 Emergency mode from server: '" + newMode + "' (current: '" + config.emergencyMode + "')");
+
+    // Only take action if mode CHANGED
+    if (newMode != config.emergencyMode) {
+        addLiveLog("⚡ Emergency mode CHANGED - applying...");
+
+        if (newMode == "") {
+            // Reset to normal
+            config.emergencyMode = "";
+            addLiveLog("✅✅✅ Emergency mode RESET - Normal operation ✅✅✅");
+
+            // Release all doors if they were locked by emergency
+            for (int i = 0; i < 2; i++) {
+                // Only reset if no per-door override
+                if (doors[i].emergencyOverride == "") {
+                    digitalWrite(doors[i].relayPin, LOW);
+                    doors[i].isUnlocked = false;
+                    doors[i].scheduledUnlock = false;
+                }
+            }
+
+            // Re-apply schedules
+            updateDoorModesFromSchedule();
+        }
+        else if (newMode == "lock") {
+            // Emergency lockdown
+            config.emergencyMode = "lock";
+            addLiveLog("🚨🚨🚨 EMERGENCY LOCKDOWN ACTIVATED 🚨🚨🚨");
+
+            // Lock all doors immediately
+            for (int i = 0; i < 2; i++) {
                 digitalWrite(doors[i].relayPin, LOW);
                 doors[i].isUnlocked = false;
                 doors[i].scheduledUnlock = false;
             }
+
+            beepPattern(3, 200, 100);  // 3 beeps - lockdown
         }
-        
-        // Re-apply schedules
-        updateDoorModesFromSchedule();
-    }
-    else if (strcmp(mode, "lock") == 0) {
-        // Emergency lockdown
-        config.emergencyMode = "lock";
-        addLiveLog("🚨🚨🚨 EMERGENCY LOCKDOWN ACTIVATED 🚨🚨🚨");
-        
-        // Lock all doors immediately
-        for (int i = 0; i < 2; i++) {
-            digitalWrite(doors[i].relayPin, LOW);
-            doors[i].isUnlocked = false;
-            doors[i].scheduledUnlock = false;
+        else if (newMode == "unlock") {
+            // Emergency evacuation
+            config.emergencyMode = "unlock";
+            addLiveLog("🚨🚨🚨 EMERGENCY EVACUATION MODE ACTIVATED 🚨🚨🚨");
+
+            // Unlock all doors immediately
+            for (int i = 0; i < 2; i++) {
+                digitalWrite(doors[i].relayPin, HIGH);
+                doors[i].isUnlocked = true;
+                doors[i].unlockUntil = 0xFFFFFFFF;  // Stay unlocked
+                doors[i].scheduledUnlock = false;
+            }
+
+            beepPattern(5, 100, 100);  // 5 fast beeps - evacuation
         }
-        
-        beepPattern(3, 200, 100);  // 3 beeps - lockdown
-    }
-    else if (strcmp(mode, "unlock") == 0) {
-        // Emergency evacuation
-        config.emergencyMode = "unlock";
-        addLiveLog("🚨🚨🚨 EMERGENCY EVACUATION MODE ACTIVATED 🚨🚨🚨");
-        
-        // Unlock all doors immediately
-        for (int i = 0; i < 2; i++) {
-            digitalWrite(doors[i].relayPin, HIGH);
-            doors[i].isUnlocked = true;
-            doors[i].unlockUntil = 0xFFFFFFFF;  // Stay unlocked
-            doors[i].scheduledUnlock = false;
-        }
-        
-        beepPattern(5, 100, 100);  // 5 fast beeps - evacuation
+    } else {
+        addLiveLog("ℹ️ Emergency mode unchanged - no action needed");
     }
 }
 
-// Also sync door-specific overrides
+// ✅ FIXED: Door overrides - only trigger when override CHANGES
 if (syncDoc.containsKey("door_overrides")) {
     JsonArray overrides = syncDoc["door_overrides"];
-    
+
     for (JsonObject override : overrides) {
         int doorNum = override["door_number"];
         const char* overrideMode = override["mode"];
-        
+
         if (doorNum >= 1 && doorNum <= 2) {
             int idx = doorNum - 1;
-            
-            if (overrideMode == nullptr || strlen(overrideMode) == 0) {
-                doors[idx].emergencyOverride = "";  // ✅ Use String, not constant
-                addLiveLog("✅ " + doors[idx].name + " override reset");
-            }
-            else if (strcmp(overrideMode, "lock") == 0) {
-                doors[idx].emergencyOverride = "lock";  // ✅ Use String
-                digitalWrite(doors[idx].relayPin, LOW);
-                addLiveLog("🔒 " + doors[idx].name + " OVERRIDE LOCKED");
-            }
-            else if (strcmp(overrideMode, "unlock") == 0) {
-                doors[idx].emergencyOverride = "unlock";  // ✅ Use String
-                digitalWrite(doors[idx].relayPin, HIGH);
-                doors[idx].unlockUntil = 0xFFFFFFFF;
-                addLiveLog("🔓 " + doors[idx].name + " OVERRIDE UNLOCKED");
+            String newOverride = (overrideMode == nullptr || strlen(overrideMode) == 0) ? "" : String(overrideMode);
+
+            addLiveLog("📥 Door " + String(doorNum) + " override from server: '" + newOverride + "' (current: '" + doors[idx].emergencyOverride + "')");
+
+            // Only take action if override CHANGED
+            if (newOverride != doors[idx].emergencyOverride) {
+                addLiveLog("⚡ Door " + String(doorNum) + " override CHANGED - applying...");
+
+                if (newOverride == "") {
+                    doors[idx].emergencyOverride = "";
+                    addLiveLog("✅ " + doors[idx].name + " override reset");
+                    // Re-apply schedule for this door
+                    String scheduleMode = checkDoorScheduleMode(doorNum);
+                    if (scheduleMode == "unlock") {
+                        digitalWrite(doors[idx].relayPin, HIGH);
+                        doors[idx].isUnlocked = true;
+                        doors[idx].scheduledUnlock = true;
+                    } else {
+                        digitalWrite(doors[idx].relayPin, LOW);
+                        doors[idx].isUnlocked = false;
+                        doors[idx].scheduledUnlock = false;
+                    }
+                }
+                else if (newOverride == "lock") {
+                    doors[idx].emergencyOverride = "lock";
+                    digitalWrite(doors[idx].relayPin, LOW);
+                    doors[idx].isUnlocked = false;
+                    addLiveLog("🔒 " + doors[idx].name + " OVERRIDE LOCKED");
+                }
+                else if (newOverride == "unlock") {
+                    doors[idx].emergencyOverride = "unlock";
+                    digitalWrite(doors[idx].relayPin, HIGH);
+                    doors[idx].isUnlocked = true;
+                    doors[idx].unlockUntil = 0xFFFFFFFF;
+                    addLiveLog("🔓 " + doors[idx].name + " OVERRIDE UNLOCKED");
+                }
+            } else {
+                addLiveLog("ℹ️ Door " + String(doorNum) + " override unchanged - no action needed");
             }
         }
     }
