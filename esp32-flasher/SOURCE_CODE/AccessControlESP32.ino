@@ -245,21 +245,32 @@ void addLiveLog(String message) {
 }
 
 String getLiveLogsJSON() {
-    DynamicJsonDocument doc(8192);
-    JsonArray logs = doc.createNestedArray("logs");
-    
-    // Add logs in reverse order (newest first)
-    for (int i = 0; i < LIVE_LOG_BUFFER_SIZE; i++) {
+    // ✅ OPTIMIZED: Direct string building, limit to 50 logs (was 200)
+    // This prevents blocking the main loop when web page auto-refreshes
+    String output = "{\"logs\":[";
+    bool first = true;
+    int count = 0;
+    const int MAX_LOGS_TO_RETURN = 50;  // Reduced from 200
+
+    for (int i = 0; i < LIVE_LOG_BUFFER_SIZE && count < MAX_LOGS_TO_RETURN; i++) {
         int idx = (liveLogIndex - 1 - i + LIVE_LOG_BUFFER_SIZE) % LIVE_LOG_BUFFER_SIZE;
         if (liveLogBuffer[idx].length() > 0) {
-            logs.add(liveLogBuffer[idx]);
+            if (!first) output += ",";
+            output += "\"";
+            // Escape quotes in log message
+            String escaped = liveLogBuffer[idx];
+            escaped.replace("\"", "\\\"");
+            output += escaped;
+            output += "\"";
+            first = false;
+            count++;
         }
     }
-    
-    doc["count"] = liveLogCounter;
-    
-    String output;
-    serializeJson(doc, output);
+
+    output += "],\"count\":";
+    output += String(liveLogCounter);
+    output += "}";
+
     return output;
 }
 
@@ -2499,8 +2510,27 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
-    
-    
+    unsigned long loopStart = now;
+
+    // ===============================================================
+    // LOOP TIMING DIAGNOSTICS - Detect what's blocking card processing
+    // ===============================================================
+    static unsigned long lastLoopHealthCheck = 0;
+    static unsigned long loopCount = 0;
+    static unsigned long slowLoopCount = 0;
+
+    loopCount++;
+
+    // Periodic loop health check every 30 seconds
+    if (now - lastLoopHealthCheck >= 30000) {
+        float avgLoopTime = 30000.0 / loopCount;
+        addLiveLog("📊 Loop health: " + String(loopCount) + " iterations in 30s (avg " +
+                   String(avgLoopTime, 1) + "ms, " + String(slowLoopCount) + " slow)");
+        loopCount = 0;
+        slowLoopCount = 0;
+        lastLoopHealthCheck = now;
+    }
+
     // ===============================================================
     // WiFi Watchdog - NON-BLOCKING Auto-reconnect
     // v3.2.3: Removed blocking while loop to prevent card reader delays
@@ -2618,11 +2648,22 @@ void loop() {
     // ✅ NEW: Try to send queued logs every 5 seconds (independent of heartbeat)
     if (now - lastLogRetry >= 5000) {  // Every 5 seconds
         lastLogRetry = now;
-        
+
         if (!logQueue.empty() && WiFi.status() == WL_CONNECTED) {
             sendQueuedLogs();
         }
     }
-    
+
+    // ===============================================================
+    // SLOW LOOP DETECTION
+    // ===============================================================
+    unsigned long loopDuration = millis() - loopStart;
+    if (loopDuration > 100) {
+        slowLoopCount++;
+        if (loopDuration > 500) {
+            addLiveLog("⚠️ SLOW LOOP: " + String(loopDuration) + "ms - card reads may be delayed!");
+        }
+    }
+
     delay(10);
 }
