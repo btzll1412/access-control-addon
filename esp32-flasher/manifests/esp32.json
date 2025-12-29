@@ -1,6 +1,6 @@
 {
-  "name": "Access Control - ESP32 Standard",
-  "version": "1.0.0",
+  "name": "Access Control - ESP32 Standard (4MB Flash)",
+  "version": "3.2.3",
   "home_assistant_domain": "esphome",
   "new_install_prompt_erase": true,
   "builds": [
