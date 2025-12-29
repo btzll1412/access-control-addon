@@ -17,7 +17,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.2.2"
+#define FIRMWARE_VERSION "3.2.3"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -1051,19 +1051,19 @@ bool announceToController() {
 
 bool sendHeartbeat() {
     if (config.controllerIP.length() == 0) return false;
-    
+
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/heartbeat";
-    
+
     DynamicJsonDocument doc(256);
     doc["ip_address"] = WiFi.localIP().toString();
     doc["board_name"] = config.boardName;
-    
+
     String payload;
     serializeJson(doc, payload);
-    
+
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
+    http.setTimeout(2000);  // 2 second timeout (reduced for non-blocking)
     
     int httpCode = http.POST(payload);
     http.end();
@@ -1079,11 +1079,11 @@ bool sendHeartbeat() {
 
 bool sendAccessLog(const AccessLog& log) {
     if (config.controllerIP.length() == 0) return false;
-    
+
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/access-log";
-    
-    http.setConnectTimeout(5000);  // 5 second connection timeout
-    
+
+    http.setConnectTimeout(2000);  // 2 second connection timeout (reduced for non-blocking)
+
     DynamicJsonDocument doc(512);
     doc["board_ip"] = WiFi.localIP().toString();
     doc["board_name"] = config.boardName;
@@ -1095,16 +1095,14 @@ bool sendAccessLog(const AccessLog& log) {
     doc["access_granted"] = log.granted;
     doc["reason"] = log.reason;
     doc["timestamp"] = log.timestamp;
-    
+
     String payload;
     serializeJson(doc, payload);
-    
-    addLiveLog("📤 Sending log to " + url);
-    
+
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000);  // Increased from 3000 to 10000ms
-    
+    http.setTimeout(2000);  // 2 second timeout (reduced for non-blocking)
+
     int httpCode = http.POST(payload);
     
     if (httpCode == 200) {
@@ -1527,23 +1525,14 @@ void checkDoorLocks() {
 
 void processAccessAttempt(int doorNumber, const String& credential, const String& credType) {
     addLiveLog("🔐 Access attempt: Door " + String(doorNumber) + " | " + credType + " = " + credential);
-    
+
     ValidationResult result = validateAccess(doorNumber, credential, credType);
-    
+
     addLiveLog("  User: " + result.userName);
     addLiveLog("  Result: " + String(result.granted ? "✅ GRANTED" : "❌ DENIED"));
     addLiveLog("  Reason: " + result.reason);
-    addLiveLog("  📋 Emergency state - Board: '" + config.emergencyMode + "', Door override: '" + doors[doorNumber - 1].emergencyOverride + "'");
-    
-    AccessLog log;
-    log.timestamp = getTimestamp();
-    log.doorNumber = doorNumber;
-    log.userName = result.userName;
-    log.credential = credential;
-    log.credentialType = result.isTempCode ? "temp_code" : credType;  // ✅ Mark as temp_code
-    log.granted = result.granted;
-    log.reason = result.reason;
-    
+
+    // ✅ FIRST: Handle door action IMMEDIATELY (before any network calls)
     if (result.granted) {
         unlockDoor(doorNumber);
         readerFeedbackSuccess(doorNumber);
@@ -1551,23 +1540,33 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
         beepError();
         readerFeedbackError(doorNumber);
     }
-    
-    // ✅ ALWAYS try to send immediately (don't wait for heartbeat)
+
+    // ✅ THEN: Create log and try to send (with short timeout)
+    AccessLog log;
+    log.timestamp = getTimestamp();
+    log.doorNumber = doorNumber;
+    log.userName = result.userName;
+    log.credential = credential;
+    log.credentialType = result.isTempCode ? "temp_code" : credType;
+    log.granted = result.granted;
+    log.reason = result.reason;
+
+    // Try to send immediately (2 second timeout max)
+    // Door is already open/beeped, so this won't delay user
     bool logSent = false;
-    
     if (WiFi.status() == WL_CONNECTED && config.controllerIP.length() > 0) {
         logSent = sendAccessLog(log);
     }
-    
-    // Only queue if send failed
+
+    // Queue if send failed (for background retry)
     if (!logSent) {
         if (logQueue.size() < LOG_QUEUE_MAX) {
             logQueue.push_back(log);
-            addLiveLog("📋 Log queued (" + String(logQueue.size()) + "/" + String(LOG_QUEUE_MAX) + ")");
+            addLiveLog("📋 Log queued (will retry)");
         } else {
             logQueue.erase(logQueue.begin());
             logQueue.push_back(log);
-            addLiveLog("⚠️ Log queue full - dropped oldest log");
+            addLiveLog("⚠️ Log queue full - dropped oldest");
         }
     }
 }
@@ -2921,81 +2920,49 @@ void loop() {
     
     
     // ===============================================================
-    // WiFi Watchdog - Auto-reconnect if disconnected
-    // Broadcasts AP after 10 failed attempts while still trying to reconnect
+    // WiFi Watchdog - NON-BLOCKING Auto-reconnect
+    // Checks every 10 seconds, never blocks card processing
     // ===============================================================
-    if (now - lastWiFiCheck >= 30000) {  // Check every 30 seconds
+    if (now - lastWiFiCheck >= 10000) {  // Check every 10 seconds (more responsive)
         lastWiFiCheck = now;
 
         if (WiFi.status() != WL_CONNECTED) {
-            // WiFi is DOWN!
+            // WiFi is DOWN
             wifiReconnectAttempts++;
 
-            if (apFallbackMode) {
-                addLiveLog("🔄 WiFi reconnection attempt " + String(wifiReconnectAttempts) + " (AP broadcasting)");
-            } else {
-                addLiveLog("⚠️  WiFi DISCONNECTED! (Attempt " + String(wifiReconnectAttempts) + "/10)");
+            if (wifiReconnectAttempts <= 3) {
+                // First few attempts - just try to reconnect quietly
+                addLiveLog("🔄 WiFi reconnecting... (attempt " + String(wifiReconnectAttempts) + ")");
+            } else if (!apFallbackMode) {
+                addLiveLog("⚠️ WiFi DOWN (attempt " + String(wifiReconnectAttempts) + "/10)");
             }
 
-            // Try to reconnect (works in both STA and AP_STA mode)
-            addLiveLog("🔄 Attempting WiFi reconnection to: " + config.wifiSSID);
-
-            // In AP_STA mode, we can't fully disconnect, so just try to connect
+            // Start reconnection (NON-BLOCKING - just initiates, doesn't wait)
             if (!apFallbackMode) {
                 WiFi.disconnect();
             }
             WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
+            // Don't wait! Check result on next loop iteration
 
-            // Wait up to 10 seconds for connection
-            int attempts = 0;
-            while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-                delay(500);
-                Serial.print(".");
-                blinkLED(1);
-                attempts++;
-            }
-
-            if (WiFi.status() == WL_CONNECTED) {
-                // WiFi RECONNECTED!
-                addLiveLog("✅ WiFi reconnected successfully!");
-                addLiveLog("📍 IP Address: " + WiFi.localIP().toString());
-                wifiReconnectAttempts = 0;
-
-                // Stop AP fallback mode if it was active
-                if (apFallbackMode) {
-                    stopAPFallbackMode();
-                }
-
-                // Try to re-announce to controller
-                if (config.controllerIP.length() > 0) {
-                    addLiveLog("📢 Re-announcing to controller...");
-                    delay(2000);
-                    if (announceToController()) {
-                        addLiveLog("✅ Controller reconnected!");
-                    } else {
-                        addLiveLog("⚠️  Controller still offline (WiFi OK)");
-                    }
-                }
-            } else {
-                // WiFi reconnection FAILED
-                addLiveLog("❌ WiFi reconnection failed (attempt " + String(wifiReconnectAttempts) + ")");
-
-                if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
-                    // After 10 failed attempts (5 minutes), start AP fallback mode
-                    // This broadcasts an AP so user can connect and reconfigure
-                    // BUT continues trying to reconnect to the configured WiFi
-                    addLiveLog("⚠️  Access control continues offline with last synced data");
-                    startAPFallbackMode();
-                }
+            if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
+                addLiveLog("⚠️ Starting AP fallback mode");
+                startAPFallbackMode();
             }
         } else {
             // WiFi is CONNECTED
             if (wifiReconnectAttempts > 0) {
+                // Just reconnected!
+                addLiveLog("✅ WiFi reconnected! IP: " + WiFi.localIP().toString());
                 wifiReconnectAttempts = 0;
-            }
-            // If we were in fallback mode and now connected, stop it
-            if (apFallbackMode) {
-                stopAPFallbackMode();
+
+                if (apFallbackMode) {
+                    stopAPFallbackMode();
+                }
+
+                // Re-announce to controller (non-blocking, short timeout)
+                if (config.controllerIP.length() > 0) {
+                    announceToController();
+                }
             }
         }
     }
