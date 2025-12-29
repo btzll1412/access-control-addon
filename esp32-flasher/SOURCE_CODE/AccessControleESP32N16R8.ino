@@ -2831,6 +2831,11 @@ if (psramFound()) {
 validatePins();
 
 loadConfig();
+
+// ✅ Get MAC address early (available before WiFi connects)
+WiFi.mode(WIFI_STA);  // Initialize WiFi to get MAC
+config.macAddress = WiFi.macAddress();
+addLiveLog("🔖 MAC Address: " + config.macAddress);
     
     pinMode(LED_STATUS, OUTPUT);
     pinMode(BEEPER, OUTPUT);
