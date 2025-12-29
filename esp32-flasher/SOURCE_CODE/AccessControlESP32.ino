@@ -17,6 +17,7 @@
 #include <SPIFFS.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
+#include <esp_mac.h>  // For esp_read_mac() - reliable MAC address
 
 // ===============================================================
 // CONFIGURATION
@@ -401,7 +402,7 @@ void blinkLED(int times = 1) {
 String getTimestamp() {
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         return String(millis()); // Fallback to millis if NTP not available
     }
     
@@ -544,7 +545,7 @@ String checkDoorScheduleMode(int doorNumber) {
     
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         return "controlled";
     }
     
@@ -590,7 +591,7 @@ void updateDoorModesFromSchedule() {
     
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
+    if (getLocalTime(&timeinfo, 100)) {
         addLiveLog("  Current time: " + String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min));
     }
     
@@ -655,7 +656,7 @@ bool checkUserSchedule(const String& userName) {
     // Get current time
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         addLiveLog("  ⚠️  Could not get time - allowing access");
         return true;
     }
@@ -2412,7 +2413,18 @@ void setup() {
     }
     
     loadConfig();
-    
+
+    // ✅ Get MAC address from eFuse (always available, doesn't depend on WiFi)
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char macStr[18];
+    sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    config.macAddress = String(macStr);
+    addLiveLog("🔖 MAC Address: " + config.macAddress);
+
+    // Initialize WiFi mode
+    WiFi.mode(WIFI_STA);
+
     pinMode(LED_STATUS, OUTPUT);
     pinMode(BEEPER, OUTPUT);
     
@@ -2575,6 +2587,10 @@ void loop() {
                     stopAPFallbackMode();
                 }
 
+                // ✅ Re-sync NTP after WiFi reconnection
+                configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                addLiveLog("🕐 NTP time sync initiated");
+
                 // Try to re-announce to controller (with short delay)
                 if (config.controllerIP.length() > 0) {
                     addLiveLog("📢 Re-announcing to controller...");
@@ -2585,6 +2601,26 @@ void loop() {
                     }
                 }
             }
+
+            // ✅ Periodic NTP sync check (every 5 minutes)
+            static unsigned long lastNtpCheck = 0;
+            static bool ntpSynced = false;
+            if (now - lastNtpCheck >= 300000) {  // 5 minutes
+                lastNtpCheck = now;
+                struct tm timeinfo;
+                if (getLocalTime(&timeinfo, 100)) {
+                    if (!ntpSynced) {
+                        addLiveLog("🕐 NTP synced: " + String(timeinfo.tm_hour) + ":" +
+                                   String(timeinfo.tm_min < 10 ? "0" : "") + String(timeinfo.tm_min));
+                        ntpSynced = true;
+                    }
+                } else {
+                    addLiveLog("⚠️ NTP not synced - retrying...");
+                    configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                    ntpSynced = false;
+                }
+            }
+
             // If we were in fallback mode and now connected, stop it
             if (apFallbackMode) {
                 stopAPFallbackMode();
