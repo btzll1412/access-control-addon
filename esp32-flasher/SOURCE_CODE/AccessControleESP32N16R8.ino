@@ -13,6 +13,7 @@
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Update.h>
+#include <esp_mac.h>  // For esp_read_mac() - reliable MAC address
 
 // ===============================================================
 // VERSION & PSRAM SUPPORT
@@ -2832,11 +2833,17 @@ validatePins();
 
 loadConfig();
 
-// ✅ Get MAC address early (available before WiFi connects)
-WiFi.mode(WIFI_STA);  // Initialize WiFi to get MAC
-config.macAddress = WiFi.macAddress();
+// ✅ Get MAC address from eFuse (always available, doesn't depend on WiFi)
+uint8_t mac[6];
+esp_read_mac(mac, ESP_MAC_WIFI_STA);
+char macStr[18];
+sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+config.macAddress = String(macStr);
 addLiveLog("🔖 MAC Address: " + config.macAddress);
-    
+
+// Initialize WiFi mode
+WiFi.mode(WIFI_STA);
+
     pinMode(LED_STATUS, OUTPUT);
     pinMode(BEEPER, OUTPUT);
     
