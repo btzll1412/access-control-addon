@@ -2795,24 +2795,28 @@ def sync_all_boards():
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT id, name, online FROM boards')
+        cursor.execute('SELECT id, name, online, ip_address FROM boards')
         boards = cursor.fetchall()
-        
+
         if not boards:
             return jsonify({'success': True, 'message': 'No boards to sync'})
-        
+
         success_count = 0
         fail_count = 0
-        
+        skipped_count = 0
+
+        logger.info(f"📋 Found {len(boards)} boards in database")
+
         for board in boards:
             board_id = board['id']
             board_name = board['name']
-            
-            logger.info(f"  🔄 Syncing board: {board_name} (ID: {board_id})")
-            
+            board_ip = board['ip_address'] if 'ip_address' in board.keys() else 'unknown'
+
+            logger.info(f"  🔄 Syncing board: {board_name} (ID: {board_id}, IP: {board_ip})")
+
             if not board['online']:
-                logger.info(f"    ⚠️  Board {board_name} is offline - skipping")
-                fail_count += 1
+                logger.info(f"    ⚠️  Board {board_name} (ID: {board_id}, IP: {board_ip}) is offline - skipping")
+                skipped_count += 1
                 continue
             
             try:
@@ -2829,12 +2833,12 @@ def sync_all_boards():
                 logger.error(f"    ❌ Error syncing board {board_name}: {e}")
                 fail_count += 1
         
-        total = success_count + fail_count
-        logger.info(f"✅ Sync complete: {success_count}/{total} boards synced successfully")
-        
+        total = len(boards)
+        logger.info(f"✅ Sync complete: {success_count} synced, {fail_count} failed, {skipped_count} offline (of {total} total)")
+
         return jsonify({
-            'success': True, 
-            'message': f'Synced {success_count}/{total} boards successfully'
+            'success': True,
+            'message': f'Synced {success_count}/{total} boards ({skipped_count} offline, {fail_count} failed)'
         })
         
     except Exception as e:

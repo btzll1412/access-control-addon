@@ -1,11 +1,14 @@
 /*
  * ===============================================================
  *  PROFESSIONAL ACCESS CONTROL SYSTEM - ESP32 FIRMWARE
+ *  Version: 3.2.3 - Non-blocking network operations
  *  With Emergency Override, Real-Time Schedule & LIVE LOGS
  * ===============================================================
- *  NEW: Real-time log viewer in web dashboard showing raw Wiegand data
+ *  v3.2.3: Reduced HTTP timeouts to 2s, non-blocking WiFi reconnection
  * ===============================================================
  */
+
+#define FIRMWARE_VERSION "3.2.3"
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -921,9 +924,11 @@ bool announceToController() {
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    
+    http.setConnectTimeout(2000);
+    http.setTimeout(2000);
+
     int httpCode = http.POST(payload);
-    
+
     if (httpCode > 0) {
         addLiveLog("✅ Announced! Response: " + String(httpCode));
         http.end();
@@ -949,11 +954,12 @@ bool sendHeartbeat() {
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
-    
+    http.setConnectTimeout(2000);
+    http.setTimeout(2000);
+
     int httpCode = http.POST(payload);
     http.end();
-    
+
     bool online = (httpCode == 200);
     if (online != controllerOnline) {
         controllerOnline = online;
@@ -987,10 +993,11 @@ bool sendAccessLog(const AccessLog& log) {
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(10000);  // Increased from 3000 to 10000ms
-    
+    http.setConnectTimeout(2000);
+    http.setTimeout(2000);
+
     int httpCode = http.POST(payload);
-    
+
     if (httpCode == 200) {
         addLiveLog("✅ Log sent successfully");
         http.end();
@@ -1034,13 +1041,14 @@ bool sendTempCodeUsage(const String& code, int currentUses) {
     serializeJson(doc, payload);
     
     addLiveLog("🎫 Sending temp code usage update...");
-    
+
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
-    
+    http.setConnectTimeout(2000);
+    http.setTimeout(2000);
+
     int httpCode = http.POST(payload);
-    
+
     if (httpCode == 200) {
         addLiveLog("✅ Usage updated on server");
         http.end();
@@ -2494,42 +2502,40 @@ void loop() {
     
     
     // ===============================================================
-    // WiFi Watchdog - Auto-reconnect if disconnected
-    // Broadcasts AP after 10 failed attempts while still trying to reconnect
+    // WiFi Watchdog - NON-BLOCKING Auto-reconnect
+    // v3.2.3: Removed blocking while loop to prevent card reader delays
     // ===============================================================
-    if (now - lastWiFiCheck >= 30000) {  // Check every 30 seconds
+    if (now - lastWiFiCheck >= 10000) {  // Check every 10 seconds
         lastWiFiCheck = now;
 
         if (WiFi.status() != WL_CONNECTED) {
-            // WiFi is DOWN!
+            // WiFi is DOWN - try to reconnect (non-blocking)
             wifiReconnectAttempts++;
 
             if (apFallbackMode) {
                 addLiveLog("🔄 WiFi reconnection attempt " + String(wifiReconnectAttempts) + " (AP broadcasting)");
             } else {
-                addLiveLog("⚠️  WiFi DISCONNECTED! (Attempt " + String(wifiReconnectAttempts) + "/10)");
+                addLiveLog("⚠️ WiFi DISCONNECTED! (Attempt " + String(wifiReconnectAttempts) + "/10)");
             }
 
-            // Try to reconnect (works in both STA and AP_STA mode)
-            addLiveLog("🔄 Attempting WiFi reconnection to: " + config.wifiSSID);
-
-            // In AP_STA mode, we can't fully disconnect, so just try to connect
+            // In AP_STA mode, we can't fully disconnect
             if (!apFallbackMode) {
                 WiFi.disconnect();
             }
+
+            // Start connection - DON'T WAIT! Check result on next loop iteration
             WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
+            addLiveLog("🔄 WiFi.begin() called (non-blocking)");
 
-            // Wait up to 10 seconds for connection
-            int attempts = 0;
-            while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-                delay(500);
-                Serial.print(".");
-                blinkLED(1);
-                attempts++;
+            // After 10 failed attempts, start AP fallback mode
+            if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
+                addLiveLog("⚠️ Access control continues offline with last synced data");
+                startAPFallbackMode();
             }
-
-            if (WiFi.status() == WL_CONNECTED) {
-                // WiFi RECONNECTED!
+        } else {
+            // WiFi is CONNECTED
+            if (wifiReconnectAttempts > 0) {
+                // Just reconnected!
                 addLiveLog("✅ WiFi reconnected successfully!");
                 addLiveLog("📍 IP Address: " + WiFi.localIP().toString());
                 wifiReconnectAttempts = 0;
@@ -2539,32 +2545,15 @@ void loop() {
                     stopAPFallbackMode();
                 }
 
-                // Try to re-announce to controller
+                // Try to re-announce to controller (with short delay)
                 if (config.controllerIP.length() > 0) {
                     addLiveLog("📢 Re-announcing to controller...");
-                    delay(2000);
                     if (announceToController()) {
                         addLiveLog("✅ Controller reconnected!");
                     } else {
-                        addLiveLog("⚠️  Controller still offline (WiFi OK)");
+                        addLiveLog("⚠️ Controller still offline (WiFi OK)");
                     }
                 }
-            } else {
-                // WiFi reconnection FAILED
-                addLiveLog("❌ WiFi reconnection failed (attempt " + String(wifiReconnectAttempts) + ")");
-
-                if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
-                    // After 10 failed attempts (5 minutes), start AP fallback mode
-                    // This broadcasts an AP so user can connect and reconfigure
-                    // BUT continues trying to reconnect to the configured WiFi
-                    addLiveLog("⚠️  Access control continues offline with last synced data");
-                    startAPFallbackMode();
-                }
-            }
-        } else {
-            // WiFi is CONNECTED
-            if (wifiReconnectAttempts > 0) {
-                wifiReconnectAttempts = 0;
             }
             // If we were in fallback mode and now connected, stop it
             if (apFallbackMode) {

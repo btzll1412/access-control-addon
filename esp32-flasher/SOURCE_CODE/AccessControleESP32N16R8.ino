@@ -1148,11 +1148,12 @@ bool sendTempCodeUsage(const String& code, int currentUses) {
     serializeJson(doc, payload);
     
     addLiveLog("🎫 Sending temp code usage update...");
-    
+
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
-    
+    http.setConnectTimeout(2000);
+    http.setTimeout(2000);
+
     int httpCode = http.POST(payload);
     
     if (httpCode == 200) {
