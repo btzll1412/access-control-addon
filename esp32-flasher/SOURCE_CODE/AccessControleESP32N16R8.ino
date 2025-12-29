@@ -510,7 +510,7 @@ void blinkLED(int times = 1) {
 String getTimestamp() {
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         return String(millis()); // Fallback to millis if NTP not available
     }
     
@@ -653,7 +653,7 @@ String checkDoorScheduleMode(int doorNumber) {
     
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         return "controlled";
     }
     
@@ -699,7 +699,7 @@ void updateDoorModesFromSchedule() {
     
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
+    if (getLocalTime(&timeinfo, 100)) {
         addLiveLog("  Current time: " + String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min));
     }
     
@@ -766,7 +766,7 @@ bool checkUserSchedule(const String& userName) {
     // Get current time
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo, 100)) {
         addLiveLog("  ⚠️  Could not get time - allowing access");
         return true;
     }
