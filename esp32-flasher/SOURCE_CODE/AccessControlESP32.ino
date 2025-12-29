@@ -2575,6 +2575,10 @@ void loop() {
                     stopAPFallbackMode();
                 }
 
+                // ✅ Re-sync NTP after WiFi reconnection
+                configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                addLiveLog("🕐 NTP time sync initiated");
+
                 // Try to re-announce to controller (with short delay)
                 if (config.controllerIP.length() > 0) {
                     addLiveLog("📢 Re-announcing to controller...");
@@ -2585,6 +2589,26 @@ void loop() {
                     }
                 }
             }
+
+            // ✅ Periodic NTP sync check (every 5 minutes)
+            static unsigned long lastNtpCheck = 0;
+            static bool ntpSynced = false;
+            if (now - lastNtpCheck >= 300000) {  // 5 minutes
+                lastNtpCheck = now;
+                struct tm timeinfo;
+                if (getLocalTime(&timeinfo, 100)) {
+                    if (!ntpSynced) {
+                        addLiveLog("🕐 NTP synced: " + String(timeinfo.tm_hour) + ":" +
+                                   String(timeinfo.tm_min < 10 ? "0" : "") + String(timeinfo.tm_min));
+                        ntpSynced = true;
+                    }
+                } else {
+                    addLiveLog("⚠️ NTP not synced - retrying...");
+                    configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                    ntpSynced = false;
+                }
+            }
+
             // If we were in fallback mode and now connected, stop it
             if (apFallbackMode) {
                 stopAPFallbackMode();
