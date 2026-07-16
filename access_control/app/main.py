@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import json
 import requests
 import time
+import threading
 import pytz
 import csv
 from io import StringIO
@@ -158,7 +159,7 @@ def log_admin_action(action_type, details, target_name=None):
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO access_logs (user_id, user_name, door_id, door_name, access_type, granted, details)
+            INSERT INTO access_logs (user_id, user_name, door_id, door_name, access_type, access_granted, details)
             VALUES (NULL, ?, NULL, ?, ?, 1, ?)
         ''', (admin_user, target_name or 'System', action_type, details))
         conn.commit()
@@ -1826,7 +1827,7 @@ def update_temp_code(temp_code_id):
         
         try:
             # Get all online boards and sync
-            cursor.execute('SELECT id, name, ip_address FROM boards WHERE status = "online"')
+            cursor.execute('SELECT id, name, ip_address FROM boards WHERE online = 1')
             boards = cursor.fetchall()
             
             synced_count = 0
@@ -2429,35 +2430,20 @@ def get_emergency_status():
     """Get current emergency status for all boards"""
     conn = None
     try:
+        # Clear any expired auto-reset timers first (and push cleared state to boards).
+        process_emergency_auto_resets()
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
         cursor.execute('''
-            SELECT id, name, ip_address, emergency_mode, emergency_activated_at, 
+            SELECT id, name, ip_address, emergency_mode, emergency_activated_at,
                    emergency_activated_by, emergency_auto_reset_at
             FROM boards
             WHERE emergency_mode IS NOT NULL
         ''')
-        
-        emergency_boards = []
-        for board in cursor.fetchall():
-            board_dict = dict(board)
-            
-            if board_dict['emergency_auto_reset_at']:
-                reset_time = datetime.fromisoformat(board_dict['emergency_auto_reset_at'])
-                if datetime.now() > reset_time:
-                    cursor.execute('''
-                        UPDATE boards 
-                        SET emergency_mode = NULL,
-                            emergency_activated_at = NULL,
-                            emergency_activated_by = NULL,
-                            emergency_auto_reset_at = NULL
-                        WHERE id = ?
-                    ''', (board_dict['id'],))
-                    conn.commit()
-                    continue
-            
-            emergency_boards.append(board_dict)
+
+        emergency_boards = [dict(board) for board in cursor.fetchall()]
         
         cursor.execute('''
             SELECT d.id, d.name, d.emergency_override, d.emergency_override_at,
@@ -2501,14 +2487,109 @@ def mark_stale_boards_offline():
         updated = cursor.rowcount
         if updated > 0:
             logger.info(f"🔴 Marked {updated} board(s) as offline (no heartbeat for 2+ minutes)")
-        
+
         conn.commit()
-        
+
     except Exception as e:
         logger.error(f"❌ Error marking stale boards offline: {e}")
     finally:
         if conn:
             conn.close()
+
+
+def process_emergency_auto_resets():
+    """Clear expired emergency auto-reset timers AND push the cleared state to the
+    affected boards. Safe to call from a background thread. Returns the list of
+    board ids that were reset."""
+    conn = None
+    reset_board_ids = []
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, name, emergency_auto_reset_at
+            FROM boards
+            WHERE emergency_mode IS NOT NULL AND emergency_auto_reset_at IS NOT NULL
+        ''')
+        for board in cursor.fetchall():
+            try:
+                reset_time = datetime.fromisoformat(board['emergency_auto_reset_at'])
+            except Exception:
+                continue
+            if datetime.now() > reset_time:
+                cursor.execute('''
+                    UPDATE boards
+                    SET emergency_mode = NULL,
+                        emergency_activated_at = NULL,
+                        emergency_activated_by = NULL,
+                        emergency_auto_reset_at = NULL
+                    WHERE id = ?
+                ''', (board['id'],))
+                conn.commit()
+                reset_board_ids.append(board['id'])
+                try:
+                    sync_board(board['id'])
+                    logger.info(f"⏰ Emergency auto-reset synced to board {board['id']} ({board['name']})")
+                except Exception as sync_err:
+                    logger.error(f"⚠️ Emergency auto-reset: failed to sync board {board['id']}: {sync_err}")
+    except Exception as e:
+        logger.error(f"❌ Error processing emergency auto-resets: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return reset_board_ids
+
+
+def trigger_async_sync():
+    """Fire-and-forget: sync all online boards in a background daemon thread so the
+    calling request (e.g. user create/update/delete) returns immediately and never
+    hangs on an offline board."""
+    def _worker():
+        conn = None
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name FROM boards WHERE online = 1')
+            boards = cursor.fetchall()
+        except Exception as e:
+            logger.error(f"❌ Async sync: could not list boards: {e}")
+            boards = []
+        finally:
+            if conn:
+                conn.close()
+        for board in boards:
+            try:
+                _sync_board_core(board['id'])
+            except Exception as e:
+                logger.warning(f"⚠️ Async sync: board {board['name']} failed: {e}")
+
+    threading.Thread(target=_worker, name='async-board-sync', daemon=True).start()
+
+
+def _background_maintenance_loop():
+    """Runs periodically regardless of whether anyone has the dashboard open:
+    marks stale boards offline and processes emergency auto-reset timers."""
+    logger.info("🩺 Background maintenance thread started (30s interval)")
+    while True:
+        try:
+            time.sleep(30)
+            mark_stale_boards_offline()
+            process_emergency_auto_resets()
+        except Exception as e:
+            logger.error(f"❌ Background maintenance error: {e}")
+
+
+_maintenance_thread_started = False
+
+
+def start_background_maintenance():
+    """Start the maintenance thread exactly once."""
+    global _maintenance_thread_started
+    if _maintenance_thread_started:
+        return
+    _maintenance_thread_started = True
+    threading.Thread(target=_background_maintenance_loop, name='bg-maintenance', daemon=True).start()
+
 
 @app.route('/api/boards', methods=['GET'])
 @login_required
@@ -2604,11 +2685,14 @@ def create_board():
         conn = get_db()
         cursor = conn.cursor()
         
+        # Store mac_address if provided so the board can be matched by MAC on reboot
+        # (otherwise it relies on the fragile IP-match fallback and can reappear as
+        # a new pending adoption after a reboot / DHCP change).
         cursor.execute('''
-            INSERT INTO boards (name, ip_address, door1_name, door2_name)
-            VALUES (?, ?, ?, ?)
-        ''', (data['name'], data['ip_address'], data['door1_name'], data['door2_name']))
-        
+            INSERT INTO boards (name, ip_address, mac_address, door1_name, door2_name)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (data['name'], data['ip_address'], data.get('mac_address'), data['door1_name'], data['door2_name']))
+
         board_id = cursor.lastrowid
         
         cursor.execute('''
@@ -2780,9 +2864,17 @@ def delete_board(board_id):
 
 @app.route('/api/boards/<int:board_id>/sync', methods=['POST'])
 @login_required
+def sync_board_route(board_id):
+    """Route to sync a single board."""
+    result, status = _sync_board_core(board_id)
+    return jsonify(result), status
+
+
 def sync_board(board_id):
-    """Sync board configuration - calls sync_board_full()"""
-    return sync_board_full(board_id)
+    """Internal helper to sync a single board (no request context required).
+    Returns the result dict."""
+    result, _status = _sync_board_core(board_id)
+    return result
 
 @app.route('/api/boards/sync-all', methods=['POST'])
 @login_required
@@ -2820,13 +2912,9 @@ def sync_all_boards():
                 continue
             
             try:
-                result = sync_board_full(board_id)
-                if hasattr(result, 'json'):
-                    data = result.json
-                    if data and data.get('success'):
-                        success_count += 1
-                    else:
-                        fail_count += 1
+                result, _status = _sync_board_core(board_id)
+                if result and result.get('success'):
+                    success_count += 1
                 else:
                     fail_count += 1
             except Exception as e:
@@ -3049,7 +3137,9 @@ def receive_access_log():
         received_timestamp = data.get('timestamp')
         if received_timestamp:
             try:
-                local_tz = pytz.timezone('America/New_York')
+                # ESP32 reports its local wall-clock time; interpret it in the
+                # controller's configured timezone (not a hardcoded one).
+                local_tz = LOCAL_TZ
                 dt_naive = datetime.strptime(received_timestamp, '%Y-%m-%d %H:%M:%S')
                 dt_local = local_tz.localize(dt_naive)
                 dt_utc = dt_local.astimezone(pytz.UTC)
@@ -3110,14 +3200,18 @@ def receive_access_log():
                     DO UPDATE SET uses = uses + 1, last_used_at = ?
                 ''', (temp_code['id'], door_id, timestamp_for_db, timestamp_for_db))
                 
-                # ✅ Update global counter
-                new_uses = (temp_code['current_uses'] or 0) + 1
+                # ✅ Update global counter atomically (avoids lost updates when two
+                # doors report near-simultaneously). Re-read the committed value for
+                # the deactivation checks below.
                 cursor.execute('''
                     UPDATE temp_codes
-                    SET current_uses = ?,
+                    SET current_uses = current_uses + 1,
                         last_used_at = ?
                     WHERE id = ?
-                ''', (new_uses, timestamp_for_db, temp_code['id']))
+                ''', (timestamp_for_db, temp_code['id']))
+
+                cursor.execute('SELECT current_uses FROM temp_codes WHERE id = ?', (temp_code['id'],))
+                new_uses = cursor.fetchone()['current_uses']
                 
                 # ✅ Check if should deactivate
                 should_deactivate = False
@@ -3194,119 +3288,45 @@ def receive_access_log():
 
 @app.route('/api/temp-code-usage', methods=['POST'])
 def update_temp_code_usage():
-    """Receive temp code usage update from ESP32 - with per-door tracking"""
-    conn = None
+    """Compatibility endpoint for ESP32 temp-code usage reports.
+
+    NOTE: Temp-code usage counting is now handled authoritatively in
+    /api/access-log (receive_access_log), which does per-door tracking and
+    auto-deactivation using the temp_code_doors table. Older firmware also
+    POSTs here right after granting a temp code; if this endpoint ALSO
+    incremented the counter, every temp-code use would be double-counted.
+
+    So this endpoint intentionally does NOT modify usage counters. It simply
+    acknowledges the request so the firmware's fire-and-forget call succeeds.
+    (The previous implementation referenced a non-existent `door_id` field and
+    a non-existent `temp_codes.doors` column, so it never actually worked.)
+    """
     try:
-        data = request.get_json()
-        
+        data = request.get_json(silent=True) or {}
         code = data.get('code')
-        door_id = data.get('door_id')  # ✅ NEW: Need door_id
-        
-        if not code or not door_id:
-            return jsonify({'success': False, 'message': 'Code and door_id required'}), 400
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # Find temp code by PIN
-        cursor.execute('SELECT id, usage_type, max_uses, usage_mode FROM temp_codes WHERE code = ?', (code,))
-        temp_code = cursor.fetchone()
-        
-        if not temp_code:
-            return jsonify({'success': False, 'message': 'Temp code not found'}), 404
-        
-        # ✅ NEW: Track per-door usage
-        cursor.execute('''
-            INSERT INTO temp_code_door_usage (temp_code_id, door_id, uses, last_used_at)
-            VALUES (?, ?, 1, ?)
-            ON CONFLICT(temp_code_id, door_id) 
-            DO UPDATE SET uses = uses + 1, last_used_at = ?
-        ''', (temp_code['id'], door_id, format_timestamp_for_db(), format_timestamp_for_db()))
-        
-        # Also update global usage counter
-        cursor.execute('''
-            UPDATE temp_codes 
-            SET current_uses = current_uses + 1,
-                last_used_at = ?
-            WHERE id = ?
-        ''', (format_timestamp_for_db(), temp_code['id']))
-        
-        # ✅ NEW: Check if should auto-deactivate based on usage_mode
-        should_deactivate = False
-        usage_mode = temp_code['usage_mode'] or 'per_door'
-        
-        if usage_mode == 'total':
-            # Old behavior: deactivate after total uses across all doors
-            cursor.execute('SELECT current_uses FROM temp_codes WHERE id = ?', (temp_code['id'],))
-            current_uses = cursor.fetchone()['current_uses']
-            
-            if temp_code['usage_type'] == 'one_time' and current_uses >= 1:
-                should_deactivate = True
-            elif temp_code['usage_type'] == 'limited' and current_uses >= temp_code['max_uses']:
-                should_deactivate = True
-        
-        elif usage_mode == 'per_door':
-            # New behavior: deactivate only if ALL assigned doors are used up
-            cursor.execute('SELECT doors FROM temp_codes WHERE id = ?', (temp_code['id'],))
-            doors_json = cursor.fetchone()['doors']
-            assigned_doors = json.loads(doors_json) if doors_json else []
-            
-            # Check if all doors have been used up
-            all_doors_used = True
-            for assigned_door in assigned_doors:
-                cursor.execute('''
-                    SELECT uses FROM temp_code_door_usage 
-                    WHERE temp_code_id = ? AND door_id = ?
-                ''', (temp_code['id'], assigned_door))
-                door_usage = cursor.fetchone()
-                
-                door_uses = door_usage['uses'] if door_usage else 0
-                
-                if temp_code['usage_type'] == 'one_time' and door_uses < 1:
-                    all_doors_used = False
-                    break
-                elif temp_code['usage_type'] == 'limited' and door_uses < temp_code['max_uses']:
-                    all_doors_used = False
-                    break
-            
-            if all_doors_used:
-                should_deactivate = True
-        
-        if should_deactivate:
-            cursor.execute('UPDATE temp_codes SET active = 0 WHERE id = ?', (temp_code['id'],))
-            logger.info(f"🎫 Temp code {temp_code['id']} auto-deactivated (all uses exhausted)")
-        
-        conn.commit()
-        
-        logger.info(f"🎫 Temp code usage updated: door {door_id}")
-        
-        return jsonify({'success': True})
-        
+        logger.info(f"🎫 Temp-code usage ping received (code={code}) - counting handled by /api/access-log")
+        return jsonify({'success': True, 'message': 'acknowledged (usage tracked via access-log)'})
     except Exception as e:
-        logger.error(f"❌ Error updating temp code usage: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
+        logger.error(f"❌ Error in temp-code-usage compatibility endpoint: {e}")
+        return jsonify({'success': True})  # never fail the board's fire-and-forget call
 
 
 
-@app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
-@login_required
-def sync_board_full(board_id):
-    """Send complete user database + temp codes to a specific board"""
+def _sync_board_core(board_id):
+    """Core full-sync logic. No auth decorator and no request context needed,
+    so this is safe to call from background threads. Returns (result_dict, http_status)."""
     conn = None
     try:
         logger.info(f"🔄 Full sync requested for board {board_id}")
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        
+
         cursor.execute('SELECT * FROM boards WHERE id = ?', (board_id,))
         board = cursor.fetchone()
-        
+
         if not board:
-            return jsonify({'success': False, 'message': 'Board not found'}), 404
+            return {'success': False, 'message': 'Board not found'}, 404
         
         # Get all users with their credentials and access
         cursor.execute('SELECT * FROM users WHERE active = 1')
@@ -3496,24 +3516,32 @@ def sync_board_full(board_id):
         if response.status_code == 200:
             cursor.execute('UPDATE boards SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', (board_id,))
             conn.commit()
-            
+
             logger.info(f"✅ Board {board_id} synced - {len(users)} users, {len(temp_codes)} temp codes sent")
-            return jsonify({
-                'success': True, 
+            return {
+                'success': True,
                 'message': f'Synced {len(users)} users and {len(temp_codes)} temp codes to board'
-            })
+            }, 200
         else:
             logger.error(f"❌ Board sync failed: HTTP {response.status_code}")
-            return jsonify({'success': False, 'message': 'Board did not accept sync'}), 500
-            
+            return {'success': False, 'message': 'Board did not accept sync'}, 500
+
     except Exception as e:
         logger.error(f"❌ Error syncing board: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return {'success': False, 'message': str(e)}, 500
     finally:
         if conn:
             conn.close()
+
+
+@app.route('/api/boards/<int:board_id>/sync-full', methods=['POST'])
+@login_required
+def sync_board_full(board_id):
+    """Route wrapper around _sync_board_core()."""
+    result, status = _sync_board_core(board_id)
+    return jsonify(result), status
 
 # ==================== PENDING BOARDS API ====================
 @app.route('/api/pending-boards', methods=['GET'])
@@ -3647,12 +3675,10 @@ def adopt_pending_board(pending_id):
                 time.sleep(2)
 
                 logger.info(f"🔄 Syncing user database to board...")
-                sync_result = sync_board_full(board_id)
+                sync_data, _sync_status = _sync_board_core(board_id)
 
-                if hasattr(sync_result, 'json'):
-                    sync_data = sync_result.json
-                    if sync_data and sync_data.get('success'):
-                        logger.info(f"✅ Board synced with user database!")
+                if sync_data and sync_data.get('success'):
+                    logger.info(f"✅ Board synced with user database!")
 
                 return jsonify({
                     'success': True,
@@ -3999,7 +4025,7 @@ def get_current_door_mode(door_id):
         conn = get_db()
         cursor = conn.cursor()
         
-        now = datetime.now(pytz.timezone('America/New_York'))
+        now = datetime.now(LOCAL_TZ)
         current_day = now.weekday()
         current_time = now.strftime('%H:%M:%S')
         
@@ -4482,6 +4508,7 @@ def create_user():
         log_admin_action('USER_CREATED', f"Created user '{data['name']}' (ID: {user_id})", data['name'])
 
         logger.info(f"✅ User created: {data['name']} (ID: {user_id})")
+        trigger_async_sync()  # push the new user to boards without blocking the response
         return jsonify({'success': True, 'message': 'User created successfully', 'user_id': user_id})
     except Exception as e:
         logger.error(f"❌ Error creating user: {e}")
@@ -4611,6 +4638,7 @@ def update_user(user_id):
         log_admin_action('USER_MODIFIED', f"Modified user '{data['name']}' (ID: {user_id})", data['name'])
 
         logger.info(f"✅ User {user_id} updated")
+        trigger_async_sync()  # push the change to boards without blocking the response
         return jsonify({'success': True, 'message': 'User updated successfully'})
     except Exception as e:
         logger.error(f"❌ Error updating user: {e}")
@@ -4645,6 +4673,7 @@ def delete_user(user_id):
         log_admin_action('USER_DELETED', f"Deleted user '{user_name}' (ID: {user_id})", user_name)
 
         logger.info(f"✅ User {user_id} deleted")
+        trigger_async_sync()  # push the removal to boards without blocking the response
         return jsonify({'success': True, 'message': 'User deleted successfully'})
     except Exception as e:
         logger.error(f"❌ Error deleting user: {e}")
@@ -4689,6 +4718,7 @@ def bulk_delete_users():
         log_admin_action('USERS_BULK_DELETED', f"Bulk deleted {deleted} users: {', '.join(user_names)}")
 
         logger.info(f"✅ Bulk delete complete: {deleted} users deleted")
+        trigger_async_sync()  # push the removals to boards without blocking the response
         return jsonify({'success': True, 'deleted': deleted, 'message': f'{deleted} user(s) deleted successfully'})
     except Exception as e:
         logger.error(f"❌ Error bulk deleting users: {e}")
@@ -4959,7 +4989,9 @@ def import_users_csv():
         conn.commit()
         
         logger.info(f"✅ Import complete: {imported} new, {updated} updated")
-        
+
+        trigger_async_sync()  # push imported users to boards without blocking the response
+
         return jsonify({
             'success': True,
             'imported': imported,
@@ -6942,7 +6974,7 @@ def sync_boards_for_doors(door_ids):
         # Sync each board
         for board_id in board_ids:
             try:
-                sync_board_full(board_id)
+                _sync_board_core(board_id)
                 logger.info(f"✅ Board {board_id} synced after template change")
             except Exception as e:
                 logger.warning(f"⚠️ Could not sync board {board_id}: {e}")
@@ -7014,7 +7046,11 @@ if __name__ == '__main__':
     init_db()
     migrate_database()
     upgrade_database()
-    
+
+    # ✅ Start background maintenance (stale-board detection + emergency auto-reset)
+    # so these run even when nobody has the dashboard open.
+    start_background_maintenance()
+
     print(f"🕐 Timezone: {TIMEZONE}")
     print(f"🔐 Authentication: {'ENABLED' if AUTH_CONFIG['enabled'] else 'DISABLED'}")
     if AUTH_CONFIG['enabled']:
