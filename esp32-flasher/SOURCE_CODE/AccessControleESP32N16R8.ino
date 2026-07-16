@@ -14,6 +14,12 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <esp_mac.h>  // For esp_read_mac() - reliable MAC address
+#include <esp_task_wdt.h>  // Hardware watchdog
+#include <esp_system.h>    // esp_reset_reason()
+
+// Watchdog: force a chip reset if the fed task stops making progress for this long.
+// Long enough to never false-trip on a normal (blocking) network call.
+#define WDT_TIMEOUT_SECONDS 30
 
 // ===============================================================
 // VERSION & PSRAM SUPPORT
@@ -188,10 +194,12 @@ int door1UnlockDuration = 3000;
 int door2UnlockDuration = 3000;
 
 // Use PSRAM for large JSON documents (N16R8 has 8MB PSRAM)
-BasicJsonDocument<PSRAMAllocator> usersDB(65536);        // 64KB for users
-BasicJsonDocument<PSRAMAllocator> doorSchedulesDB(16384); // 16KB for schedules
-BasicJsonDocument<PSRAMAllocator> tempCodesDB(8192);      // 8KB for temp codes
-BasicJsonDocument<PSRAMAllocator> userSchedulesDB(8192);  // 8KB for user schedules
+// NOTE: usersDB must hold the ENTIRE sync payload (loadUsersDB re-parses the whole
+// file), so it needs to be at least as large as the incoming sync document.
+BasicJsonDocument<PSRAMAllocator> usersDB(262144);       // 256KB for users (was 64KB)
+BasicJsonDocument<PSRAMAllocator> doorSchedulesDB(32768); // 32KB for schedules
+BasicJsonDocument<PSRAMAllocator> tempCodesDB(32768);     // 32KB for temp codes
+BasicJsonDocument<PSRAMAllocator> userSchedulesDB(32768); // 32KB for user schedules
 
 unsigned long lastHeartbeat = 0;
 unsigned long lastScheduleCheck = 0;
@@ -215,6 +223,20 @@ unsigned long readerBeepOffTime[2] = {0, 0};
 bool readerBeepState[2] = {false, false};
 int readerBeepCount[2] = {0, 0};
 unsigned long readerBeepNextTime[2] = {0, 0};
+
+// Non-blocking ONBOARD beeper (BEEPER pin) + status LED (LED_STATUS) state machines.
+// Driven by checkOnboardFeedback() in loop() instead of delay().
+int obBeepRemaining = 0;              // beeps left to play (including current)
+bool obBeepOn = false;
+unsigned long obBeepToggleAt = 0;
+int obBeepOnMs = 100;
+int obBeepOffMs = 80;
+
+int obLedRemaining = 0;               // blinks left to play (including current)
+bool obLedOn = false;
+unsigned long obLedToggleAt = 0;
+int obLedOnMs = 100;
+int obLedOffMs = 100;
 
 WiegandData* door1Wiegand = nullptr;
 WiegandData* door2Wiegand = nullptr;
@@ -428,40 +450,78 @@ void checkReaderFeedback() {
 // UTILITY FUNCTIONS
 // ===============================================================
 
-void beep(int duration = 100) {
+// ---- Non-blocking primitives (state set here, played by checkOnboardFeedback) ----
+void startBeepPattern(int count, int onMs, int offMs) {
+    if (count <= 0) return;
+    obBeepRemaining = count;
+    obBeepOnMs = onMs;
+    obBeepOffMs = offMs;
+    obBeepOn = true;
     digitalWrite(BEEPER, HIGH);
-    delay(duration);
-    digitalWrite(BEEPER, LOW);
+    obBeepToggleAt = millis() + onMs;
+}
+
+void startBlink(int times, int onMs, int offMs) {
+    if (times <= 0) return;
+    obLedRemaining = times;
+    obLedOnMs = onMs;
+    obLedOffMs = offMs;
+    obLedOn = true;
+    digitalWrite(LED_STATUS, HIGH);
+    obLedToggleAt = millis() + onMs;
+}
+
+void checkOnboardFeedback() {
+    unsigned long now = millis();
+
+    // Onboard beeper
+    if (obBeepRemaining > 0 && now >= obBeepToggleAt) {
+        if (obBeepOn) {
+            digitalWrite(BEEPER, LOW);
+            obBeepOn = false;
+            obBeepRemaining--;
+            if (obBeepRemaining > 0) obBeepToggleAt = now + obBeepOffMs;
+        } else {
+            digitalWrite(BEEPER, HIGH);
+            obBeepOn = true;
+            obBeepToggleAt = now + obBeepOnMs;
+        }
+    }
+
+    // Onboard status LED
+    if (obLedRemaining > 0 && now >= obLedToggleAt) {
+        if (obLedOn) {
+            digitalWrite(LED_STATUS, LOW);
+            obLedOn = false;
+            obLedRemaining--;
+            if (obLedRemaining > 0) obLedToggleAt = now + obLedOffMs;
+        } else {
+            digitalWrite(LED_STATUS, HIGH);
+            obLedOn = true;
+            obLedToggleAt = now + obLedOnMs;
+        }
+    }
+}
+
+// ---- Same names as before, now non-blocking (no delay()) ----
+void beep(int duration = 100) {
+    startBeepPattern(1, duration, 80);
 }
 
 void beepSuccess() {
-    beep(100);
-    delay(50);
-    beep(100);
+    startBeepPattern(2, 100, 80);
 }
 
 void beepError() {
-    beep(500);
+    startBeepPattern(1, 500, 0);
 }
 
 void beepEmergency() {
-    // Triple beep for emergency
-    for (int i = 0; i < 3; i++) {
-        beep(200);
-        delay(100);
-    }
+    startBeepPattern(3, 200, 100);
 }
 
-// ✅ ADD THIS FUNCTION
 void beepPattern(int count, int onTime, int offTime) {
-    for (int i = 0; i < count; i++) {
-        digitalWrite(BEEPER, HIGH);
-        delay(onTime);
-        digitalWrite(BEEPER, LOW);
-        if (i < count - 1) {
-            delay(offTime);
-        }
-    }
+    startBeepPattern(count, onTime, offTime);
 }
 
 // ===============================================================
@@ -500,12 +560,7 @@ void validatePins() {
 }
 
 void blinkLED(int times = 1) {
-    for (int i = 0; i < times; i++) {
-        digitalWrite(LED_STATUS, HIGH);
-        delay(100);
-        digitalWrite(LED_STATUS, LOW);
-        delay(100);
-    }
+    startBlink(times, 100, 100);
 }
 
 String getTimestamp() {
@@ -908,9 +963,10 @@ void startWiFiManager() {
     unsigned long startTime = millis();
     while (millis() - startTime < WIFI_PORTAL_TIMEOUT) {
         server.handleClient();
+        esp_task_wdt_reset();  // portal can run for minutes; keep watchdog fed
         delay(10);
     }
-    
+
     addLiveLog("⏱️  WiFi Portal timeout - restarting...");
     ESP.restart();
 }
@@ -1001,6 +1057,7 @@ bool connectWiFi() {
 
     while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
         delay(500);  // Reduced delay for faster connection
+        esp_task_wdt_reset();  // keep watchdog fed during a slow connect (setup phase)
         Serial.print(".");
         if (attempts % 2 == 0) blinkLED(1);  // Blink less frequently
         attempts++;
@@ -2226,10 +2283,13 @@ void setupWebInterface() {
         
         addLiveLog("=== SYNC REQUEST RECEIVED ===");
         addLiveLog("Data length: " + String(jsonData.length()) + " bytes");
-        
-        DynamicJsonDocument syncDoc(20480);
+
+        // ✅ Parse into a PSRAM-backed document large enough for the full payload.
+        // The old 20KB regular-heap document silently failed (NoMemory) once the
+        // roster grew past ~20KB, causing boards to keep stale data until reboot.
+        BasicJsonDocument<PSRAMAllocator> syncDoc(262144);  // 256KB in PSRAM
         DeserializationError error = deserializeJson(syncDoc, jsonData);
-        
+
         if (error) {
             addLiveLog("❌ Failed to parse sync JSON: " + String(error.c_str()));
             server.send(500, "application/json", "{\"success\":false,\"message\":\"Parse error\"}");
@@ -2773,10 +2833,11 @@ if (syncDoc.containsKey("user_schedules")) {
         } 
         else if (upload.status == UPLOAD_FILE_WRITE) {
             // Write firmware chunk
+            esp_task_wdt_reset();  // OTA transfer can exceed the WDT timeout in one call
             if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                 addLiveLog("❌ Write error: " + String(Update.errorString()));
             }
-        } 
+        }
         else if (upload.status == UPLOAD_FILE_END) {
             if (Update.end(true)) {
                 addLiveLog("✅ Upload complete: " + String(upload.totalSize) + " bytes");
@@ -2800,19 +2861,57 @@ if (syncDoc.containsKey("user_schedules")) {
 }
 
 // ===============================================================
+// WATCHDOG + RESET DIAGNOSTICS
+// ===============================================================
+
+String resetReasonString() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:  return "Power-on";
+        case ESP_RST_EXT:      return "External reset";
+        case ESP_RST_SW:       return "Software reset (ESP.restart)";
+        case ESP_RST_PANIC:    return "PANIC / exception";
+        case ESP_RST_INT_WDT:  return "Interrupt watchdog";
+        case ESP_RST_TASK_WDT: return "Task watchdog (loop hang)";
+        case ESP_RST_WDT:      return "Other watchdog";
+        case ESP_RST_BROWNOUT: return "BROWNOUT (power dip)";
+        case ESP_RST_SDIO:     return "SDIO reset";
+        default:               return "Unknown";
+    }
+}
+
+void initWatchdog() {
+    addLiveLog("🐕 Initializing watchdog (" + String(WDT_TIMEOUT_SECONDS) + "s)...");
+#if ESP_IDF_VERSION_MAJOR >= 5
+    // Arduino core 3.x already inits the Task WDT; just adjust the timeout.
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = WDT_TIMEOUT_SECONDS * 1000,
+        .idle_core_mask = 0,
+        .trigger_panic = true,
+    };
+    esp_task_wdt_reconfigure(&twdt_config);
+#else
+    esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true);  // panic=true -> chip reset on trip
+#endif
+    esp_task_wdt_add(NULL);  // subscribe the task that runs loop()
+    esp_task_wdt_reset();
+}
+
+// ===============================================================
 // SETUP
 // ===============================================================
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    
+
     Serial.println("\n\n=======================================================");
     Serial.println("🔐 ACCESS CONTROL SYSTEM - ESP32 FIRMWARE v3.2");
     Serial.println("   With Live Logs & Raw Wiegand Data Viewer");
     Serial.println("=======================================================");
-    
+
     addLiveLog("=== SYSTEM BOOT ===");
+    addLiveLog("🔁 Last reset reason: " + resetReasonString());
+    initWatchdog();
     
     if (!SPIFFS.begin(true)) {
     addLiveLog("❌ SPIFFS initialization failed");
@@ -2943,6 +3042,11 @@ void loop() {
     unsigned long now = millis();
     unsigned long loopStart = now;
 
+    // Feed the watchdog once per iteration. If loop() ever wedges (stuck network
+    // call, corrupted state), this stops getting fed and the chip auto-resets
+    // after WDT_TIMEOUT_SECONDS instead of hanging until a manual power-cycle.
+    esp_task_wdt_reset();
+
     // ===============================================================
     // LOOP TIMING DIAGNOSTICS - Detect what's blocking card processing
     // ===============================================================
@@ -3040,6 +3144,7 @@ void loop() {
     checkWiegandData();
     checkDoorLocks();
     checkReaderFeedback();
+    checkOnboardFeedback();
     
     
     
@@ -3056,16 +3161,14 @@ void loop() {
         }
     }
     
-    if (digitalRead(doors[0].rexPin) == LOW) {
-        addLiveLog("🚪 REX button pressed - Door 1");
-        unlockDoor(1);
-        delay(500);
-    }
-    
-    if (digitalRead(doors[1].rexPin) == LOW) {
-        addLiveLog("🚪 REX button pressed - Door 2");
-        unlockDoor(2);
-        delay(500);
+    // REX buttons - non-blocking debounce (was delay(500) which blocked the loop)
+    static unsigned long lastRexPress[2] = {0, 0};
+    for (int r = 0; r < 2; r++) {
+        if (digitalRead(doors[r].rexPin) == LOW && (now - lastRexPress[r] > 1000)) {
+            lastRexPress[r] = now;
+            addLiveLog("🚪 REX button pressed - Door " + String(r + 1));
+            unlockDoor(r + 1);
+        }
     }
     
     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
