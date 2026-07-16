@@ -7036,6 +7036,12 @@ def get_template_presets():
     return jsonify({'success': True, 'presets': presets})
 
 # ==================== SERVER START ====================
+# Start background maintenance at import time too, because in production the app
+# is launched via `waitress app.main:app` and the __main__ block below never runs.
+# (start_background_maintenance is idempotent.)
+start_background_maintenance()
+
+
 if __name__ == '__main__':
     from waitress import serve
     print("=" * 60)
