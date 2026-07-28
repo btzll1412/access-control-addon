@@ -14,6 +14,12 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <esp_mac.h>  // For esp_read_mac() - reliable MAC address
+#include <esp_task_wdt.h>  // Hardware watchdog
+#include <esp_system.h>    // esp_reset_reason()
+
+// Watchdog: force a chip reset if the fed task stops making progress for this long.
+// Long enough to never false-trip on a normal (blocking) network call.
+#define WDT_TIMEOUT_SECONDS 30
 
 // ===============================================================
 // VERSION & PSRAM SUPPORT
@@ -70,7 +76,11 @@ struct PSRAMAllocator {
 #define DEFAULT_UNLOCK_DURATION   3000
 #define HEARTBEAT_INTERVAL        60000
 #define LOG_QUEUE_MAX             500
-#define WIEGAND_TIMEOUT           100
+// Inter-frame gap that marks the end of a Wiegand read. Lowered 100 -> 40ms:
+// a standard 26-bit frame's inter-bit gap is ~1-2ms, so 40ms ends the read
+// ~60ms sooner per swipe while staying well clear of splitting a frame.
+// (Can be pushed toward 25ms if field testing shows clean reads.)
+#define WIEGAND_TIMEOUT           40
 #define SCHEDULE_CHECK_INTERVAL   60000
 #define READER_BEEP_SUCCESS_MS    100
 #define READER_BEEP_ERROR_MS      500
@@ -82,6 +92,9 @@ struct PSRAMAllocator {
 String liveLogBuffer[LIVE_LOG_BUFFER_SIZE];
 int liveLogIndex = 0;
 unsigned long liveLogCounter = 0;
+// Guards the live log buffer - addLiveLog() and getLiveLogsJSON() are called from
+// both cores (Core 1 loop + Core 0 network task), so access must be serialized.
+SemaphoreHandle_t liveLogMutex = NULL;
 
 // WiFi Manager Settings
 #define WIFI_PORTAL_TIMEOUT       300000
@@ -96,7 +109,10 @@ unsigned long liveLogCounter = 0;
 
 WebServer server(80);
 Preferences preferences;
-HTTPClient http;
+// NOTE: HTTPClient is NOT global. With the Core 0 network task, outbound HTTP can
+// originate from two cores (networkTask, and web handlers that call
+// announceToController on Core 1). A shared HTTPClient would corrupt; each sender
+// uses its own local instance instead.
 
 // ===============================================================
 // STRUCTURES
@@ -182,16 +198,40 @@ BoardConfig config;
 DoorConfig doors[2];
 std::vector<AccessLog> logQueue;
 
+// ===============================================================
+// DUAL-CORE: outbound network I/O runs on Core 0 so it never blocks the
+// time-critical access path (Wiegand read -> validate -> relay) on Core 1.
+// Door/relay control stays entirely on Core 1 to avoid cross-core relay races.
+// logQueue is the hand-off point (Core 1 pushes, Core 0 drains) and is guarded
+// by logQueueMutex.
+// ===============================================================
+TaskHandle_t networkTaskHandle = NULL;
+SemaphoreHandle_t logQueueMutex = NULL;
+
+// Push an access log for the Core 0 network task to send (thread-safe).
+void enqueueAccessLog(const AccessLog& log) {
+    if (logQueueMutex) xSemaphoreTake(logQueueMutex, portMAX_DELAY);
+    if (logQueue.size() < LOG_QUEUE_MAX) {
+        logQueue.push_back(log);
+    } else {
+        logQueue.erase(logQueue.begin());
+        logQueue.push_back(log);
+    }
+    if (logQueueMutex) xSemaphoreGive(logQueueMutex);
+}
+
 
 
 int door1UnlockDuration = 3000;
 int door2UnlockDuration = 3000;
 
 // Use PSRAM for large JSON documents (N16R8 has 8MB PSRAM)
-BasicJsonDocument<PSRAMAllocator> usersDB(65536);        // 64KB for users
-BasicJsonDocument<PSRAMAllocator> doorSchedulesDB(16384); // 16KB for schedules
-BasicJsonDocument<PSRAMAllocator> tempCodesDB(8192);      // 8KB for temp codes
-BasicJsonDocument<PSRAMAllocator> userSchedulesDB(8192);  // 8KB for user schedules
+// NOTE: usersDB must hold the ENTIRE sync payload (loadUsersDB re-parses the whole
+// file), so it needs to be at least as large as the incoming sync document.
+BasicJsonDocument<PSRAMAllocator> usersDB(262144);       // 256KB for users (was 64KB)
+BasicJsonDocument<PSRAMAllocator> doorSchedulesDB(32768); // 32KB for schedules
+BasicJsonDocument<PSRAMAllocator> tempCodesDB(32768);     // 32KB for temp codes
+BasicJsonDocument<PSRAMAllocator> userSchedulesDB(32768); // 32KB for user schedules
 
 unsigned long lastHeartbeat = 0;
 unsigned long lastScheduleCheck = 0;
@@ -216,11 +256,27 @@ bool readerBeepState[2] = {false, false};
 int readerBeepCount[2] = {0, 0};
 unsigned long readerBeepNextTime[2] = {0, 0};
 
+// Non-blocking ONBOARD beeper (BEEPER pin) + status LED (LED_STATUS) state machines.
+// Driven by checkOnboardFeedback() in loop() instead of delay().
+int obBeepRemaining = 0;              // beeps left to play (including current)
+bool obBeepOn = false;
+unsigned long obBeepToggleAt = 0;
+int obBeepOnMs = 100;
+int obBeepOffMs = 80;
+
+int obLedRemaining = 0;               // blinks left to play (including current)
+bool obLedOn = false;
+unsigned long obLedToggleAt = 0;
+int obLedOnMs = 100;
+int obLedOffMs = 100;
+
 WiegandData* door1Wiegand = nullptr;
 WiegandData* door2Wiegand = nullptr;
 
 // ✅ ADD: beepPattern function declaration
 void beepPattern(int count, int onTime, int offTime);
+// Core 0 network task (defined after setup(), created inside setup()).
+void networkTask(void* param);
 
 // ===============================================================
 // Helper functions for temp code tracking
@@ -266,12 +322,14 @@ void clearTempCodeDoorUsage(const String& code) {
 void addLiveLog(String message) {
     // Add timestamp
     String logEntry = getTimestamp() + " | " + message;
-    
-    // Add to circular buffer
+
+    // Add to circular buffer (serialized across cores)
+    if (liveLogMutex) xSemaphoreTake(liveLogMutex, portMAX_DELAY);
     liveLogBuffer[liveLogIndex] = logEntry;
     liveLogIndex = (liveLogIndex + 1) % LIVE_LOG_BUFFER_SIZE;
     liveLogCounter++;
-    
+    if (liveLogMutex) xSemaphoreGive(liveLogMutex);
+
     // Also print to serial
     Serial.println(message);
 }
@@ -284,6 +342,7 @@ String getLiveLogsJSON() {
     int count = 0;
     const int MAX_LOGS_TO_RETURN = 50;  // Reduced from 200
 
+    if (liveLogMutex) xSemaphoreTake(liveLogMutex, portMAX_DELAY);
     for (int i = 0; i < LIVE_LOG_BUFFER_SIZE && count < MAX_LOGS_TO_RETURN; i++) {
         int idx = (liveLogIndex - 1 - i + LIVE_LOG_BUFFER_SIZE) % LIVE_LOG_BUFFER_SIZE;
         if (liveLogBuffer[idx].length() > 0) {
@@ -298,9 +357,11 @@ String getLiveLogsJSON() {
             count++;
         }
     }
+    unsigned long counterSnapshot = liveLogCounter;
+    if (liveLogMutex) xSemaphoreGive(liveLogMutex);
 
     output += "],\"count\":";
-    output += String(liveLogCounter);
+    output += String(counterSnapshot);
     output += "}";
 
     return output;
@@ -428,40 +489,78 @@ void checkReaderFeedback() {
 // UTILITY FUNCTIONS
 // ===============================================================
 
-void beep(int duration = 100) {
+// ---- Non-blocking primitives (state set here, played by checkOnboardFeedback) ----
+void startBeepPattern(int count, int onMs, int offMs) {
+    if (count <= 0) return;
+    obBeepRemaining = count;
+    obBeepOnMs = onMs;
+    obBeepOffMs = offMs;
+    obBeepOn = true;
     digitalWrite(BEEPER, HIGH);
-    delay(duration);
-    digitalWrite(BEEPER, LOW);
+    obBeepToggleAt = millis() + onMs;
+}
+
+void startBlink(int times, int onMs, int offMs) {
+    if (times <= 0) return;
+    obLedRemaining = times;
+    obLedOnMs = onMs;
+    obLedOffMs = offMs;
+    obLedOn = true;
+    digitalWrite(LED_STATUS, HIGH);
+    obLedToggleAt = millis() + onMs;
+}
+
+void checkOnboardFeedback() {
+    unsigned long now = millis();
+
+    // Onboard beeper
+    if (obBeepRemaining > 0 && now >= obBeepToggleAt) {
+        if (obBeepOn) {
+            digitalWrite(BEEPER, LOW);
+            obBeepOn = false;
+            obBeepRemaining--;
+            if (obBeepRemaining > 0) obBeepToggleAt = now + obBeepOffMs;
+        } else {
+            digitalWrite(BEEPER, HIGH);
+            obBeepOn = true;
+            obBeepToggleAt = now + obBeepOnMs;
+        }
+    }
+
+    // Onboard status LED
+    if (obLedRemaining > 0 && now >= obLedToggleAt) {
+        if (obLedOn) {
+            digitalWrite(LED_STATUS, LOW);
+            obLedOn = false;
+            obLedRemaining--;
+            if (obLedRemaining > 0) obLedToggleAt = now + obLedOffMs;
+        } else {
+            digitalWrite(LED_STATUS, HIGH);
+            obLedOn = true;
+            obLedToggleAt = now + obLedOnMs;
+        }
+    }
+}
+
+// ---- Same names as before, now non-blocking (no delay()) ----
+void beep(int duration = 100) {
+    startBeepPattern(1, duration, 80);
 }
 
 void beepSuccess() {
-    beep(100);
-    delay(50);
-    beep(100);
+    startBeepPattern(2, 100, 80);
 }
 
 void beepError() {
-    beep(500);
+    startBeepPattern(1, 500, 0);
 }
 
 void beepEmergency() {
-    // Triple beep for emergency
-    for (int i = 0; i < 3; i++) {
-        beep(200);
-        delay(100);
-    }
+    startBeepPattern(3, 200, 100);
 }
 
-// ✅ ADD THIS FUNCTION
 void beepPattern(int count, int onTime, int offTime) {
-    for (int i = 0; i < count; i++) {
-        digitalWrite(BEEPER, HIGH);
-        delay(onTime);
-        digitalWrite(BEEPER, LOW);
-        if (i < count - 1) {
-            delay(offTime);
-        }
-    }
+    startBeepPattern(count, onTime, offTime);
 }
 
 // ===============================================================
@@ -500,12 +599,7 @@ void validatePins() {
 }
 
 void blinkLED(int times = 1) {
-    for (int i = 0; i < times; i++) {
-        digitalWrite(LED_STATUS, HIGH);
-        delay(100);
-        digitalWrite(LED_STATUS, LOW);
-        delay(100);
-    }
+    startBlink(times, 100, 100);
 }
 
 String getTimestamp() {
@@ -908,9 +1002,10 @@ void startWiFiManager() {
     unsigned long startTime = millis();
     while (millis() - startTime < WIFI_PORTAL_TIMEOUT) {
         server.handleClient();
+        esp_task_wdt_reset();  // portal can run for minutes; keep watchdog fed
         delay(10);
     }
-    
+
     addLiveLog("⏱️  WiFi Portal timeout - restarting...");
     ESP.restart();
 }
@@ -1001,6 +1096,7 @@ bool connectWiFi() {
 
     while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
         delay(500);  // Reduced delay for faster connection
+        esp_task_wdt_reset();  // keep watchdog fed during a slow connect (setup phase)
         Serial.print(".");
         if (attempts % 2 == 0) blinkLED(1);  // Blink less frequently
         attempts++;
@@ -1030,7 +1126,8 @@ bool announceToController() {
     if (config.controllerIP.length() == 0) {
         return false;
     }
-    
+
+    HTTPClient http;  // local instance (see note by WebServer decl)
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/board-announce";
     
     DynamicJsonDocument doc(512);
@@ -1064,6 +1161,7 @@ bool announceToController() {
 bool sendHeartbeat() {
     if (config.controllerIP.length() == 0) return false;
 
+    HTTPClient http;  // local instance (see note by WebServer decl)
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/heartbeat";
 
     DynamicJsonDocument doc(256);
@@ -1092,6 +1190,7 @@ bool sendHeartbeat() {
 bool sendAccessLog(const AccessLog& log) {
     if (config.controllerIP.length() == 0) return false;
 
+    HTTPClient http;  // local instance (see note by WebServer decl)
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/access-log";
 
     http.setConnectTimeout(2000);  // 2 second connection timeout (reduced for non-blocking)
@@ -1133,15 +1232,29 @@ bool sendAccessLog(const AccessLog& log) {
     }
 }
 
+// Drains the log queue (runs on the Core 0 network task). Pops one entry under
+// the mutex, then does the (blocking) HTTP send WITHOUT holding the lock so
+// Core 1 can keep enqueuing. On failure the entry is put back and we stop.
 void sendQueuedLogs() {
-    if (logQueue.empty()) return;
-    
-    addLiveLog("📤 Sending " + String(logQueue.size()) + " queued logs...");
-    
-    for (auto it = logQueue.begin(); it != logQueue.end(); ) {
-        if (sendAccessLog(*it)) {
-            it = logQueue.erase(it);
-        } else {
+    for (;;) {
+        AccessLog log;
+        bool have = false;
+
+        if (logQueueMutex) xSemaphoreTake(logQueueMutex, portMAX_DELAY);
+        if (!logQueue.empty()) {
+            log = logQueue.front();
+            logQueue.erase(logQueue.begin());
+            have = true;
+        }
+        if (logQueueMutex) xSemaphoreGive(logQueueMutex);
+
+        if (!have) break;  // queue empty
+
+        if (!sendAccessLog(log)) {
+            // Send failed - put it back at the front and retry on the next pass.
+            if (logQueueMutex) xSemaphoreTake(logQueueMutex, portMAX_DELAY);
+            logQueue.insert(logQueue.begin(), log);
+            if (logQueueMutex) xSemaphoreGive(logQueueMutex);
             break;
         }
     }
@@ -1149,7 +1262,8 @@ void sendQueuedLogs() {
 
 bool sendTempCodeUsage(const String& code, int currentUses) {
     if (config.controllerIP.length() == 0) return false;
-    
+
+    HTTPClient http;  // local instance (see note by WebServer decl)
     String url = "http://" + config.controllerIP + ":" + String(config.controllerPort) + "/api/temp-code-usage";
     
     DynamicJsonDocument doc(256);
@@ -1463,12 +1577,12 @@ ValidationResult validateAccess(int doorNumber, const String& credential, const 
             
             // ✅ NEW: Increment usage counter for THIS DOOR ONLY
             incrementTempCodeDoorUses(credential, doorNumber);
-            
-            // ✅ Send door ID to server for server-side tracking
-            if (config.controllerIP.length() > 0) {
-                sendTempCodeUsage(credential, doorNumber);
-            }
-            
+
+            // NOTE: We intentionally do NOT call sendTempCodeUsage() here. This
+            // runs on the Core 1 access path and must not block on HTTP. The
+            // server tracks usage authoritatively from the access-log that the
+            // Core 0 network task sends for this same grant.
+
             // Get updated count (doorUses was already declared in CHECK 2 section above)
             int currentDoorUses = getTempCodeDoorUses(credential, doorNumber);
             addLiveLog("  ✅ Temp code GRANTED on Door " + String(doorNumber) + "! (Door uses: " + String(currentDoorUses) + ")");
@@ -1541,11 +1655,10 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
 
     ValidationResult result = validateAccess(doorNumber, credential, credType);
 
-    addLiveLog("  User: " + result.userName);
-    addLiveLog("  Result: " + String(result.granted ? "✅ GRANTED" : "❌ DENIED"));
-    addLiveLog("  Reason: " + result.reason);
-
-    // ✅ FIRST: Handle door action IMMEDIATELY (before any network calls)
+    // ✅ Actuate the door FIRST - before any logging - so the relay fires as
+    // fast as possible after the swipe. The addLiveLog() calls below each do a
+    // (potentially blocking) Serial write, so doing them first would add ~15-30ms
+    // of latency before the relay. Log AFTER the relay has already triggered.
     if (result.granted) {
         unlockDoor(doorNumber);
         readerFeedbackSuccess(doorNumber);
@@ -1554,7 +1667,14 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
         readerFeedbackError(doorNumber);
     }
 
-    // ✅ THEN: Create log and try to send (with short timeout)
+    addLiveLog("  User: " + result.userName);
+    addLiveLog("  Result: " + String(result.granted ? "✅ GRANTED" : "❌ DENIED"));
+    addLiveLog("  Reason: " + result.reason);
+
+    // ✅ THEN: Create the log and hand it to the Core 0 network task.
+    // We do NOT send it here - this function runs on the time-critical Core 1
+    // access path and must never block on network I/O. The network task drains
+    // the queue and sends over HTTP.
     AccessLog log;
     log.timestamp = getTimestamp();
     log.doorNumber = doorNumber;
@@ -1564,24 +1684,7 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
     log.granted = result.granted;
     log.reason = result.reason;
 
-    // Try to send immediately (2 second timeout max)
-    // Door is already open/beeped, so this won't delay user
-    bool logSent = false;
-    if (WiFi.status() == WL_CONNECTED && config.controllerIP.length() > 0) {
-        logSent = sendAccessLog(log);
-    }
-
-    // Queue if send failed (for background retry)
-    if (!logSent) {
-        if (logQueue.size() < LOG_QUEUE_MAX) {
-            logQueue.push_back(log);
-            addLiveLog("📋 Log queued (will retry)");
-        } else {
-            logQueue.erase(logQueue.begin());
-            logQueue.push_back(log);
-            addLiveLog("⚠️ Log queue full - dropped oldest");
-        }
-    }
+    enqueueAccessLog(log);
 }
 
 // ===============================================================
@@ -2226,10 +2329,13 @@ void setupWebInterface() {
         
         addLiveLog("=== SYNC REQUEST RECEIVED ===");
         addLiveLog("Data length: " + String(jsonData.length()) + " bytes");
-        
-        DynamicJsonDocument syncDoc(20480);
+
+        // ✅ Parse into a PSRAM-backed document large enough for the full payload.
+        // The old 20KB regular-heap document silently failed (NoMemory) once the
+        // roster grew past ~20KB, causing boards to keep stale data until reboot.
+        BasicJsonDocument<PSRAMAllocator> syncDoc(262144);  // 256KB in PSRAM
         DeserializationError error = deserializeJson(syncDoc, jsonData);
-        
+
         if (error) {
             addLiveLog("❌ Failed to parse sync JSON: " + String(error.c_str()));
             server.send(500, "application/json", "{\"success\":false,\"message\":\"Parse error\"}");
@@ -2773,10 +2879,11 @@ if (syncDoc.containsKey("user_schedules")) {
         } 
         else if (upload.status == UPLOAD_FILE_WRITE) {
             // Write firmware chunk
+            esp_task_wdt_reset();  // OTA transfer can exceed the WDT timeout in one call
             if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                 addLiveLog("❌ Write error: " + String(Update.errorString()));
             }
-        } 
+        }
         else if (upload.status == UPLOAD_FILE_END) {
             if (Update.end(true)) {
                 addLiveLog("✅ Upload complete: " + String(upload.totalSize) + " bytes");
@@ -2800,19 +2907,61 @@ if (syncDoc.containsKey("user_schedules")) {
 }
 
 // ===============================================================
+// WATCHDOG + RESET DIAGNOSTICS
+// ===============================================================
+
+String resetReasonString() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:  return "Power-on";
+        case ESP_RST_EXT:      return "External reset";
+        case ESP_RST_SW:       return "Software reset (ESP.restart)";
+        case ESP_RST_PANIC:    return "PANIC / exception";
+        case ESP_RST_INT_WDT:  return "Interrupt watchdog";
+        case ESP_RST_TASK_WDT: return "Task watchdog (loop hang)";
+        case ESP_RST_WDT:      return "Other watchdog";
+        case ESP_RST_BROWNOUT: return "BROWNOUT (power dip)";
+        case ESP_RST_SDIO:     return "SDIO reset";
+        default:               return "Unknown";
+    }
+}
+
+void initWatchdog() {
+    addLiveLog("🐕 Initializing watchdog (" + String(WDT_TIMEOUT_SECONDS) + "s)...");
+#if ESP_IDF_VERSION_MAJOR >= 5
+    // Arduino core 3.x already inits the Task WDT; just adjust the timeout.
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = WDT_TIMEOUT_SECONDS * 1000,
+        .idle_core_mask = 0,
+        .trigger_panic = true,
+    };
+    esp_task_wdt_reconfigure(&twdt_config);
+#else
+    esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true);  // panic=true -> chip reset on trip
+#endif
+    esp_task_wdt_add(NULL);  // subscribe the task that runs loop()
+    esp_task_wdt_reset();
+}
+
+// ===============================================================
 // SETUP
 // ===============================================================
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    
+
+    // Create the live-log mutex before anything logs (networkTask, which shares
+    // the buffer, is not started until the very end of setup()).
+    liveLogMutex = xSemaphoreCreateMutex();
+
     Serial.println("\n\n=======================================================");
     Serial.println("🔐 ACCESS CONTROL SYSTEM - ESP32 FIRMWARE v3.2");
     Serial.println("   With Live Logs & Raw Wiegand Data Viewer");
     Serial.println("=======================================================");
-    
+
     addLiveLog("=== SYSTEM BOOT ===");
+    addLiveLog("🔁 Last reset reason: " + resetReasonString());
+    initWatchdog();
     
     if (!SPIFFS.begin(true)) {
     addLiveLog("❌ SPIFFS initialization failed");
@@ -2928,31 +3077,145 @@ WiFi.mode(WIFI_STA);
         setupWebInterface();
     }
     
+    // ✅ Start the Core 0 network task (outbound HTTP: heartbeat, log sending,
+    // WiFi reconnect, NTP). Door/relay control stays on Core 1 (this loop task).
+    logQueueMutex = xSemaphoreCreateMutex();
+    xTaskCreatePinnedToCore(
+        networkTask,          // task function
+        "networkTask",        // name
+        8192,                 // stack (bytes) - proven sufficient for these HTTP calls
+        NULL,                 // param
+        1,                    // priority (same as loopTask)
+        &networkTaskHandle,   // handle
+        0                     // pin to Core 0 (loop() runs on Core 1)
+    );
+    addLiveLog("🌐 Network task started on Core 0");
+
     addLiveLog("=======================================================");
     addLiveLog("✅ System ready!");
     addLiveLog("=======================================================");
-    
+
     beepSuccess();
 }
 
 // ===============================================================
-// MAIN LOOP
+// CORE 0 NETWORK TASK
+// All OUTBOUND network I/O lives here so the Core 1 access path is never
+// blocked by a heartbeat / log send / reconnect. This task never touches
+// relays or door state.
 // ===============================================================
+void networkTask(void* param) {
+    // Subscribe this task to the watchdog too (it does blocking HTTP with 2s
+    // timeouts, well under WDT_TIMEOUT_SECONDS).
+    esp_task_wdt_add(NULL);
 
+    unsigned long lastWiFiCheckN = 0;
+    unsigned long lastHeartbeatN = 0;
+    unsigned long lastLogRetryN = 0;
+
+    for (;;) {
+        esp_task_wdt_reset();
+        unsigned long now = millis();
+
+        // --- WiFi watchdog / non-blocking auto-reconnect (every 10s) ---
+        if (now - lastWiFiCheckN >= 10000) {
+            lastWiFiCheckN = now;
+
+            if (WiFi.status() != WL_CONNECTED) {
+                wifiReconnectAttempts++;
+
+                if (wifiReconnectAttempts <= 3) {
+                    addLiveLog("🔄 WiFi reconnecting... (attempt " + String(wifiReconnectAttempts) + ")");
+                } else if (!apFallbackMode) {
+                    addLiveLog("⚠️ WiFi DOWN (attempt " + String(wifiReconnectAttempts) + "/10)");
+                }
+
+                if (!apFallbackMode) {
+                    WiFi.disconnect();
+                }
+                WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
+
+                if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
+                    addLiveLog("⚠️ Starting AP fallback mode");
+                    startAPFallbackMode();
+                }
+            } else {
+                if (wifiReconnectAttempts > 0) {
+                    addLiveLog("✅ WiFi reconnected! IP: " + WiFi.localIP().toString());
+                    wifiReconnectAttempts = 0;
+
+                    if (apFallbackMode) {
+                        stopAPFallbackMode();
+                    }
+
+                    configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                    addLiveLog("🕐 NTP time sync initiated");
+
+                    if (config.controllerIP.length() > 0) {
+                        announceToController();
+                    }
+                }
+
+                static unsigned long lastNtpCheck = 0;
+                static bool ntpSynced = false;
+                if (now - lastNtpCheck >= 300000) {  // 5 minutes
+                    lastNtpCheck = now;
+                    struct tm timeinfo;
+                    if (getLocalTime(&timeinfo, 100)) {
+                        if (!ntpSynced) {
+                            addLiveLog("🕐 NTP synced: " + String(timeinfo.tm_hour) + ":" +
+                                       String(timeinfo.tm_min < 10 ? "0" : "") + String(timeinfo.tm_min));
+                            ntpSynced = true;
+                        }
+                    } else {
+                        addLiveLog("⚠️ NTP not synced - retrying...");
+                        configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+                        ntpSynced = false;
+                    }
+                }
+            }
+        }
+
+        // --- Heartbeat (every HEARTBEAT_INTERVAL) ---
+        if (now - lastHeartbeatN >= HEARTBEAT_INTERVAL) {
+            lastHeartbeatN = now;
+            if (WiFi.status() == WL_CONNECTED) {
+                if (sendHeartbeat()) {
+                    sendQueuedLogs();  // controller online - flush any queued logs
+                }
+            }
+        }
+
+        // --- Retry queued logs (every 5s) ---
+        if (now - lastLogRetryN >= 5000) {
+            lastLogRetryN = now;
+            if (WiFi.status() == WL_CONNECTED) {
+                sendQueuedLogs();  // safe/no-op when the queue is empty
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));  // yield to Core 0 idle / other tasks
+    }
+}
+
+// ===============================================================
+// MAIN LOOP (Core 1) - time-critical access path + web + door control.
+// No outbound network I/O here (that's networkTask on Core 0).
+// ===============================================================
 void loop() {
     unsigned long now = millis();
     unsigned long loopStart = now;
 
-    // ===============================================================
-    // LOOP TIMING DIAGNOSTICS - Detect what's blocking card processing
-    // ===============================================================
+    // Feed the watchdog once per iteration. If the access path ever wedges,
+    // this stops getting fed and the chip auto-resets after WDT_TIMEOUT_SECONDS.
+    esp_task_wdt_reset();
+
+    // ----- Loop timing diagnostics -----
     static unsigned long lastLoopHealthCheck = 0;
     static unsigned long loopCount = 0;
     static unsigned long slowLoopCount = 0;
 
     loopCount++;
-
-    // Periodic loop health check every 30 seconds
     if (now - lastLoopHealthCheck >= 30000) {
         float avgLoopTime = 30000.0 / loopCount;
         addLiveLog("📊 Loop health: " + String(loopCount) + " iterations in 30s (avg " +
@@ -2962,143 +3225,36 @@ void loop() {
         lastLoopHealthCheck = now;
     }
 
-    // ===============================================================
-    // WiFi Watchdog - NON-BLOCKING Auto-reconnect
-    // Checks every 10 seconds, never blocks card processing
-    // ===============================================================
-    if (now - lastWiFiCheck >= 10000) {  // Check every 10 seconds (more responsive)
-        lastWiFiCheck = now;
-
-        if (WiFi.status() != WL_CONNECTED) {
-            // WiFi is DOWN
-            wifiReconnectAttempts++;
-
-            if (wifiReconnectAttempts <= 3) {
-                // First few attempts - just try to reconnect quietly
-                addLiveLog("🔄 WiFi reconnecting... (attempt " + String(wifiReconnectAttempts) + ")");
-            } else if (!apFallbackMode) {
-                addLiveLog("⚠️ WiFi DOWN (attempt " + String(wifiReconnectAttempts) + "/10)");
-            }
-
-            // Start reconnection (NON-BLOCKING - just initiates, doesn't wait)
-            if (!apFallbackMode) {
-                WiFi.disconnect();
-            }
-            WiFi.begin(config.wifiSSID.c_str(), config.wifiPassword.c_str());
-            // Don't wait! Check result on next loop iteration
-
-            if (wifiReconnectAttempts >= 10 && !apFallbackMode) {
-                addLiveLog("⚠️ Starting AP fallback mode");
-                startAPFallbackMode();
-            }
-        } else {
-            // WiFi is CONNECTED
-            if (wifiReconnectAttempts > 0) {
-                // Just reconnected!
-                addLiveLog("✅ WiFi reconnected! IP: " + WiFi.localIP().toString());
-                wifiReconnectAttempts = 0;
-
-                if (apFallbackMode) {
-                    stopAPFallbackMode();
-                }
-
-                // ✅ Re-sync NTP after WiFi reconnection
-                configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-                addLiveLog("🕐 NTP time sync initiated");
-
-                // Re-announce to controller (non-blocking, short timeout)
-                if (config.controllerIP.length() > 0) {
-                    announceToController();
-                }
-            }
-
-            // ✅ Periodic NTP sync check (every 5 minutes)
-            static unsigned long lastNtpCheck = 0;
-            static bool ntpSynced = false;
-            if (now - lastNtpCheck >= 300000) {  // 5 minutes
-                lastNtpCheck = now;
-                struct tm timeinfo;
-                if (getLocalTime(&timeinfo, 100)) {
-                    if (!ntpSynced) {
-                        addLiveLog("🕐 NTP synced: " + String(timeinfo.tm_hour) + ":" +
-                                   String(timeinfo.tm_min < 10 ? "0" : "") + String(timeinfo.tm_min));
-                        ntpSynced = true;
-                    }
-                } else {
-                    addLiveLog("⚠️ NTP not synced - retrying...");
-                    configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-                    ntpSynced = false;
-                }
-            }
-        }
-    }
-    // ===============================================================
-    // END OF WIFI WATCHDOG
-    // ===============================================================
-    
+    // ----- Time-critical + web + door control -----
     server.handleClient();
     checkWiegandData();
     checkDoorLocks();
     checkReaderFeedback();
-    
-    
-    
+    checkOnboardFeedback();
+
     if (now - lastEmergencyCheck >= 1000) {
         lastEmergencyCheck = now;
         checkEmergencyAutoReset();
     }
-    
+
     if (now - lastScheduleCheck >= SCHEDULE_CHECK_INTERVAL) {
         lastScheduleCheck = now;
-        
         if (config.emergencyMode == "") {
             updateDoorModesFromSchedule();
         }
     }
-    
-    if (digitalRead(doors[0].rexPin) == LOW) {
-        addLiveLog("🚪 REX button pressed - Door 1");
-        unlockDoor(1);
-        delay(500);
-    }
-    
-    if (digitalRead(doors[1].rexPin) == LOW) {
-        addLiveLog("🚪 REX button pressed - Door 2");
-        unlockDoor(2);
-        delay(500);
-    }
-    
-    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-        lastHeartbeat = now;
-        
-        // Only try heartbeat if WiFi is connected
-        if (WiFi.status() == WL_CONNECTED) {
-            if (sendHeartbeat()) {
-                // Controller is ONLINE
-                if (!logQueue.empty()) {
-                    sendQueuedLogs();
-                }
-            }
-            // If heartbeat fails, controller is offline but WiFi is OK
-            // This is normal - just keep trying every 60s
-        } else {
-            // WiFi is down - skip heartbeat (watchdog will handle WiFdog)
-            addLiveLog("⏭️  Skipping heartbeat - WiFi disconnected");
-        }
-    }
-    
-    // ✅ NEW: Try to send queued logs every 5 seconds (independent of heartbeat)
-    if (now - lastLogRetry >= 5000) {  // Every 5 seconds
-        lastLogRetry = now;
 
-        if (!logQueue.empty() && WiFi.status() == WL_CONNECTED) {
-            sendQueuedLogs();
+    // REX buttons - non-blocking debounce
+    static unsigned long lastRexPress[2] = {0, 0};
+    for (int r = 0; r < 2; r++) {
+        if (digitalRead(doors[r].rexPin) == LOW && (now - lastRexPress[r] > 1000)) {
+            lastRexPress[r] = now;
+            addLiveLog("🚪 REX button pressed - Door " + String(r + 1));
+            unlockDoor(r + 1);
         }
     }
 
-    // ===============================================================
-    // SLOW LOOP DETECTION
-    // ===============================================================
+    // ----- Slow loop detection -----
     unsigned long loopDuration = millis() - loopStart;
     if (loopDuration > 100) {
         slowLoopCount++;
@@ -3107,5 +3263,5 @@ void loop() {
         }
     }
 
-    delay(10);
+    delay(2);  // small yield; network I/O now runs on Core 0
 }
