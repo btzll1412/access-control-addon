@@ -76,11 +76,11 @@ struct PSRAMAllocator {
 #define DEFAULT_UNLOCK_DURATION   3000
 #define HEARTBEAT_INTERVAL        60000
 #define LOG_QUEUE_MAX             500
-// Inter-frame gap that marks the end of a Wiegand read. Lowered 100 -> 40ms:
-// a standard 26-bit frame's inter-bit gap is ~1-2ms, so 40ms ends the read
-// ~60ms sooner per swipe while staying well clear of splitting a frame.
-// (Can be pushed toward 25ms if field testing shows clean reads.)
-#define WIEGAND_TIMEOUT           40
+// Inter-frame gap that marks the end of a Wiegand read. Kept at 100ms for
+// reliability: on a marginal/noisy card signal a straggler bit can arrive late,
+// and a shorter window risks cutting the frame early (-> wrong bit count). Only
+// lower this once card reads are electrically clean.
+#define WIEGAND_TIMEOUT           100
 #define SCHEDULE_CHECK_INTERVAL   60000
 #define READER_BEEP_SUCCESS_MS    100
 #define READER_BEEP_ERROR_MS      500
