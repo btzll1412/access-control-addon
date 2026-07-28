@@ -76,7 +76,11 @@ struct PSRAMAllocator {
 #define DEFAULT_UNLOCK_DURATION   3000
 #define HEARTBEAT_INTERVAL        60000
 #define LOG_QUEUE_MAX             500
-#define WIEGAND_TIMEOUT           100
+// Inter-frame gap that marks the end of a Wiegand read. Lowered 100 -> 40ms:
+// a standard 26-bit frame's inter-bit gap is ~1-2ms, so 40ms ends the read
+// ~60ms sooner per swipe while staying well clear of splitting a frame.
+// (Can be pushed toward 25ms if field testing shows clean reads.)
+#define WIEGAND_TIMEOUT           40
 #define SCHEDULE_CHECK_INTERVAL   60000
 #define READER_BEEP_SUCCESS_MS    100
 #define READER_BEEP_ERROR_MS      500
@@ -1651,11 +1655,10 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
 
     ValidationResult result = validateAccess(doorNumber, credential, credType);
 
-    addLiveLog("  User: " + result.userName);
-    addLiveLog("  Result: " + String(result.granted ? "✅ GRANTED" : "❌ DENIED"));
-    addLiveLog("  Reason: " + result.reason);
-
-    // ✅ FIRST: Handle door action IMMEDIATELY (before any network calls)
+    // ✅ Actuate the door FIRST - before any logging - so the relay fires as
+    // fast as possible after the swipe. The addLiveLog() calls below each do a
+    // (potentially blocking) Serial write, so doing them first would add ~15-30ms
+    // of latency before the relay. Log AFTER the relay has already triggered.
     if (result.granted) {
         unlockDoor(doorNumber);
         readerFeedbackSuccess(doorNumber);
@@ -1663,6 +1666,10 @@ void processAccessAttempt(int doorNumber, const String& credential, const String
         beepError();
         readerFeedbackError(doorNumber);
     }
+
+    addLiveLog("  User: " + result.userName);
+    addLiveLog("  Result: " + String(result.granted ? "✅ GRANTED" : "❌ DENIED"));
+    addLiveLog("  Reason: " + result.reason);
 
     // ✅ THEN: Create the log and hand it to the Core 0 network task.
     // We do NOT send it here - this function runs on the time-critical Core 1
