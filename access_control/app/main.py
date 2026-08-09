@@ -1732,6 +1732,7 @@ def create_temp_code():
         
         logger.info(f"✅ Temp code created: {code} (ID: {temp_code_id})")
         log_admin_action('TEMP_CODE_CREATED', f"Created temp code '{data.get('name', code)}' (Code: {code})", data.get('name', code))
+        trigger_async_sync()  # push the new temp code to boards
         return jsonify({
             'success': True,
             'message': 'Temporary code created',
@@ -1879,6 +1880,7 @@ def delete_temp_code(temp_code_id):
 
         logger.info(f"✅ Temp code {temp_code_id} deleted")
         log_admin_action('TEMP_CODE_DELETED', f"Deleted temp code '{temp_code_name}' (Code: {temp_code_code})", temp_code_name)
+        trigger_async_sync()  # remove the temp code from boards
         return jsonify({'success': True, 'message': 'Temporary code deleted'})
         
     except Exception as e:
@@ -1945,7 +1947,8 @@ def toggle_temp_code(temp_code_id):
             logger.info(f"✅ Temp code {temp_code_id} deactivated")
         
         conn.commit()
-        
+
+        trigger_async_sync()  # push the enabled/disabled state to boards
         return jsonify({
             'success': True,
             'active': new_active,
@@ -2566,15 +2569,30 @@ def trigger_async_sync():
     threading.Thread(target=_worker, name='async-board-sync', daemon=True).start()
 
 
+# How often to force a full re-sync of every online board, as a safety net so a
+# board that missed a change while briefly offline can never stay stale longer
+# than this. Change this one value to tune it (e.g. 3600 = hourly).
+PERIODIC_RESYNC_SECONDS = 6 * 3600  # every 6 hours
+
+
 def _background_maintenance_loop():
     """Runs periodically regardless of whether anyone has the dashboard open:
-    marks stale boards offline and processes emergency auto-reset timers."""
-    logger.info("🩺 Background maintenance thread started (30s interval)")
+    marks stale boards offline, processes emergency auto-reset timers, and does a
+    periodic full re-sync of all online boards so they can't drift stale."""
+    logger.info("🩺 Background maintenance thread started (30s interval, "
+                f"periodic resync every {PERIODIC_RESYNC_SECONDS // 3600}h)")
+    last_resync = time.monotonic()
     while True:
         try:
             time.sleep(30)
             mark_stale_boards_offline()
             process_emergency_auto_resets()
+
+            # Periodic safety-net full resync of all online boards.
+            if time.monotonic() - last_resync >= PERIODIC_RESYNC_SECONDS:
+                last_resync = time.monotonic()
+                logger.info("🔁 Periodic auto-resync: syncing all online boards")
+                trigger_async_sync()
         except Exception as e:
             logger.error(f"❌ Background maintenance error: {e}")
 
@@ -5488,6 +5506,7 @@ def create_group():
         conn.commit()
         
         logger.info(f"✅ Group created: {data['name']} (ID: {group_id})")
+        trigger_async_sync()  # group door assignments changed -> resync boards
         return jsonify({'success': True, 'message': 'Group created successfully', 'group_id': group_id})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': 'Group with this name already exists'}), 400
@@ -5530,6 +5549,7 @@ def update_group(group_id):
         conn.commit()
         
         logger.info(f"✅ Group {group_id} updated")
+        trigger_async_sync()  # group door assignments changed -> resync boards
         return jsonify({'success': True, 'message': 'Group updated successfully'})
     except Exception as e:
         logger.error(f"❌ Error updating group: {e}")
@@ -5557,6 +5577,7 @@ def delete_group(group_id):
         conn.commit()
         
         logger.info(f"✅ Group {group_id} deleted")
+        trigger_async_sync()  # group removed -> resync boards
         return jsonify({'success': True, 'message': 'Group deleted successfully'})
     except Exception as e:
         logger.error(f"❌ Error deleting group: {e}")
@@ -5638,6 +5659,7 @@ def create_schedule():
         conn.commit()
         
         logger.info(f"✅ Schedule created: {data['name']} (ID: {schedule_id})")
+        trigger_async_sync()  # user schedules changed -> resync boards
         return jsonify({'success': True, 'message': 'Schedule created successfully', 'schedule_id': schedule_id})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': 'Schedule with this name already exists'}), 400
@@ -5680,6 +5702,7 @@ def update_schedule(schedule_id):
         conn.commit()
         
         logger.info(f"✅ Schedule {schedule_id} updated")
+        trigger_async_sync()  # user schedules changed -> resync boards
         return jsonify({'success': True, 'message': 'Schedule updated successfully'})
     except Exception as e:
         logger.error(f"❌ Error updating schedule: {e}")
@@ -5707,6 +5730,7 @@ def delete_schedule(schedule_id):
         conn.commit()
         
         logger.info(f"✅ Schedule {schedule_id} deleted")
+        trigger_async_sync()  # user schedules changed -> resync boards
         return jsonify({'success': True, 'message': 'Schedule deleted successfully'})
     except Exception as e:
         logger.error(f"❌ Error deleting schedule: {e}")
