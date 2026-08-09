@@ -76,11 +76,11 @@ struct PSRAMAllocator {
 #define DEFAULT_UNLOCK_DURATION   3000
 #define HEARTBEAT_INTERVAL        60000
 #define LOG_QUEUE_MAX             500
-// Inter-frame gap that marks the end of a Wiegand read. Lowered 100 -> 40ms:
-// a standard 26-bit frame's inter-bit gap is ~1-2ms, so 40ms ends the read
-// ~60ms sooner per swipe while staying well clear of splitting a frame.
-// (Can be pushed toward 25ms if field testing shows clean reads.)
-#define WIEGAND_TIMEOUT           40
+// Inter-frame gap that marks the end of a Wiegand read. Kept at 100ms for
+// reliability: on a marginal/noisy card signal a straggler bit can arrive late,
+// and a shorter window risks cutting the frame early (-> wrong bit count). Only
+// lower this once card reads are electrically clean.
+#define WIEGAND_TIMEOUT           100
 #define SCHEDULE_CHECK_INTERVAL   60000
 #define READER_BEEP_SUCCESS_MS    100
 #define READER_BEEP_ERROR_MS      500
@@ -218,6 +218,16 @@ void enqueueAccessLog(const AccessLog& log) {
         logQueue.push_back(log);
     }
     if (logQueueMutex) xSemaphoreGive(logQueueMutex);
+}
+
+// Thread-safe size read (the web status page on Core 1 reads this while the
+// Core 0 network task may be erasing/inserting).
+size_t logQueueSize() {
+    size_t n = 0;
+    if (logQueueMutex) xSemaphoreTake(logQueueMutex, portMAX_DELAY);
+    n = logQueue.size();
+    if (logQueueMutex) xSemaphoreGive(logQueueMutex);
+    return n;
 }
 
 
@@ -605,7 +615,10 @@ void blinkLED(int times = 1) {
 String getTimestamp() {
     time_t now = time(nullptr);
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo, 100)) {
+    // 5ms (not 100ms): when NTP is synced getLocalTime returns instantly; when it
+    // is NOT synced this is called on the swipe path (via addLiveLog) and a 100ms
+    // block per log would add up. Fall back to millis() quickly instead.
+    if (!getLocalTime(&timeinfo, 5)) {
         return String(millis()); // Fallback to millis if NTP not available
     }
     
@@ -1024,8 +1037,13 @@ void startAPFallbackMode() {
     // Switch to AP+STA mode - this allows both AP and station to be active
     WiFi.mode(WIFI_AP_STA);
 
-    // Create AP for configuration access
-    apFallbackSSID = "AccessControl-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+    // Create AP for configuration access. apFallbackSSID is built once at boot
+    // and never reassigned, so the web status page on Core 1 can read it safely
+    // while this runs on Core 0 (a String reassignment here would free the buffer
+    // out from under a concurrent read).
+    if (apFallbackSSID.length() == 0) {
+        apFallbackSSID = "AccessControl-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+    }
     WiFi.softAP(apFallbackSSID.c_str(), "Config123");
 
     IPAddress apIP = WiFi.softAPIP();
@@ -1052,7 +1070,9 @@ void stopAPFallbackMode() {
     WiFi.mode(WIFI_STA);
 
     apFallbackMode = false;
-    apFallbackSSID = "";
+    // NOTE: apFallbackSSID is intentionally NOT cleared - it is immutable after
+    // boot so the Core 1 web handler can read it without a lock. It is only
+    // displayed when apFallbackMode is true anyway.
 }
 
 bool connectWiFi() {
@@ -1235,8 +1255,20 @@ bool sendAccessLog(const AccessLog& log) {
 // Drains the log queue (runs on the Core 0 network task). Pops one entry under
 // the mutex, then does the (blocking) HTTP send WITHOUT holding the lock so
 // Core 1 can keep enqueuing. On failure the entry is put back and we stop.
+//
+// Capped at MAX_SENDS_PER_CALL: a large backlog (up to LOG_QUEUE_MAX=500) flushed
+// back-to-back at ~60-100ms/send would otherwise run for tens of seconds without
+// yielding, tripping the task watchdog. We also feed the WDT each iteration.
+// Remaining entries are picked up on the next networkTask pass.
 void sendQueuedLogs() {
+    const int MAX_SENDS_PER_CALL = 20;
+    int sent = 0;
+
     for (;;) {
+        esp_task_wdt_reset();  // this runs on the WDT-subscribed networkTask
+
+        if (sent >= MAX_SENDS_PER_CALL) break;  // yield; finish on the next pass
+
         AccessLog log;
         bool have = false;
 
@@ -1257,6 +1289,7 @@ void sendQueuedLogs() {
             if (logQueueMutex) xSemaphoreGive(logQueueMutex);
             break;
         }
+        sent++;
     }
 }
 
@@ -2021,7 +2054,7 @@ void setupWebInterface() {
         html += "<tr><td><b>MAC Address:</b></td><td>" + config.macAddress + "</td></tr>";
         html += "<tr><td><b>Controller IP:</b></td><td>" + (config.controllerIP.length() > 0 ? config.controllerIP : "Not configured") + "</td></tr>";
         html += "<tr><td><b>Users Loaded:</b></td><td>" + String(usersDB.containsKey("users") ? usersDB["users"].size() : 0) + "</td></tr>";
-        html += "<tr><td><b>Queued Logs:</b></td><td>" + String(logQueue.size()) + "/" + String(LOG_QUEUE_MAX) + "</td></tr>";
+        html += "<tr><td><b>Queued Logs:</b></td><td>" + String(logQueueSize()) + "/" + String(LOG_QUEUE_MAX) + "</td></tr>";
         html += "<tr><td><b>Emergency Mode:</b></td><td style='color:" + emergencyColor + "'><b>" + emergencyStatus + "</b></td></tr>";
         html += "<tr><td><b>Free Heap:</b></td><td>" + String(ESP.getFreeHeap() / 1024) + " KB</td></tr>";
         if (psramFound()) {
@@ -2990,6 +3023,10 @@ sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3],
 config.macAddress = String(macStr);
 addLiveLog("🔖 MAC Address: " + config.macAddress);
 
+// Build the AP-fallback SSID once here (single-threaded at boot) so it is
+// immutable by the time networkTask (Core 0) or the web handler (Core 1) touch it.
+apFallbackSSID = "AccessControl-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+
 // Initialize WiFi mode
 WiFi.mode(WIFI_STA);
 
@@ -3083,7 +3120,7 @@ WiFi.mode(WIFI_STA);
     xTaskCreatePinnedToCore(
         networkTask,          // task function
         "networkTask",        // name
-        8192,                 // stack (bytes) - proven sufficient for these HTTP calls
+        12288,                // stack (bytes) - HTTPClient + JSON + String headroom
         NULL,                 // param
         1,                    // priority (same as loopTask)
         &networkTaskHandle,   // handle
