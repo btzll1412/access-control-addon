@@ -478,8 +478,26 @@ def get_timezone_from_config():
                 return options.get('timezone', 'America/New_York')
     except Exception as e:
         print(f"⚠️  Could not read timezone from config: {e}")
-    
+
     return os.environ.get('TZ', 'America/New_York')
+
+def get_resync_interval_seconds():
+    """Read the periodic board auto-resync interval (hours) from add-on options.
+    Default 2 hours. Clamped to a sane 1..168 hour range."""
+    hours = 2
+    try:
+        if os.path.exists('/data/options.json'):
+            with open('/data/options.json', 'r') as f:
+                options = json.load(f)
+                hours = options.get('resync_interval_hours', 2)
+    except Exception as e:
+        print(f"⚠️  Could not read resync_interval_hours from config: {e}")
+    try:
+        hours = int(hours)
+    except (TypeError, ValueError):
+        hours = 2
+    hours = max(1, min(168, hours))  # clamp 1h .. 7 days
+    return hours * 3600
 
 # Set timezone
 TIMEZONE = get_timezone_from_config()
@@ -2571,8 +2589,8 @@ def trigger_async_sync():
 
 # How often to force a full re-sync of every online board, as a safety net so a
 # board that missed a change while briefly offline can never stay stale longer
-# than this. Change this one value to tune it (e.g. 3600 = hourly).
-PERIODIC_RESYNC_SECONDS = 6 * 3600  # every 6 hours
+# than this. Configured via the add-on option `resync_interval_hours` (default 2h).
+PERIODIC_RESYNC_SECONDS = get_resync_interval_seconds()
 
 
 def _background_maintenance_loop():
