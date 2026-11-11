@@ -31,7 +31,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.3.2"
+#define FIRMWARE_VERSION "3.3.3"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -135,10 +135,12 @@ struct WiegandData {
     int d1Pin;
 };
 
-// Glitch filter: real Wiegand bits from this reader arrive ~1000us apart; an EMI
-// spike rides within ~150us of a real edge. Edges closer than this to the previous
-// accepted edge are rejected in the ISR (fixes "Bits=27" one-extra-bit misreads).
-#define WIEGAND_MIN_EDGE_GAP_US 150
+// Glitch filter: rejects edges impossibly close to the previous accepted edge
+// (fixes "Bits=27" one-extra-bit misreads from EMI spikes). Card bits arrive
+// ~1000us apart, but KEYPAD bursts from some readers use much tighter spacing -
+// a 150us cutoff was found to swallow keypad presses entirely. 50us still kills
+// real ringing (sub-10us) while passing even fast keypad pulse trains.
+#define WIEGAND_MIN_EDGE_GAP_US 50
 
 struct ValidationResult {
     bool granted;
