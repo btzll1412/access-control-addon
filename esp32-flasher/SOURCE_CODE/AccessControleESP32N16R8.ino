@@ -18,8 +18,10 @@
 #include <esp_system.h>    // esp_reset_reason()
 
 // Watchdog: force a chip reset if the fed task stops making progress for this long.
-// Long enough to never false-trip on a normal (blocking) network call.
-#define WDT_TIMEOUT_SECONDS 30
+// 60s: long enough to ride out a worst-case SPIFFS garbage-collection stall during
+// a sync save (seen in the field as "Task watchdog" resets), short enough to still
+// auto-recover a genuine hang within a minute.
+#define WDT_TIMEOUT_SECONDS 60
 
 // ===============================================================
 // VERSION & PSRAM SUPPORT
@@ -735,15 +737,22 @@ bool loadUsersDB() {
 }
 
 bool saveUsersDB(const String& jsonData) {
+    // SPIFFS writes can stall for many seconds when the filesystem garbage-collects
+    // (worse the more often the file is rewritten). Feed the watchdog around the
+    // slow steps so a long-but-legitimate save doesn't trip a reset.
+    esp_task_wdt_reset();
+
     File file = SPIFFS.open("/users.json", "w");
     if (!file) {
         addLiveLog("❌ Failed to save users database");
         return false;
     }
-    
+
     file.print(jsonData);
     file.close();
-    
+
+    esp_task_wdt_reset();
+
     // Reload into memory
     return loadUsersDB();
 }
@@ -2359,15 +2368,21 @@ void setupWebInterface() {
     // API: Sync users database and door schedules
     server.on("/api/sync", HTTP_POST, []() {
         String jsonData = server.arg("plain");
-        
+
         addLiveLog("=== SYNC REQUEST RECEIVED ===");
         addLiveLog("Data length: " + String(jsonData.length()) + " bytes");
+
+        // A sync is a long, legitimate operation (large JSON parse + flash write).
+        // Feed the watchdog at each stage so it never mistakes this for a hang.
+        esp_task_wdt_reset();
 
         // ✅ Parse into a PSRAM-backed document large enough for the full payload.
         // The old 20KB regular-heap document silently failed (NoMemory) once the
         // roster grew past ~20KB, causing boards to keep stale data until reboot.
         BasicJsonDocument<PSRAMAllocator> syncDoc(262144);  // 256KB in PSRAM
         DeserializationError error = deserializeJson(syncDoc, jsonData);
+
+        esp_task_wdt_reset();
 
         if (error) {
             addLiveLog("❌ Failed to parse sync JSON: " + String(error.c_str()));
@@ -2636,13 +2651,33 @@ if (syncDoc.containsKey("user_schedules")) {
     addLiveLog("📅 User schedules loaded: " + String(userSchedulesDB.size()) + " users");
 }
 
+        // ✅ Skip the flash rewrite when the payload is IDENTICAL to what we already
+        // have saved. The controller now re-syncs frequently (on every change plus a
+        // periodic safety resync), and most of those carry unchanged data. Rewriting
+        // ~50KB to SPIFFS each time wears the flash and triggers the multi-second
+        // garbage-collection stalls that were freezing the board (task-WDT resets).
+        // The in-RAM schedule/temp-code/emergency state was already refreshed above.
+        static uint32_t lastSavedSyncHash = 0;
+        uint32_t syncHash = 2166136261u;  // FNV-1a over the raw payload
+        for (size_t i = 0; i < jsonData.length(); i++) {
+            syncHash ^= (uint8_t)jsonData[i];
+            syncHash *= 16777619u;
+        }
+
+        if (syncHash == lastSavedSyncHash && SPIFFS.exists("/users.json")) {
+            addLiveLog("✅ Sync applied (payload unchanged - flash write skipped)");
+            server.send(200, "application/json", "{\"success\":true}");
+            return;
+        }
+
         if (saveUsersDB(jsonData)) {
+            lastSavedSyncHash = syncHash;
             addLiveLog("✅ Users database synced");
-            
+
             if (usersDB.containsKey("users")) {
                 addLiveLog("📝 " + String(usersDB["users"].size()) + " users loaded");
             }
-            
+
             server.send(200, "application/json", "{\"success\":true}");
         } else {
             addLiveLog("❌ Failed to save users database");
@@ -2982,6 +3017,12 @@ void initWatchdog() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+
+#if ARDUINO_USB_CDC_ON_BOOT
+    // With USB-CDC Serial and no PC attached (normal deployed state), writes can
+    // stall waiting for a host that never reads. Never block on logging.
+    Serial.setTxTimeoutMs(0);
+#endif
 
     // Create the live-log mutex before anything logs (networkTask, which shares
     // the buffer, is not started until the very end of setup()).
