@@ -1116,11 +1116,62 @@ def init_db():
     logger.info("✅ Database initialized successfully")
     
 
+def fix_future_timestamps():
+    """Idempotent repair for log rows stamped in the future by a corrupted board
+    clock (before the 5-minute ingest guard existed). Any access_logs row whose
+    timestamp parses to more than 1 hour ahead of now is re-stamped with the
+    timestamp of the entry inserted just before it (insertion order = true
+    arrival order, so the repaired times land where the event really happened).
+    Runs at every startup; once clean - and with the ingest guard preventing new
+    future stamps - it finds nothing and costs milliseconds."""
+    conn = None
+    try:
+        now_utc = datetime.now(pytz.UTC)
+
+        def _parse_ts(raw):
+            if not raw:
+                return None
+            try:
+                dt = datetime.fromisoformat(str(raw))
+            except Exception:
+                return None
+            if dt.tzinfo is None:
+                dt = pytz.UTC.localize(dt)  # board-path rows are stored naive-UTC
+            return dt.astimezone(pytz.UTC)
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, timestamp FROM access_logs ORDER BY id')
+        rows = cursor.fetchall()
+
+        last_good_raw = None
+        fixed = 0
+        for row in rows:
+            dt = _parse_ts(row['timestamp'])
+            if dt is not None and (dt - now_utc).total_seconds() > 3600:
+                if last_good_raw is not None:
+                    cursor.execute('UPDATE access_logs SET timestamp = ? WHERE id = ?',
+                                   (last_good_raw, row['id']))
+                    fixed += 1
+            else:
+                last_good_raw = row['timestamp']
+
+        if fixed:
+            conn.commit()
+            logger.info(f"🧹 Re-stamped {fixed} future-dated log entries (corrupted-clock era)")
+    except Exception as e:
+        logger.error(f"❌ Error repairing future-dated log timestamps: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
 # Initialize database on startup
 init_db()
 migrate_database()
 upgrade_database()
 init_admin_user()
+fix_future_timestamps()
 
 # ==================== MAIN ROUTES ====================
 @app.route('/')
@@ -3215,7 +3266,18 @@ def receive_access_log():
                 dt_naive = datetime.strptime(received_timestamp, '%Y-%m-%d %H:%M:%S')
                 dt_local = local_tz.localize(dt_naive)
                 dt_utc = dt_local.astimezone(pytz.UTC)
-                timestamp_for_db = dt_utc.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Sanity guard: trust the board's clock only within 5 minutes of
+                # server time (boards are heartbeat-aligned to the server, so a
+                # bigger deviation means a corrupted clock). Otherwise stamp with
+                # the server's own time so a bad clock can't poison the log order.
+                drift = abs((dt_utc - datetime.now(pytz.UTC)).total_seconds())
+                if drift > 300:
+                    logger.warning(f"  ⚠️ Board timestamp '{received_timestamp}' is {int(drift)}s "
+                                   f"off server time - stamping with server time instead")
+                    timestamp_for_db = format_timestamp_for_db()
+                else:
+                    timestamp_for_db = dt_utc.strftime('%Y-%m-%d %H:%M:%S')
             except Exception as e:
                 logger.warning(f"  ⚠️ Could not parse timestamp, using server time: {e}")
                 timestamp_for_db = format_timestamp_for_db()
