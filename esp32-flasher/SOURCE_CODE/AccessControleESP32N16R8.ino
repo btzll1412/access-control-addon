@@ -30,7 +30,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.2.3"
+#define FIRMWARE_VERSION "3.3.0"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -298,6 +298,8 @@ WiegandData* door2Wiegand = nullptr;
 
 // ✅ ADD: beepPattern function declaration
 void beepPattern(int count, int onTime, int offTime);
+// Defined near setup(); used by the status page (reset diagnostics row).
+String resetReasonString();
 // Core 0 network task (defined after setup(), created inside setup()).
 void networkTask(void* param);
 
@@ -2100,6 +2102,15 @@ void setupWebInterface() {
         html += "<tr><td><b>Free Heap:</b></td><td>" + String(ESP.getFreeHeap() / 1024) + " KB</td></tr>";
         if (psramFound()) {
             html += "<tr><td><b>Free PSRAM:</b></td><td>" + String(ESP.getFreePsram() / 1024) + " KB</td></tr>";
+        }
+        // Reset diagnostics - permanently visible so a crash cause can be read at
+        // any time ("BROWNOUT" = power dip, "Task watchdog" = firmware hang, etc.)
+        {
+            unsigned long upSec = millis() / 1000;
+            String uptimeStr = String(upSec / 86400) + "d " + String((upSec % 86400) / 3600) + "h " +
+                               String((upSec % 3600) / 60) + "m " + String(upSec % 60) + "s";
+            html += "<tr><td><b>Uptime:</b></td><td>" + uptimeStr + "</td></tr>";
+            html += "<tr><td><b>Last Reset Reason:</b></td><td><b>" + resetReasonString() + "</b></td></tr>";
         }
         html += "<tr><td><b>Firmware:</b></td><td>v" + String(FIRMWARE_VERSION) + "</td></tr>";
         html += "</table>";
