@@ -257,6 +257,13 @@ unsigned long keypadLastKey = 0;
 int currentKeypadDoor = -1;
 
 unsigned long lastWiFiCheck = 0;
+
+// EMI guard: the instant a relay/door-lock switches, the inductive kickback
+// sprays noise edges onto the Wiegand lines (seen in the field as ~25-30
+// phantom bits on BOTH doors at the exact second a door re-locks). Anything
+// captured within this window of a relay change is discarded as noise.
+#define RELAY_EMI_SUPPRESS_MS 300
+unsigned long wiegandSuppressUntil = 0;
 int wifiReconnectAttempts = 0;
 bool apFallbackMode = false;  // True when broadcasting AP while trying to reconnect
 String apFallbackSSID = "";   // AP SSID for fallback mode
@@ -1661,6 +1668,7 @@ void unlockDoor(int doorNumber) {
     addLiveLog("🔓 Unlocking " + door.name + " for " + String(door.unlockDuration) + "ms");
     
     digitalWrite(door.relayPin, HIGH);
+    wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
     door.isUnlocked = true;
     door.unlockUntil = millis() + door.unlockDuration;
     
@@ -1686,6 +1694,7 @@ void checkDoorLocks() {
         
         if (doors[i].isUnlocked && now >= doors[i].unlockUntil) {
             digitalWrite(doors[i].relayPin, LOW);
+            wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
             doors[i].isUnlocked = false;
             addLiveLog("🔒 " + doors[i].name + " locked");
         }
@@ -1888,7 +1897,26 @@ void processWiegandData(int doorNumber, WiegandData& wiegand) {
 
 void checkWiegandData() {
     unsigned long now = millis();
-    
+
+    // ===============================================================
+    // RELAY EMI GUARD - discard edges captured around a relay/lock switch.
+    // The kickback burst shows up as ~25-30 phantom bits on both doors; a real
+    // swipe colliding with it would be corrupted anyway, so drop everything in
+    // the window. (Keypad presses are single 8-bit frames and simply re-send.)
+    // ===============================================================
+    if ((long)(now - wiegandSuppressUntil) < 0) {
+        for (int i = 0; i < 2; i++) {
+            if (doors[i].wiegand.bitCount > 0) {
+                addLiveLog("🔇 Discarded " + String(doors[i].wiegand.bitCount) +
+                           " noise bits on Door " + String(i + 1) + " (relay switching)");
+                doors[i].wiegand.value = 0;
+                doors[i].wiegand.bitCount = 0;
+                doors[i].wiegand.dataReady = false;
+            }
+        }
+        return;
+    }
+
     // ===============================================================
     // Check Wiegand data
     // ===============================================================
