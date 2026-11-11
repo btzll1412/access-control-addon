@@ -9,7 +9,11 @@
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <SPIFFS.h>
+// LittleFS replaces SPIFFS: bounded, predictable write latency (SPIFFS garbage
+// collection could stall for tens of seconds mid-sync, freezing the board).
+// First boot after this change auto-formats the data partition; the user DB is
+// restored automatically by the controller's sync-on-announce.
+#include <LittleFS.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -716,12 +720,12 @@ void saveConfig() {
 }
 
 bool loadUsersDB() {
-    if (!SPIFFS.exists("/users.json")) {
+    if (!LittleFS.exists("/users.json")) {
         addLiveLog("⚠️  No user database found");
         return false;
     }
     
-    File file = SPIFFS.open("/users.json", "r");
+    File file = LittleFS.open("/users.json", "r");
     if (!file) {
         addLiveLog("❌ Failed to open users database");
         return false;
@@ -744,12 +748,12 @@ bool loadUsersDB() {
 }
 
 bool saveUsersDB(const String& jsonData) {
-    // SPIFFS writes can stall for many seconds when the filesystem garbage-collects
-    // (worse the more often the file is rewritten). Feed the watchdog around the
-    // slow steps so a long-but-legitimate save doesn't trip a reset.
+    // LittleFS has bounded write latency (unlike SPIFFS, whose garbage collection
+    // caused multi-second stalls here). Keep the watchdog feeds anyway as cheap
+    // insurance around the flash write.
     esp_task_wdt_reset();
 
-    File file = SPIFFS.open("/users.json", "w");
+    File file = LittleFS.open("/users.json", "w");
     if (!file) {
         addLiveLog("❌ Failed to save users database");
         return false;
@@ -2692,7 +2696,7 @@ if (syncDoc.containsKey("user_schedules")) {
             syncHash *= 16777619u;
         }
 
-        if (syncHash == lastSavedSyncHash && SPIFFS.exists("/users.json")) {
+        if (syncHash == lastSavedSyncHash && LittleFS.exists("/users.json")) {
             addLiveLog("✅ Sync applied (payload unchanged - flash write skipped)");
             server.send(200, "application/json", "{\"success\":true}");
             return;
@@ -3065,10 +3069,13 @@ void setup() {
     addLiveLog("🔁 Last reset reason: " + resetReasonString());
     initWatchdog();
     
-    if (!SPIFFS.begin(true)) {
-    addLiveLog("❌ SPIFFS initialization failed");
+    // begin(true) = auto-format on first mount. On the first boot after the
+    // SPIFFS->LittleFS migration this formats the data partition (one-time, a few
+    // seconds); the user DB is re-pushed automatically by sync-on-announce.
+    if (!LittleFS.begin(true)) {
+    addLiveLog("❌ LittleFS initialization failed");
 } else {
-    addLiveLog("✅ SPIFFS initialized");
+    addLiveLog("✅ LittleFS initialized");
 }
 
 // Check PSRAM
