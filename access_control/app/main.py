@@ -3014,10 +3014,17 @@ def heartbeat():
         
         if cursor.rowcount == 0:
             return jsonify({'success': False, 'message': 'Board not found'}), 404
-        
+
         conn.commit()
-        
-        return jsonify({'success': True})
+
+        # Serve the controller's LOCAL wall-clock time (as an epoch-style number)
+        # so boards align their clocks to the server on every heartbeat instead of
+        # relying on NTP (which has fed boards corrupted times in the field).
+        # Local-as-epoch keeps the boards timezone/DST-free: the controller's
+        # configured timezone (LOCAL_TZ) does all the work.
+        local_now = get_local_timestamp()
+        server_time_local = int(time.time() + local_now.utcoffset().total_seconds())
+        return jsonify({'success': True, 'server_time': server_time_local})
     except Exception as e:
         logger.error(f"❌ Error processing heartbeat: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
