@@ -2587,6 +2587,26 @@ def trigger_async_sync():
     threading.Thread(target=_worker, name='async-board-sync', daemon=True).start()
 
 
+def sync_board_after_announce(board_id, delay_seconds=8):
+    """A board announcing itself means it just (re)booted - its in-RAM schedules,
+    temp codes and emergency state are gone, and (after the LittleFS migration's
+    first boot) possibly its whole user DB. Push it a fresh full sync, after a
+    short delay so the board has finished its setup and is serving its web API."""
+    def _worker():
+        time.sleep(delay_seconds)
+        try:
+            result, _status = _sync_board_core(board_id)
+            if result and result.get('success'):
+                logger.info(f"🔄 Auto-sync after announce: board {board_id} refreshed")
+            else:
+                logger.warning(f"⚠️ Auto-sync after announce failed for board {board_id}: "
+                               f"{(result or {}).get('message')} (periodic resync will retry)")
+        except Exception as e:
+            logger.warning(f"⚠️ Auto-sync after announce error for board {board_id}: {e}")
+
+    threading.Thread(target=_worker, name='announce-sync', daemon=True).start()
+
+
 # How often to force a full re-sync of every online board, as a safety net so a
 # board that missed a change while briefly offline can never stay stale longer
 # than this. Configured via the add-on option `resync_interval_hours` (default 2h).
@@ -3051,6 +3071,11 @@ def board_announce():
                 logger.info(f"  🧹 Cleaned up stale pending entry for MAC: {mac_address}")
 
             conn.commit()
+
+            # Board just (re)booted - push it a fresh sync so schedules/temp codes
+            # (RAM-only on the board) and the user DB come back automatically.
+            sync_board_after_announce(existing_board['id'])
+
             return jsonify({
                 'success': True,
                 'message': 'Board already registered',
@@ -3078,6 +3103,10 @@ def board_announce():
 
             conn.commit()
             logger.info(f"  🔧 Legacy board '{legacy_board['name']}' updated with MAC: {mac_address}")
+
+            # Same as above: freshly booted board gets an automatic resync.
+            sync_board_after_announce(legacy_board['id'])
+
             return jsonify({
                 'success': True,
                 'message': f'Board MAC address recorded: {mac_address}',

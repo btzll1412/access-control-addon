@@ -9,7 +9,11 @@
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <SPIFFS.h>
+// LittleFS replaces SPIFFS: bounded, predictable write latency (SPIFFS garbage
+// collection could stall for tens of seconds mid-sync, freezing the board).
+// First boot after this change auto-formats the data partition; the user DB is
+// restored automatically by the controller's sync-on-announce.
+#include <LittleFS.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -18,8 +22,10 @@
 #include <esp_system.h>    // esp_reset_reason()
 
 // Watchdog: force a chip reset if the fed task stops making progress for this long.
-// Long enough to never false-trip on a normal (blocking) network call.
-#define WDT_TIMEOUT_SECONDS 30
+// 60s: long enough to ride out a worst-case SPIFFS garbage-collection stall during
+// a sync save (seen in the field as "Task watchdog" resets), short enough to still
+// auto-recover a genuine hang within a minute.
+#define WDT_TIMEOUT_SECONDS 60
 
 // ===============================================================
 // VERSION & PSRAM SUPPORT
@@ -255,6 +261,13 @@ unsigned long keypadLastKey = 0;
 int currentKeypadDoor = -1;
 
 unsigned long lastWiFiCheck = 0;
+
+// EMI guard: the instant a relay/door-lock switches, the inductive kickback
+// sprays noise edges onto the Wiegand lines (seen in the field as ~25-30
+// phantom bits on BOTH doors at the exact second a door re-locks). Anything
+// captured within this window of a relay change is discarded as noise.
+#define RELAY_EMI_SUPPRESS_MS 300
+unsigned long wiegandSuppressUntil = 0;
 int wifiReconnectAttempts = 0;
 bool apFallbackMode = false;  // True when broadcasting AP while trying to reconnect
 String apFallbackSSID = "";   // AP SSID for fallback mode
@@ -707,12 +720,12 @@ void saveConfig() {
 }
 
 bool loadUsersDB() {
-    if (!SPIFFS.exists("/users.json")) {
+    if (!LittleFS.exists("/users.json")) {
         addLiveLog("⚠️  No user database found");
         return false;
     }
     
-    File file = SPIFFS.open("/users.json", "r");
+    File file = LittleFS.open("/users.json", "r");
     if (!file) {
         addLiveLog("❌ Failed to open users database");
         return false;
@@ -735,15 +748,22 @@ bool loadUsersDB() {
 }
 
 bool saveUsersDB(const String& jsonData) {
-    File file = SPIFFS.open("/users.json", "w");
+    // LittleFS has bounded write latency (unlike SPIFFS, whose garbage collection
+    // caused multi-second stalls here). Keep the watchdog feeds anyway as cheap
+    // insurance around the flash write.
+    esp_task_wdt_reset();
+
+    File file = LittleFS.open("/users.json", "w");
     if (!file) {
         addLiveLog("❌ Failed to save users database");
         return false;
     }
-    
+
     file.print(jsonData);
     file.close();
-    
+
+    esp_task_wdt_reset();
+
     // Reload into memory
     return loadUsersDB();
 }
@@ -1652,6 +1672,7 @@ void unlockDoor(int doorNumber) {
     addLiveLog("🔓 Unlocking " + door.name + " for " + String(door.unlockDuration) + "ms");
     
     digitalWrite(door.relayPin, HIGH);
+    wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
     door.isUnlocked = true;
     door.unlockUntil = millis() + door.unlockDuration;
     
@@ -1677,6 +1698,7 @@ void checkDoorLocks() {
         
         if (doors[i].isUnlocked && now >= doors[i].unlockUntil) {
             digitalWrite(doors[i].relayPin, LOW);
+            wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
             doors[i].isUnlocked = false;
             addLiveLog("🔒 " + doors[i].name + " locked");
         }
@@ -1879,7 +1901,26 @@ void processWiegandData(int doorNumber, WiegandData& wiegand) {
 
 void checkWiegandData() {
     unsigned long now = millis();
-    
+
+    // ===============================================================
+    // RELAY EMI GUARD - discard edges captured around a relay/lock switch.
+    // The kickback burst shows up as ~25-30 phantom bits on both doors; a real
+    // swipe colliding with it would be corrupted anyway, so drop everything in
+    // the window. (Keypad presses are single 8-bit frames and simply re-send.)
+    // ===============================================================
+    if ((long)(now - wiegandSuppressUntil) < 0) {
+        for (int i = 0; i < 2; i++) {
+            if (doors[i].wiegand.bitCount > 0) {
+                addLiveLog("🔇 Discarded " + String(doors[i].wiegand.bitCount) +
+                           " noise bits on Door " + String(i + 1) + " (relay switching)");
+                doors[i].wiegand.value = 0;
+                doors[i].wiegand.bitCount = 0;
+                doors[i].wiegand.dataReady = false;
+            }
+        }
+        return;
+    }
+
     // ===============================================================
     // Check Wiegand data
     // ===============================================================
@@ -2359,15 +2400,21 @@ void setupWebInterface() {
     // API: Sync users database and door schedules
     server.on("/api/sync", HTTP_POST, []() {
         String jsonData = server.arg("plain");
-        
+
         addLiveLog("=== SYNC REQUEST RECEIVED ===");
         addLiveLog("Data length: " + String(jsonData.length()) + " bytes");
+
+        // A sync is a long, legitimate operation (large JSON parse + flash write).
+        // Feed the watchdog at each stage so it never mistakes this for a hang.
+        esp_task_wdt_reset();
 
         // ✅ Parse into a PSRAM-backed document large enough for the full payload.
         // The old 20KB regular-heap document silently failed (NoMemory) once the
         // roster grew past ~20KB, causing boards to keep stale data until reboot.
         BasicJsonDocument<PSRAMAllocator> syncDoc(262144);  // 256KB in PSRAM
         DeserializationError error = deserializeJson(syncDoc, jsonData);
+
+        esp_task_wdt_reset();
 
         if (error) {
             addLiveLog("❌ Failed to parse sync JSON: " + String(error.c_str()));
@@ -2636,13 +2683,33 @@ if (syncDoc.containsKey("user_schedules")) {
     addLiveLog("📅 User schedules loaded: " + String(userSchedulesDB.size()) + " users");
 }
 
+        // ✅ Skip the flash rewrite when the payload is IDENTICAL to what we already
+        // have saved. The controller now re-syncs frequently (on every change plus a
+        // periodic safety resync), and most of those carry unchanged data. Rewriting
+        // ~50KB to SPIFFS each time wears the flash and triggers the multi-second
+        // garbage-collection stalls that were freezing the board (task-WDT resets).
+        // The in-RAM schedule/temp-code/emergency state was already refreshed above.
+        static uint32_t lastSavedSyncHash = 0;
+        uint32_t syncHash = 2166136261u;  // FNV-1a over the raw payload
+        for (size_t i = 0; i < jsonData.length(); i++) {
+            syncHash ^= (uint8_t)jsonData[i];
+            syncHash *= 16777619u;
+        }
+
+        if (syncHash == lastSavedSyncHash && LittleFS.exists("/users.json")) {
+            addLiveLog("✅ Sync applied (payload unchanged - flash write skipped)");
+            server.send(200, "application/json", "{\"success\":true}");
+            return;
+        }
+
         if (saveUsersDB(jsonData)) {
+            lastSavedSyncHash = syncHash;
             addLiveLog("✅ Users database synced");
-            
+
             if (usersDB.containsKey("users")) {
                 addLiveLog("📝 " + String(usersDB["users"].size()) + " users loaded");
             }
-            
+
             server.send(200, "application/json", "{\"success\":true}");
         } else {
             addLiveLog("❌ Failed to save users database");
@@ -2983,6 +3050,12 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
+#if ARDUINO_USB_CDC_ON_BOOT
+    // With USB-CDC Serial and no PC attached (normal deployed state), writes can
+    // stall waiting for a host that never reads. Never block on logging.
+    Serial.setTxTimeoutMs(0);
+#endif
+
     // Create the live-log mutex before anything logs (networkTask, which shares
     // the buffer, is not started until the very end of setup()).
     liveLogMutex = xSemaphoreCreateMutex();
@@ -2996,10 +3069,13 @@ void setup() {
     addLiveLog("🔁 Last reset reason: " + resetReasonString());
     initWatchdog();
     
-    if (!SPIFFS.begin(true)) {
-    addLiveLog("❌ SPIFFS initialization failed");
+    // begin(true) = auto-format on first mount. On the first boot after the
+    // SPIFFS->LittleFS migration this formats the data partition (one-time, a few
+    // seconds); the user DB is re-pushed automatically by sync-on-announce.
+    if (!LittleFS.begin(true)) {
+    addLiveLog("❌ LittleFS initialization failed");
 } else {
-    addLiveLog("✅ SPIFFS initialized");
+    addLiveLog("✅ LittleFS initialized");
 }
 
 // Check PSRAM
