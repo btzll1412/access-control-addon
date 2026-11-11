@@ -30,7 +30,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.3.0"
+#define FIRMWARE_VERSION "3.3.1"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -129,9 +129,15 @@ struct WiegandData {
     volatile unsigned long value = 0;
     volatile int bitCount = 0;
     volatile bool dataReady = false;
+    volatile unsigned long lastEdgeUs = 0;  // glitch filter: time of last accepted edge
     int d0Pin;
     int d1Pin;
 };
+
+// Glitch filter: real Wiegand bits from this reader arrive ~1000us apart; an EMI
+// spike rides within ~150us of a real edge. Edges closer than this to the previous
+// accepted edge are rejected in the ISR (fixes "Bits=27" one-extra-bit misreads).
+#define WIEGAND_MIN_EDGE_GAP_US 150
 
 struct ValidationResult {
     bool granted;
@@ -268,6 +274,17 @@ unsigned long lastWiFiCheck = 0;
 // captured within this window of a relay change is discarded as noise.
 #define RELAY_EMI_SUPPRESS_MS 300
 unsigned long wiegandSuppressUntil = 0;
+unsigned long wiegandSuppressArmedAt = 0;  // when the guard was last armed (diagnostics/self-heal)
+
+// TIME-TRUST GUARD: the wall clock comes from NTP, and a bad NTP response has
+// been seen jumping the clock by weeks/years - which made the schedule engine
+// unlock a door at the wrong time. The clock is only "trusted" while it stays
+// consistent with the board's internal uptime counter and within a sane year
+// range. While untrusted, door schedules are suspended and every door behaves
+// as "controlled" (card required) - a wrong clock can never hold a door open.
+bool timeTrusted = false;
+time_t lastGoodEpoch = 0;
+unsigned long lastGoodEpochMillis = 0;
 int wifiReconnectAttempts = 0;
 bool apFallbackMode = false;  // True when broadcasting AP while trying to reconnect
 String apFallbackSSID = "";   // AP SSID for fallback mode
@@ -398,6 +415,9 @@ String getLiveLogsJSON() {
 
 void IRAM_ATTR door1_D0_ISR() {
     if (door1Wiegand) {
+        unsigned long nowUs = micros();
+        if (nowUs - door1Wiegand->lastEdgeUs < WIEGAND_MIN_EDGE_GAP_US) return;  // glitch
+        door1Wiegand->lastEdgeUs = nowUs;
         door1Wiegand->value <<= 1;
         door1Wiegand->bitCount++;
         door1Wiegand->lastBitTime = millis();
@@ -406,6 +426,9 @@ void IRAM_ATTR door1_D0_ISR() {
 
 void IRAM_ATTR door1_D1_ISR() {
     if (door1Wiegand) {
+        unsigned long nowUs = micros();
+        if (nowUs - door1Wiegand->lastEdgeUs < WIEGAND_MIN_EDGE_GAP_US) return;  // glitch
+        door1Wiegand->lastEdgeUs = nowUs;
         door1Wiegand->value = (door1Wiegand->value << 1) | 1;
         door1Wiegand->bitCount++;
         door1Wiegand->lastBitTime = millis();
@@ -414,6 +437,9 @@ void IRAM_ATTR door1_D1_ISR() {
 
 void IRAM_ATTR door2_D0_ISR() {
     if (door2Wiegand) {
+        unsigned long nowUs = micros();
+        if (nowUs - door2Wiegand->lastEdgeUs < WIEGAND_MIN_EDGE_GAP_US) return;  // glitch
+        door2Wiegand->lastEdgeUs = nowUs;
         door2Wiegand->value <<= 1;
         door2Wiegand->bitCount++;
         door2Wiegand->lastBitTime = millis();
@@ -422,6 +448,9 @@ void IRAM_ATTR door2_D0_ISR() {
 
 void IRAM_ATTR door2_D1_ISR() {
     if (door2Wiegand) {
+        unsigned long nowUs = micros();
+        if (nowUs - door2Wiegand->lastEdgeUs < WIEGAND_MIN_EDGE_GAP_US) return;  // glitch
+        door2Wiegand->lastEdgeUs = nowUs;
         door2Wiegand->value = (door2Wiegand->value << 1) | 1;
         door2Wiegand->bitCount++;
         door2Wiegand->lastBitTime = millis();
@@ -775,8 +804,14 @@ bool saveUsersDB(const String& jsonData) {
 // ===============================================================
 
 String checkDoorScheduleMode(int doorNumber) {
+    // Never apply time-based modes while the clock is untrusted (see time-trust
+    // guard) - a corrupted clock must not be able to unlock a door.
+    if (!timeTrusted) {
+        return "controlled";
+    }
+
     String doorKey = String(doorNumber);
-    
+
     if (!doorSchedulesDB.containsKey(doorKey)) {
         return "controlled";
     }
@@ -873,8 +908,62 @@ void updateDoorModesFromSchedule() {
     }
 }
 
+// ===============================================================
+// TIME-TRUST GUARD (see globals) - called from loop() every 10s.
+// Trust is earned by two consecutive checks where the wall clock advances in
+// agreement with the internal uptime counter and the year is sane. Any jump
+// bigger than 5 minutes versus uptime, or an absurd year, revokes trust,
+// suspends schedules (doors fall back to controlled) and forces an NTP re-sync.
+// ===============================================================
+void updateTimeTrust() {
+    struct tm ti;
+    if (!getLocalTime(&ti, 5)) {
+        // No valid time at all (e.g. before first NTP sync) - stay untrusted.
+        return;
+    }
 
+    time_t nowEpoch = time(nullptr);
+    int year = ti.tm_year + 1900;
 
+    // Sanity window: firmware built in 2026; anything far outside is garbage NTP.
+    if (year < 2025 || year > 2032) {
+        if (timeTrusted) {
+            addLiveLog("🚨 CLOCK INSANE (year " + String(year) + ") - schedules SUSPENDED, re-syncing NTP");
+            timeTrusted = false;
+            updateDoorModesFromSchedule();  // reverts any schedule-unlock immediately
+        }
+        lastGoodEpoch = 0;
+        configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+        return;
+    }
+
+    if (lastGoodEpoch != 0) {
+        long expected = (long)lastGoodEpoch + (long)((millis() - lastGoodEpochMillis) / 1000UL);
+        long drift = (long)nowEpoch - expected;
+
+        if (drift > 300 || drift < -300) {
+            // Clock jumped versus our own uptime counter - NTP fed us garbage.
+            addLiveLog("🚨 CLOCK JUMPED " + String(drift) + "s - schedules SUSPENDED, re-syncing NTP");
+            if (timeTrusted) {
+                timeTrusted = false;
+                updateDoorModesFromSchedule();  // reverts any schedule-unlock immediately
+            }
+            lastGoodEpoch = nowEpoch;           // re-anchor; must prove stable again
+            lastGoodEpochMillis = millis();
+            configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+            return;
+        }
+
+        if (!timeTrusted) {
+            timeTrusted = true;
+            addLiveLog("✅ Clock verified stable - schedules ACTIVE");
+            updateDoorModesFromSchedule();
+        }
+    }
+
+    lastGoodEpoch = nowEpoch;
+    lastGoodEpochMillis = millis();
+}
 
 // ===============================================================
 // USER SCHEDULE VALIDATION
@@ -1675,6 +1764,8 @@ void unlockDoor(int doorNumber) {
     
     digitalWrite(door.relayPin, HIGH);
     wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
+    wiegandSuppressArmedAt = millis();
+    addLiveLog("🔕 EMI guard armed (unlock relay, Door " + String(doorNumber) + ")");
     door.isUnlocked = true;
     door.unlockUntil = millis() + door.unlockDuration;
     
@@ -1701,8 +1792,9 @@ void checkDoorLocks() {
         if (doors[i].isUnlocked && now >= doors[i].unlockUntil) {
             digitalWrite(doors[i].relayPin, LOW);
             wiegandSuppressUntil = millis() + RELAY_EMI_SUPPRESS_MS;  // relay EMI guard
+            wiegandSuppressArmedAt = millis();
             doors[i].isUnlocked = false;
-            addLiveLog("🔒 " + doors[i].name + " locked");
+            addLiveLog("🔒 " + doors[i].name + " locked (EMI guard armed)");
         }
     }
 }
@@ -1908,19 +2000,39 @@ void checkWiegandData() {
     // RELAY EMI GUARD - discard edges captured around a relay/lock switch.
     // The kickback burst shows up as ~25-30 phantom bits on both doors; a real
     // swipe colliding with it would be corrupted anyway, so drop everything in
-    // the window. (Keypad presses are single 8-bit frames and simply re-send.)
+    // the window. Discards are accumulated and reported as ONE line per door
+    // when the window closes (instead of one line per loop iteration).
     // ===============================================================
+    static int suppressedBits[2] = {0, 0};
+
     if ((long)(now - wiegandSuppressUntil) < 0) {
+        // Self-heal: a legitimate window can only outlive its arming by
+        // RELAY_EMI_SUPPRESS_MS. If we are somehow still discarding 1s after the
+        // last arming, the guard state is corrupt - clear it and say so, rather
+        // than silently eating real swipes.
+        if (now - wiegandSuppressArmedAt > 1000) {
+            addLiveLog("⚠️ EMI guard stuck (" + String(now - wiegandSuppressArmedAt) +
+                       "ms after arming) - force-cleared");
+            wiegandSuppressUntil = 0;
+        }
         for (int i = 0; i < 2; i++) {
             if (doors[i].wiegand.bitCount > 0) {
-                addLiveLog("🔇 Discarded " + String(doors[i].wiegand.bitCount) +
-                           " noise bits on Door " + String(i + 1) + " (relay switching)");
+                suppressedBits[i] += doors[i].wiegand.bitCount;
                 doors[i].wiegand.value = 0;
                 doors[i].wiegand.bitCount = 0;
                 doors[i].wiegand.dataReady = false;
             }
         }
         return;
+    }
+
+    // Window closed - report anything that was discarded, one line per door.
+    for (int i = 0; i < 2; i++) {
+        if (suppressedBits[i] > 0) {
+            addLiveLog("🔇 Discarded " + String(suppressedBits[i]) +
+                       " noise bits on Door " + String(i + 1) + " (relay window)");
+            suppressedBits[i] = 0;
+        }
     }
 
     // ===============================================================
@@ -3359,6 +3471,13 @@ void loop() {
     if (now - lastEmergencyCheck >= 1000) {
         lastEmergencyCheck = now;
         checkEmergencyAutoReset();
+    }
+
+    // Time-trust guard: verify the wall clock against uptime every 10s.
+    static unsigned long lastTimeTrustCheck = 0;
+    if (now - lastTimeTrustCheck >= 10000) {
+        lastTimeTrustCheck = now;
+        updateTimeTrust();
     }
 
     if (now - lastScheduleCheck >= SCHEDULE_CHECK_INTERVAL) {
