@@ -20,6 +20,7 @@
 #include <esp_mac.h>  // For esp_read_mac() - reliable MAC address
 #include <esp_task_wdt.h>  // Hardware watchdog
 #include <esp_system.h>    // esp_reset_reason()
+#include <sys/time.h>      // settimeofday() - clock is set from the controller
 
 // Watchdog: force a chip reset if the fed task stops making progress for this long.
 // 60s: long enough to ride out a worst-case SPIFFS garbage-collection stall during
@@ -30,7 +31,7 @@
 // ===============================================================
 // VERSION & PSRAM SUPPORT
 // ===============================================================
-#define FIRMWARE_VERSION "3.3.1"
+#define FIRMWARE_VERSION "3.3.2"
 
 // PSRAM Allocator for large JSON documents
 struct PSRAMAllocator {
@@ -933,7 +934,7 @@ void updateTimeTrust() {
             updateDoorModesFromSchedule();  // reverts any schedule-unlock immediately
         }
         lastGoodEpoch = 0;
-        configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+        // Next controller heartbeat (<=60s) re-aligns the clock.
         return;
     }
 
@@ -950,7 +951,7 @@ void updateTimeTrust() {
             }
             lastGoodEpoch = nowEpoch;           // re-anchor; must prove stable again
             lastGoodEpochMillis = millis();
-            configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+            // Next controller heartbeat (<=60s) re-aligns the clock.
             return;
         }
 
@@ -1240,7 +1241,7 @@ bool connectWiFi() {
         config.macAddress = WiFi.macAddress();
         addLiveLog("🔖 MAC Address: " + config.macAddress);
 
-        configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
+        // Clock is set from the controller's heartbeat response (not NTP).
 
         return true;
     }
@@ -1305,16 +1306,43 @@ bool sendHeartbeat() {
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(2000);  // 2 second timeout (reduced for non-blocking)
-    
+
     int httpCode = http.POST(payload);
+    String responseBody = (httpCode == 200) ? http.getString() : "";
     http.end();
-    
+
     bool online = (httpCode == 200);
     if (online != controllerOnline) {
         controllerOnline = online;
         addLiveLog(online ? "✅ Controller ONLINE" : "⚠️  Controller OFFLINE");
     }
-    
+
+    // ===============================================================
+    // CONTROLLER TIME SYNC - the controller's heartbeat response carries its
+    // local wall-clock ("server_time"). The controller is the time authority:
+    // this replaces NTP entirely (NTP fed this board corrupted times twice).
+    // The value is local-time-as-epoch, so the board runs with zero TZ offset
+    // and the controller's timezone/DST config does all the work. Corrected on
+    // every heartbeat (60s), so max drift between board and server is seconds.
+    // ===============================================================
+    if (online && responseBody.length() > 0) {
+        DynamicJsonDocument resp(256);
+        if (deserializeJson(resp, responseBody) == DeserializationError::Ok &&
+            resp.containsKey("server_time")) {
+            time_t serverTime = (time_t)resp["server_time"].as<long long>();
+            time_t localNow = time(nullptr);
+            long drift = (long)(localNow - serverTime);
+
+            if (drift > 3 || drift < -3) {
+                struct timeval tv;
+                tv.tv_sec = serverTime;
+                tv.tv_usec = 0;
+                settimeofday(&tv, nullptr);
+                addLiveLog("🕐 Clock aligned to controller (was off by " + String(drift) + "s)");
+            }
+        }
+    }
+
     return online;
 }
 
@@ -3384,29 +3412,10 @@ void networkTask(void* param) {
                         stopAPFallbackMode();
                     }
 
-                    configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-                    addLiveLog("🕐 NTP time sync initiated");
-
+                    // Clock re-aligns from the controller on the next heartbeat.
                     if (config.controllerIP.length() > 0) {
                         announceToController();
-                    }
-                }
-
-                static unsigned long lastNtpCheck = 0;
-                static bool ntpSynced = false;
-                if (now - lastNtpCheck >= 300000) {  // 5 minutes
-                    lastNtpCheck = now;
-                    struct tm timeinfo;
-                    if (getLocalTime(&timeinfo, 100)) {
-                        if (!ntpSynced) {
-                            addLiveLog("🕐 NTP synced: " + String(timeinfo.tm_hour) + ":" +
-                                       String(timeinfo.tm_min < 10 ? "0" : "") + String(timeinfo.tm_min));
-                            ntpSynced = true;
-                        }
-                    } else {
-                        addLiveLog("⚠️ NTP not synced - retrying...");
-                        configTime(-5 * 3600, 3600, "pool.ntp.org", "time.nist.gov");
-                        ntpSynced = false;
+                        sendHeartbeat();  // also brings the clock back in sync immediately
                     }
                 }
             }
